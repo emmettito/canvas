@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas Demo</title>
+    <link rel="stylesheet" type="text/css" href="/canvas.css">
+</head>
+
+<body>
+    <noscript>
+        And I oop... your browser does not support JavaScript...
+        <style>
+            #app {
+                display: none;
+            }
+        </style>
+    </noscript>
+
+    <div id="app">
+        <div id="canvas-wrapper">
+            <!-- The interface layer is used for compatibility when tracking a mouse pointer -->
+            <div id="canvas-interface-layer"></div>
+            <canvas id="canvas"></canvas>
+            <div id="cursor"></div>
+        </div>
+
+        <div id="canvas-controls">
+
+            <!-- <div class="canvas-slider-wrapper">
+                <input type="range" min="1" max="100" value="50" class="slider" id="canvas-pen-slider">
+            </div> -->
+            <!-- <button onclick="resetCanvas();">Reset Drawing</button> -->
+            <button onclick="undoDraw();">Undo</button>
+            <button onclick="redoDraw();">Redo</button>
+
+            <button id="canvas-pen-button" onclick="selectTool(tools.PEN);">Pen</button>
+            <button id="canvas-eraser-button" onclick="selectTool(tools.ERASER);">Eraser</button>
+
+            <!-- <button onclick="changeToolSize(-5);">-</button> -->
+            <!-- <button onclick="changeToolSize(5);">+</button> -->
+            <!-- <button id="canvas-export-button" onclick="exportCanvas();">Export</button> -->
+
+
+            <div id="canvas-color-button" onclick="toggleColorSwatch();"></div>
+        </div>
+    </div>
+
+    <script src="/canvas.js"></script>
+</body>
+
+</html>
