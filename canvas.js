@@ -345,7 +345,7 @@ const selectColor = color => {
     document.getElementsByClassName("color-option")[prevColorIndex].innerHTML = "";
     document.getElementsByClassName("color-option")[colorIndex].innerHTML = "<span style=\"border: 3px solid " + indicatorColor + ";\"></span>";
 
-    selectTool("pen");
+    selectTool("pen", true);
     // hideColorSwatch(e);
 }
 
@@ -360,12 +360,12 @@ const changeToolSize = size => {
     changeCursorSize();
 }
 
-const selectTool = tool => {
-    if (this.tool.key == tool) {
+const selectTool = (tool, hide) => {
+    if (this.tool.key == tool && !hide) {
         const id = "canvas-" + tool + "-slider";
         togglePopover(id);
     } else {
-        // hideAllPopovers();
+        hideAllPopovers();
         enableTool(tool);
     }
 }
