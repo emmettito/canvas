@@ -27,23 +27,10 @@
         </div>
 
         <div id="canvas-controls">
-
-            <!-- <div class="canvas-slider-wrapper">
-                <input type="range" min="1" max="100" value="50" class="slider" id="canvas-pen-slider">
-            </div> -->
-            <!-- <button onclick="resetCanvas();">Reset Drawing</button> -->
-            <button onclick="undoDraw();">Undo</button>
-            <button onclick="redoDraw();">Redo</button>
-
-            <button id="canvas-pen-button" onclick="selectTool(tools.PEN);">Pen</button>
-            <button id="canvas-eraser-button" onclick="selectTool(tools.ERASER);">Eraser</button>
-
-            <!-- <button onclick="changeToolSize(-5);">-</button> -->
-            <!-- <button onclick="changeToolSize(5);">+</button> -->
+            <!-- <button id="canvas-reset-button" onclick="resetCanvas();">Reset</button> -->
             <!-- <button id="canvas-export-button" onclick="exportCanvas();">Export</button> -->
-
-
-            <div id="canvas-color-button" onclick="toggleColorSwatch();"></div>
+            <button id="canvas-undo-button" onclick="undoDraw();">Undo</button>
+            <button id="canvas-redo-button" onclick="redoDraw();">Redo</button>
         </div>
     </div>
 

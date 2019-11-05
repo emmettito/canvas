@@ -1,92 +1,39 @@
+"use strict";
 const cursor = document.getElementById("cursor");
 
 const canvas = document.getElementById("canvas");
-const canvasWrapper = document.getElementById("canvas-wrapper");
 const ctx = canvas.getContext("2d");
 
-const colorButton = document.getElementById("canvas-color-button");
-
+const canvasWrapper = document.getElementById("canvas-wrapper");
 const canvasControls = document.getElementById("canvas-controls");
 
 const minToolSize = 5;
 const maxToolSize = 50;
 const defaultToolSize = 15;
 
+var tool = {
+    key: null,
+    name: null,
+    size: defaultToolSize,
+    down: false,
+    x: -1,
+    y: -1,
+    lastX: -1,
+    lastY: -1
+}
+
 const tools = {
-    "PEN": "Pen",
-    "ERASER": "Eraser"
+    "pen": {
+        name: "Pen",
+        size: defaultToolSize
+    },
+    "eraser": {
+        name: "Eraser",
+        size: defaultToolSize
+    }
 };
 
-const toolSizes = {};
 const popovers = {};
-
-
-
-
-const createPopover = (id, parent) => {
-    // wrapper
-    const popover = document.createElement("div");
-    popover.id = id + "-wrapper";
-    popover.classList.add("popover");
-
-    // content
-    const popoverContent = document.createElement("div");
-    popoverContent.id = id;
-    popoverContent.classList.add("popover-content");
-
-    // arrow
-    const popoverArrow = document.createElement("div");
-    popoverArrow.id = id + "-arrow";
-    popoverArrow.classList.add("popover-arrow");
-
-    popover.appendChild(popoverContent);
-    popover.appendChild(popoverArrow);
-
-    // adds popover to list of popovers
-    popovers[id] = {
-        toggle: false,
-        element: popover
-    };
-
-    // adds popover to parent
-    parent.appendChild(popover);
-    
-    // returns popover in case it is needed
-    return popover;
-}
-
-// 
-// /* TODO Please fix this
-for (i in tools) {
-    // set default tool size
-
-    const tool = tools[i];
-    toolSizes[tool] = defaultToolSize;
-
-    // create tool size slider
-
-    const name = tool.toLowerCase();
-    const id = "canvas-" + name + "-slider";
-
-    createPopover(id, canvasControls);
-
-    const slider = document.createElement("input");
-    slider.type = "range";
-    slider.min = minToolSize;
-    slider.max = maxToolSize;
-    slider.value = defaultToolSize;
-    slider.className = "slider";
-
-    document.getElementById(id).appendChild(slider);
-}
-// */
-
-var tool = tools.PEN; // default tool
-let toolDown = false;
-
-let toolX, toolY;
-let lastToolX = -1;
-let lastToolY = -1;
 
 let cursorSize;
 let isTouch = false;
@@ -109,16 +56,12 @@ const colors = [
     "#7CD460"
 ];
 
-
 let colorIndex = 0; // default color
-let colorSwatchToggle = false;
 let backgroundColor = "white"; // default background color
 
 let drawing = [];
 let drawBuffer = [];
 let redoBuffer = [];
-
-
 
 class Line {
     constructor(lastX, lastY, x, y, size, color) {
@@ -179,7 +122,7 @@ const drawCanvas = () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     for (let i = drawing.length - 1; i >= 0; i--) {
-        for (j in drawing[i]) {
+        for (let j in drawing[i]) {
             drawing[i][j].draw();
         }
     }
@@ -210,14 +153,79 @@ const exportCanvas = () => {
     parent.removeChild(link);
 }
 
+const createPopover = (id, parent, button) => {
+    // wrapper
+    const wrapper = document.createElement("div");
+    wrapper.id = id + "-wrapper";
+    wrapper.classList.add("popover");
+
+    // content
+    const content = document.createElement("div");
+    content.id = id;
+    content.classList.add("popover-content");
+
+    // arrow
+    const arrow = document.createElement("div");
+    arrow.id = id + "-arrow";
+    arrow.classList.add("popover-arrow");
+
+    wrapper.appendChild(content);
+    wrapper.appendChild(arrow);
+
+    // adds popover to list of popovers
+    popovers[id] = {
+        toggle: false,
+        // width: "100%",
+        button: button,
+        element: wrapper
+    };
+
+    // adds popover to parent
+    parent.appendChild(wrapper);
+}
+
 const createControls = () => {
-    createPopover("canvas-color-swatch", canvasControls);
+    for (let tool in tools) {
+        // create tool button
+        const button = document.createElement("button");
+        button.id = "canvas-" + tool + "-button";
+        button.onclick = (tool => { return () => { selectTool(tool) } })(tool);
+        button.innerHTML = tools[tool].name;
+
+        canvasControls.appendChild(button);
+
+        // create tool size slider
+        const id = "canvas-" + tool + "-slider";
+        createPopover(id, canvasControls, button);
+
+        const slider = document.createElement("input");
+        slider.type = "range";
+        slider.min = minToolSize;
+        slider.max = maxToolSize;
+        slider.value = defaultToolSize;
+        slider.className = "slider";
+        slider.oninput = function () {
+            changeToolSize(this.value);
+        }
+
+        document.getElementById(id).appendChild(slider);
+    }
+
+    // create main color swatch button
+
+    const colorButton = document.createElement("span");
+    colorButton.id = "canvas-color-button";
+    colorButton.onclick = () => { return togglePopover("canvas-color-swatch"); };
+
+    canvasControls.appendChild(colorButton);
+
+    createPopover("canvas-color-swatch", canvasControls, colorButton);
 
     const colorSwatch = document.getElementById("canvas-color-swatch");
 
-    // create color swatch buttons
+    // create color swatch colors
 
-    for (i in colors) {
+    for (let i in colors) {
         const colorOption = document.createElement("span");
         colorOption.className = "color-option";
         colorOption.id = "color-option-" + i;
@@ -240,32 +248,50 @@ const createControls = () => {
             selectColor(colorIndex, e);
         });
     });
-
-
 }
 
-const resizeColorSwatch = () => {
-    // update color swatch size
-    const colorSwatchWrapper = document.getElementById("canvas-color-swatch-wrapper");
-    colorSwatchWrapper.style.width = "100%";
-    const colorSwatch = document.getElementById("canvas-color-swatch");
-    const swatchWidth = colorSwatch.offsetWidth;
-    colorSwatchWrapper.style.width = swatchWidth + 10 + "px"; // 10 for the padding * 2
+const resizePopover = id => {
+    // todo this code gets weird when the focus button is near the edges of the screen
+    const popover = popovers[id];
+    const button = popover.button;
 
-    // update color swatch positioning
-    colorSwatchWrapper.style.top = -colorSwatchWrapper.offsetHeight - 10 + "px"; // 10 for the size of arrow
+    const wrapper = document.getElementById(id + "-wrapper");
+    const content = document.getElementById(id);
+    const arrow = document.getElementById(id + "-arrow");
 
-    const swatchXPos = colorSwatchWrapper.getBoundingClientRect().left;
-    const colorButtonXPos = colorButton.getBoundingClientRect().left;
+    // reset positions before calculating
+    wrapper.style.top = "0px";
+    wrapper.style.width = "100%";
+    arrow.style.left = "0px";
+    arrow.style.bottom = "-10px;"
 
-    const colorSwatchArrow = document.getElementById("canvas-color-swatch-arrow");
-    colorSwatchArrow.style.left = colorButtonXPos - swatchXPos + 5 + "px";
+    // make the wrapper shrink to the content width
+    const contentWidth = content.offsetWidth;
+    wrapper.style.width = contentWidth + 20 + "px"; // 30 for the width padding * 2
+
+    // make the wrapper hover above the given button
+    const buttonWidth = button.offsetWidth;
+    const buttonXPos = button.getBoundingClientRect().left;
+    const buttonYPos = button.getBoundingClientRect().top;
+
+    const arrowXPos = arrow.getBoundingClientRect().left;
+    const arrowYPos = arrow.getBoundingClientRect().bottom;
+
+    const xdiff = Math.abs(arrowXPos - buttonXPos) + (buttonWidth / 2);
+    const ydiff = buttonYPos - arrowYPos;
+
+    arrow.style.left = (xdiff - 10) + "px"; // -10 for the arrow width
+    wrapper.style.top = (ydiff) + "px"
+}
+
+const resizePopovers = () => {
+    for (let id in popovers) {
+        resizePopover(id);
+    }
 }
 
 const resizeCanvas = () => {
-
-    resizeColorSwatch();
-
+    resizePopovers();
     // set default cursor size
     changeCursorSize();
 
@@ -301,7 +327,7 @@ const redoDraw = () => {
     }
 }
 
-const selectColor = (color, e) => {
+const selectColor = color => {
     const prevColorIndex = colorIndex;
     colorIndex = color;
 
@@ -312,74 +338,77 @@ const selectColor = (color, e) => {
         indicatorColor = "#CCC";
     }
 
+    const colorButton = document.getElementById("canvas-color-button");
     colorButton.style.background = colors[colorIndex];
     colorButton.innerHTML = "<span style=\"border: 2px solid " + indicatorColor + ";\"></span>";
 
     document.getElementsByClassName("color-option")[prevColorIndex].innerHTML = "";
     document.getElementsByClassName("color-option")[colorIndex].innerHTML = "<span style=\"border: 3px solid " + indicatorColor + ";\"></span>";
 
-    selectTool(tools.PEN);
+    selectTool("pen");
     // hideColorSwatch(e);
 }
 
 const changeCursorSize = () => {
-    cursorSize = toolSizes[tool] * 2;
+    cursorSize = tool.size * 2;
 }
 
-const changeToolSize = (size) => {
-    let toolSize = toolSizes[tool];
-    toolSize = Math.max(5, toolSize + size);
-    toolSizes[tool] = toolSize;
+const changeToolSize = size => {
+    // console.log(size)
+    tool.size = size;
+    tools[tool.key].size = tool.size;
     changeCursorSize();
 }
 
-const selectTool = (tool) => {
-    if (this.tool == tool) {
-        // todo toggle size popover
-
+const selectTool = tool => {
+    if (this.tool.key == tool) {
+        const id = "canvas-" + tool + "-slider";
+        togglePopover(id);
     } else {
+        // hideAllPopovers();
         enableTool(tool);
     }
 }
 
-const enableTool = (tool) => {
-    this.tool = tool;
+const enableTool = tool => {
+    this.tool.key = tool;
+    this.tool.name = tools[tool].name;
+    this.tool.size = tools[tool].size;
     changeCursorSize();
 }
 
-const hideMenus = () => {
-    hideColorSwatch();
-}
-
-const togglePopover = popover => {
-
-}
-
-const toggleColorSwatch = () => {
-    colorSwatchToggle = !colorSwatchToggle;
-
-    if (colorSwatchToggle) {
-        showColorSwatch();
-    } else {
-        hideColorSwatch();
+const hideAllPopovers = () => {
+    for (let id in popovers) {
+        hidePopover(id);
     }
 }
 
-const hideColorSwatch = (e) => {
-    const colorSwatchWrapper = document.getElementById("canvas-color-swatch-wrapper");
-    colorSwatchToggle = false;
-    colorSwatchWrapper.style.visibility = "hidden";
+const showPopover = id => {
+    hideAllPopovers();
 
-    // if (e && !e.touches) {
-    //     console.log("here")
-    //     getToolPos(e);
-    // }
+    const popover = popovers[id];
+    popover.toggle = true;
+
+    const wrapper = document.getElementById(id + "-wrapper");
+    wrapper.style.visibility = "visible";
 }
 
-const showColorSwatch = (e) => {
-    const colorSwatchWrapper = document.getElementById("canvas-color-swatch-wrapper");
-    colorSwatchToggle = true;
-    colorSwatchWrapper.style.visibility = "visible";
+const hidePopover = id => {
+    const popover = popovers[id];
+    popover.toggle = false;
+
+    const wrapper = document.getElementById(id + "-wrapper");
+    wrapper.style.visibility = "hidden";
+}
+
+const togglePopover = id => {
+    const popover = popovers[id];
+
+    if (!popover.toggle) {
+        showPopover(id);
+    } else {
+        hidePopover(id);
+    }
 }
 
 // canvas data functions
@@ -387,22 +416,22 @@ const showColorSwatch = (e) => {
 const savePoint = () => {
     let drawColor = null;
 
-    if (tool == tools.PEN) {
+    if (tool.name !== "Eraser") {
         drawColor = colors[colorIndex];
     }
 
-    if (lastToolX == -1 || lastToolY == -1) {
-        const circle = new Circle(toolX, toolY, toolSizes[tool], drawColor);
+    if (tool.lastX == -1 || tool.lastY == -1) {
+        const circle = new Circle(tool.x, tool.y, tool.size, drawColor);
         circle.draw();
         drawBuffer.push(circle)
     } else {
-        const line = new Line(lastToolX, lastToolY, toolX, toolY, toolSizes[tool] * 2, drawColor);
+        const line = new Line(tool.lastX, tool.lastY, tool.x, tool.y, tool.size * 2, drawColor);
         line.draw();
         drawBuffer.push(line);
     }
 
-    lastToolX = toolX;
-    lastToolY = toolY;
+    tool.lastX = tool.x;
+    tool.lastY = tool.y;
 }
 
 const saveBuffer = () => {
@@ -413,45 +442,45 @@ const saveBuffer = () => {
     }
 }
 
-// canvas event functions
+// canvas event handlers
 
-const canvasDrawStart = (e) => {
+const canvasDrawStart = e => {
     e.preventDefault();
-    toolDown = true;
-    hideMenus();
+    tool.down = true;
+    hideAllPopovers();
     getToolPos(e);
     savePoint();
 }
 
-const canvasDrawEnd = (e) => {
+const canvasDrawEnd = e => {
     e.preventDefault();
     getToolPos(e);
 
-    if (!toolDown) {
+    if (!tool.down) {
         saveBuffer();
     }
 
-    lastToolX = -1;
-    lastToolY = -1;
+    tool.lastX = -1;
+    tool.lastY = -1;
 }
 
-const canvasDrawMove = (e) => {
+const canvasDrawMove = e => {
     getToolPos(e);
 
-    if (toolDown) {
+    if (tool.down) {
         savePoint();
     }
 }
 
-const getToolPos = (e) => {
+const getToolPos = e => {
     if (e.touches) {
         // get touch position
         if (e.touches.length == 1) {
             // only deal with one finger
             const touch = e.touches[0];
 
-            toolX = touch.pageX - touch.target.offsetParent.offsetLeft;
-            toolY = touch.pageY - touch.target.offsetParent.offsetTop;
+            tool.x = touch.pageX - touch.target.offsetParent.offsetLeft;
+            tool.y = touch.pageY - touch.target.offsetParent.offsetTop;
 
             cursor.style = "visibility: hidden;";
         }
@@ -459,33 +488,33 @@ const getToolPos = (e) => {
         // else get mouse position
         const offset = canvasWrapper.getBoundingClientRect();
 
-        toolX = e.clientX - offset.left;
-        toolY = e.clientY - offset.top;
+        tool.x = e.clientX - offset.left;
+        tool.y = e.clientY - offset.top;
 
-        if (isNaN(toolX) || isNaN(toolY)) {
+        if (isNaN(tool.x) || isNaN(tool.y)) {
             return;
         }
 
-        const mouseX = toolX;
-        const mouseY = toolY;
+        const mouseX = tool.x;
+        const mouseY = tool.y;
 
         // update cursor position
         cursor.style = "visibility: visible; left: " + mouseX + "px; top: " + mouseY + "px; width: " + cursorSize + "px; height: " + cursorSize + "px;";
     }
 }
 
-const canvasMouseUp = (e) => {
-    toolDown = false;
+const canvasMouseUp = e => {
+    tool.down = false;
     canvasDrawEnd(e);
 }
 
-const canvasMouseOut = (e) => {
+const canvasMouseOut = e => {
     canvasDrawEnd(e);
     cursor.style = "visibility: hidden;";
 }
 
-const canvasTouchEnd = (e) => {
-    toolDown = false;
+const canvasTouchEnd = e => {
+    tool.down = false;
     canvasDrawEnd(e);
 }
 
@@ -508,11 +537,11 @@ canvasWrapper.addEventListener("touchmove", canvasDrawMove, {
 canvasWrapper.addEventListener("touchcancel", canvasDrawEnd, false);
 
 // window event listeners
-window.addEventListener("mousedown", () => { toolDown = true; }, false);
-window.addEventListener("mouseup", () => { toolDown = false; }, false);
+
+window.addEventListener("mousedown", () => { tool.down = true; }, false);
+window.addEventListener("mouseup", () => { tool.down = false; }, false);
 
 window.onload = () => {
-    loaded = true;
     createControls();
     resizeCanvas();
     drawCanvas();
@@ -524,6 +553,8 @@ window.onresize = () => {
     resizeCanvas();
     drawCanvas();
 }
+
+// canvas listeners
 
 canvas.oncontextmenu = (e) => {
     e.preventDefault();
