@@ -11,8 +11,8 @@ const minToolSize = 5;
 const maxToolSize = 50;
 const defaultToolSize = 15;
 
-var tool = {
-    key: null,
+const tool = {
+    type: null,
     name: null,
     size: defaultToolSize,
     down: false,
@@ -354,26 +354,25 @@ const changeCursorSize = () => {
 }
 
 const changeToolSize = size => {
-    // console.log(size)
     tool.size = size;
-    tools[tool.key].size = tool.size;
+    tools[tool.type].size = tool.size;
     changeCursorSize();
 }
 
-const selectTool = (tool, hide) => {
-    if (this.tool.key == tool && !hide) {
-        const id = "canvas-" + tool + "-slider";
+const selectTool = (type, hide) => {
+    if (tool.type == type && !hide) {
+        const id = "canvas-" + type + "-slider";
         togglePopover(id);
     } else {
         hideAllPopovers();
-        enableTool(tool);
+        enableTool(type);
     }
 }
 
-const enableTool = tool => {
-    this.tool.key = tool;
-    this.tool.name = tools[tool].name;
-    this.tool.size = tools[tool].size;
+const enableTool = type => {
+    tool.type = type;
+    tool.name = tools[type].name;
+    tool.size = tools[type].size;
     changeCursorSize();
 }
 
@@ -558,6 +557,6 @@ window.onresize = () => {
 
 canvas.oncontextmenu = (e) => {
     e.preventDefault();
-};
+}
 
 console.log("CANVAS LOADED");
