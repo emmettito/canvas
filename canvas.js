@@ -185,12 +185,26 @@ const createPopover = (id, parent, button) => {
 }
 
 const createControls = () => {
+    // background-image: url("paper.gif");
+    const undoButton = document.createElement("button");
+    undoButton.id = "canvas-undo-button";
+    undoButton.style.backgroundImage = "url(/images/undo.svg)";
+    undoButton.onclick = () => { undoDraw(); };
+
+    const redoButton = document.createElement("button");
+    redoButton.id = "canvas-redo-button";
+    redoButton.style.backgroundImage = "url(/images/redo.svg)";
+    redoButton.onclick = () => { redoDraw(); };
+
+    canvasControls.appendChild(undoButton);
+    canvasControls.appendChild(redoButton);
+
     for (let tool in tools) {
         // create tool button
         const button = document.createElement("button");
+        button.className = "canvas-tool-button"
         button.id = "canvas-" + tool + "-button";
         button.onclick = (tool => { return () => { selectTool(tool) } })(tool);
-        button.innerHTML = tools[tool].name;
 
         canvasControls.appendChild(button);
 
@@ -213,7 +227,7 @@ const createControls = () => {
 
     // create main color swatch button
 
-    const colorButton = document.createElement("span");
+    const colorButton = document.createElement("button");
     colorButton.id = "canvas-color-button";
     colorButton.onclick = () => { return togglePopover("canvas-color-swatch"); };
 
