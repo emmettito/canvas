@@ -1,6 +1,6 @@
 # Canvas
 
-A simple art canvas using React. Built to be used in a browser game that may depend on artistic input.
+A simple art canvas using React.
 
 To-do list:
 
