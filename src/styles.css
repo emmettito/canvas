@@ -10,17 +10,26 @@
 @layer canvas {
   .canvas-root {
     --canvas-color-canvas: #ffffff;
-    --canvas-color-cursor: rgb(0 0 0 / 0.25);
-    --canvas-color-control: #d3d3d3;
-    --canvas-color-control-text: #333333;
-    --canvas-color-control-active-text: #ffffff;
-    --canvas-color-control-thumb: #ffffff;
-    --canvas-color-popover: rgb(0 0 0 / 0.85);
-    --canvas-color-ring: #ffffff;
-    /* Used in place of the ring color on light swatches. */
-    --canvas-color-ring-on-light: #cccccc;
+    --canvas-color-cursor: rgb(0 0 0 / 0.2);
+    /* The toolbar and its menus. */
+    --canvas-color-surface: #ffffff;
+    --canvas-color-border: #e4e4e7;
+    --canvas-color-text: #1f2023;
+    --canvas-color-text-muted: #6b6f76;
+    --canvas-color-hover: rgb(0 0 0 / 0.05);
+    --canvas-color-selected: rgb(0 0 0 / 0.08);
+    --canvas-color-accent: #6366f1;
+    --canvas-color-danger: #e5484d;
+    --canvas-color-tooltip: #1f2023;
+    --canvas-color-tooltip-text: #ffffff;
+    /* Outlines each color swatch, so ones like the toolbar's own show. */
+    --canvas-color-swatch-outline: rgb(0 0 0 / 0.15);
 
-    --canvas-shadow-control: 0 0 3px #cccccc;
+    /* Notes are always a light shade, so their text stays dark in every
+     * theme. */
+    --canvas-color-note-text: #1f2023;
+
+    --canvas-shadow: 0 4px 16px rgb(0 0 0 / 0.06), 0 1px 2px rgb(0 0 0 / 0.04);
 
     /* Drawing colors offered in the color swatch. */
     --canvas-color-black: #000000;

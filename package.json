@@ -15,6 +15,10 @@
       "types": "./dist/types/index.d.ts",
       "default": "./dist/canvas.js"
     },
+    "./prosemirror": {
+      "types": "./dist/types/prosemirror.d.ts",
+      "default": "./dist/prosemirror.js"
+    },
     "./styles.css": "./dist/canvas.css"
   },
   "publishConfig": {
@@ -24,6 +28,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build && tsc -p tsconfig.lib.json && node scripts/strip-css-imports.ts",
     "build:demo": "tsc -b && vite build --mode demo",
+    "icons": "node scripts/generate-icons.ts",
     "lint": "oxlint --deny-warnings",
     "typecheck": "tsc -b",
     "preview": "vite preview --outDir dist-demo",
@@ -35,13 +40,54 @@
     "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@phosphor-icons/core": "^2.1.1",
     "@playwright/test": "^1.64.1",
     "@types/node": "^24.19.2",
     "jsdom": "^30.1.3",
     "oxfmt": "^0.75.0",
     "oxlint": "^1.90.0",
+    "prosemirror-commands": "^1.7.2",
+    "prosemirror-history": "^1.5.1",
+    "prosemirror-keymap": "^1.2.3",
+    "prosemirror-model": "^1.25.12",
+    "prosemirror-state": "^1.4.4",
+    "prosemirror-view": "^1.42.6",
     "typescript": "~7.0.2",
     "vite": "^8.3.5",
     "vitest": "^5.0.5"
+  },
+  "peerDependencies": {
+    "prosemirror-commands": "^1.7.2",
+    "prosemirror-history": "^1.5.1",
+    "prosemirror-keymap": "^1.2.3",
+    "prosemirror-model": "^1.25.12",
+    "prosemirror-state": "^1.4.4",
+    "prosemirror-view": "^1.42.6"
+  },
+  "peerDependenciesMeta": {
+    "prosemirror-commands": {
+      "optional": true
+    },
+    "prosemirror-history": {
+      "optional": true
+    },
+    "prosemirror-keymap": {
+      "optional": true
+    },
+    "prosemirror-model": {
+      "optional": true
+    },
+    "prosemirror-state": {
+      "optional": true
+    },
+    "prosemirror-view": {
+      "optional": true
+    }
+  },
+  "allowScripts": {
+    "fsevents": false
+  },
+  "overrides": {
+    "prosemirror-transform": "1.12.2"
   }
 }

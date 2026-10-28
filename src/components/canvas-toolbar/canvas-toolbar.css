@@ -1,10 +1,29 @@
 .canvas-toolbar {
+  /* Tooltips are positioned against it. */
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 20px;
+  gap: 4px;
+  max-width: 100%;
+  padding: 4px;
+  border: 1px solid var(--canvas-color-border);
+  border-radius: 10px;
+  background: var(--canvas-color-surface);
+  box-shadow: var(--canvas-shadow);
   user-select: none;
+}
+
+.canvas-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+
+  & + & {
+    padding-left: 4px;
+    border-left: 1px solid var(--canvas-color-border);
+  }
 }
 
 /* Popovers are positioned against the item that holds their button. */
@@ -12,91 +31,486 @@
   position: relative;
 }
 
-.canvas-toolbar-button {
-  position: relative;
-  height: 30px;
-  min-width: 30px;
-  padding: 0 14px;
-  border-radius: 15px;
-  background-color: var(--canvas-color-control);
-  box-shadow: var(--canvas-shadow-control);
-  color: var(--canvas-color-control-text);
-  font-size: 13px;
-  cursor: pointer;
+/* Shared by every focusable control. */
+.canvas-toolbar-button,
+.canvas-menu-item,
+.canvas-history-open,
+.canvas-button,
+.canvas-color-option {
+  &:focus-visible {
+    outline: 2px solid var(--canvas-color-accent);
+    outline-offset: -2px;
+  }
+}
 
-  &[aria-pressed="true"] {
-    background-color: var(--canvas-color-control-text);
-    color: var(--canvas-color-control-active-text);
+.canvas-toolbar-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--canvas-color-text-muted);
+  cursor: pointer;
+  transition:
+    background-color 100ms,
+    color 100ms;
+
+  &:hover:not(:disabled) {
+    background-color: var(--canvas-color-hover);
+    color: var(--canvas-color-text);
+  }
+
+  &[aria-pressed="true"],
+  &[aria-expanded="true"] {
+    background-color: var(--canvas-color-selected);
+    color: var(--canvas-color-text);
   }
 
   &:disabled {
-    opacity: 0.4;
+    opacity: 0.35;
     cursor: default;
   }
 }
 
-.canvas-toolbar-icon-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  padding: 0;
+/* e.g. the File menu, which shows its name. */
+.canvas-toolbar-text-button {
+  width: auto;
+  min-width: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The host page's icon. It sets its own colors, e.g. `currentColor`. */
+.canvas-icon {
+  display: block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.canvas-color-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  /* Keeps white visible against the toolbar. */
+  box-shadow: inset 0 0 0 1px var(--canvas-color-swatch-outline);
 }
 
 .canvas-color-grid {
   display: grid;
-  grid-template-columns: repeat(5, 40px);
-  gap: 10px;
+  grid-template-columns: repeat(5, 24px);
+  /* Room for the selected swatch's tile. */
+  gap: 8px;
+  padding: 6px;
 }
 
 .canvas-color-option {
-  position: relative;
-  width: 40px;
-  height: 40px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--canvas-color-swatch-outline);
   cursor: pointer;
-}
 
-/* Border color is set inline to contrast with the color underneath. */
-.canvas-color-ring {
-  position: absolute;
-  inset: 3px;
-  border: 2px solid;
-  border-radius: 50%;
+  /*
+   * The selected one sits on the same tile as the toolbar's chosen tool,
+   * behind the swatch.
+   */
+  &[aria-pressed="true"] {
+    position: relative;
 
-  .canvas-color-option & {
-    border-width: 3px;
+    &::before {
+      content: "";
+      position: absolute;
+      inset: -4px;
+      z-index: -1;
+      border-radius: 6px;
+      background-color: var(--canvas-color-selected);
+    }
+  }
+
+  /* Around the tile, rather than over the swatch. */
+  &:focus-visible {
+    outline-offset: 4px;
   }
 }
 
 .canvas-tool-size-slider {
+  display: block;
   appearance: none;
-  width: 200px;
-  height: 10px;
-  margin: 5px;
-  border-radius: 5px;
-  background: var(--canvas-color-control);
+  width: 180px;
+  height: 4px;
+  margin: 12px 8px;
+  border-radius: 2px;
+  background: var(--canvas-color-border);
   outline: none;
   cursor: pointer;
 
   /* Separate rules: browsers drop a whole rule with a selector they don't recognize. */
   &::-webkit-slider-thumb {
     appearance: none;
-    width: 20px;
-    height: 20px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
-    background: var(--canvas-color-control-thumb);
-    box-shadow: var(--canvas-shadow-control);
+    background: var(--canvas-color-accent);
+    box-shadow: 0 0 0 3px var(--canvas-color-surface);
     cursor: grab;
   }
 
   &::-moz-range-thumb {
-    width: 20px;
-    height: 20px;
+    width: 14px;
+    height: 14px;
     border: none;
     border-radius: 50%;
-    background: var(--canvas-color-control-thumb);
-    box-shadow: var(--canvas-shadow-control);
+    background: var(--canvas-color-accent);
+    box-shadow: 0 0 0 3px var(--canvas-color-surface);
     cursor: grab;
   }
+
+  &:focus-visible::-webkit-slider-thumb {
+    box-shadow:
+      0 0 0 3px var(--canvas-color-surface),
+      0 0 0 5px var(--canvas-color-accent);
+  }
+
+  &:focus-visible::-moz-range-thumb {
+    box-shadow:
+      0 0 0 3px var(--canvas-color-surface),
+      0 0 0 5px var(--canvas-color-accent);
+  }
+}
+
+.canvas-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+}
+
+.canvas-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 5px;
+  color: var(--canvas-color-text);
+  text-align: left;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background-color: var(--canvas-color-hover);
+  }
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  /* A check mark, drawn as two sides of a box turned on its corner. */
+  &[aria-pressed="true"]::after {
+    content: "";
+    width: 9px;
+    height: 5px;
+    margin-bottom: 3px;
+    border-bottom: 1.5px solid var(--canvas-color-text-muted);
+    border-left: 1.5px solid var(--canvas-color-text-muted);
+    transform: rotate(-45deg);
+  }
+}
+
+/* A small dialog, e.g. for renaming or exporting. */
+.canvas-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 240px;
+  padding: 8px;
+}
+
+.canvas-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.canvas-field-legend {
+  /* Legends otherwise sit in the fieldset's border, which it doesn't have. */
+  float: left;
+  margin-bottom: 6px;
+  color: var(--canvas-color-text-muted);
+  font-size: 12px;
+}
+
+/* Radio buttons shown as a row of joined buttons, the chosen one raised. */
+.canvas-segmented {
+  display: flex;
+  clear: both;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background-color: var(--canvas-color-hover);
+}
+
+.canvas-segment {
+  position: relative;
+  flex: 1;
+
+  /* Invisible, covering the segment, so it's what a click lands on. */
+  input {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+
+    &:disabled {
+      cursor: default;
+    }
+  }
+}
+
+.canvas-segment-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  border-radius: 5px;
+  color: var(--canvas-color-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+
+  input:checked + & {
+    background-color: var(--canvas-color-surface);
+    box-shadow: 0 0 0 1px var(--canvas-color-border);
+    color: var(--canvas-color-text);
+  }
+
+  input:focus-visible + & {
+    outline: 2px solid var(--canvas-color-accent);
+    outline-offset: -2px;
+  }
+
+  input:disabled + & {
+    opacity: 0.35;
+  }
+
+  input:not(:checked, :disabled):hover + & {
+    color: var(--canvas-color-text);
+  }
+}
+
+.canvas-export-size {
+  color: var(--canvas-color-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.canvas-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  cursor: pointer;
+
+  input {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    accent-color: var(--canvas-color-accent);
+    cursor: inherit;
+  }
+
+  &[data-disabled] {
+    opacity: 0.35;
+    cursor: default;
+  }
+}
+
+.canvas-text-input {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--canvas-color-border);
+  border-radius: 6px;
+  color: var(--canvas-color-text);
+  outline: none;
+
+  &::placeholder {
+    color: var(--canvas-color-text-muted);
+  }
+
+  &:focus-visible {
+    border-color: var(--canvas-color-accent);
+    box-shadow: 0 0 0 1px var(--canvas-color-accent);
+  }
+}
+
+.canvas-confirmation-message {
+  white-space: nowrap;
+}
+
+.canvas-confirmation-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.canvas-button {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--canvas-color-border);
+  border-radius: 6px;
+  color: var(--canvas-color-text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+
+  &:hover {
+    background-color: var(--canvas-color-hover);
+  }
+}
+
+.canvas-button-primary {
+  border-color: var(--canvas-color-accent);
+  background-color: var(--canvas-color-accent);
+  color: #ffffff;
+
+  &:hover {
+    background-color: var(--canvas-color-accent);
+    filter: brightness(0.92);
+  }
+}
+
+.canvas-history {
+  display: flex;
+  flex-direction: column;
+  width: 260px;
+  max-height: 300px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.canvas-history-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 4px;
+  border-radius: 5px;
+
+  &:hover {
+    background-color: var(--canvas-color-hover);
+  }
+}
+
+.canvas-history-open {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 5px;
+  text-align: left;
+
+  &:is(button) {
+    cursor: pointer;
+  }
+}
+
+.canvas-history-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-history-date {
+  color: var(--canvas-color-text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.canvas-history-delete {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 5px;
+  color: var(--canvas-color-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+
+  &:hover {
+    background-color: var(--canvas-color-hover);
+    color: var(--canvas-color-text);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--canvas-color-accent);
+    outline-offset: -2px;
+  }
+
+  &[data-confirming] {
+    color: var(--canvas-color-danger);
+  }
+
+  /* Shown on hover where there is one. Touch screens always show it. */
+  @media (hover: hover) {
+    .canvas-history-item:not(:hover, :focus-within) &:not([data-confirming]) {
+      opacity: 0;
+    }
+  }
+}
+
+.canvas-history-empty {
+  padding: 8px;
+  color: var(--canvas-color-text-muted);
+  white-space: nowrap;
+}
+
+.canvas-tooltip {
+  position: absolute;
+  z-index: 20;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background-color: var(--canvas-color-tooltip);
+  box-shadow: var(--canvas-shadow);
+  color: var(--canvas-color-tooltip-text);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+
+  /* Only the first in a row fades in. The rest move straight along. */
+  &[data-animate] {
+    animation: canvas-tooltip-in 120ms ease-out;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &[data-animate] {
+      animation: none;
+    }
+  }
+}
+
+/* Below a toolbar at the top, so they drop down into place. */
+.canvas-toolbar[data-position="top"] .canvas-tooltip {
+  --canvas-tooltip-rise: -2px;
+}
+
+@keyframes canvas-tooltip-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--canvas-tooltip-rise, 2px));
+  }
+}
+
+/* A menu item's keyboard shortcut, after its label. */
+.canvas-menu-hint {
+  color: var(--canvas-color-text-muted);
+  font-size: 12px;
 }

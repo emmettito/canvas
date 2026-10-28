@@ -1,0 +1,302 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { type CanvasEntry } from "../models/canvas-entry.model";
+import { type ImageItem } from "../models/image-item.model";
+import { type Note } from "../models/note.model";
+import { type Stroke } from "../models/stroke.model";
+import { type TextBox } from "../models/text-box.model";
+import { type ToolSettings } from "../models/tool-settings.model";
+import { CanvasStorage } from "./canvas-storage";
+
+const SETTINGS: ToolSettings = {
+  activeTool: "eraser",
+  tools: {
+    eraser: { color: undefined, size: 20 },
+    pencil: { color: "--canvas-color-red", size: 10 },
+  },
+  noteColor: "--canvas-color-pink",
+  textSize: 32,
+};
+
+const STROKES: Stroke[] = [
+  { color: "#ff0000", points: [{ x: 1, y: 2 }], size: 5 },
+  // An eraser stroke, which has no color.
+  { points: [{ x: 3, y: 4 }], size: 5 },
+];
+
+const NOTES: Note[] = [
+  {
+    id: "n",
+    x: 10,
+    y: 20,
+    width: 160,
+    height: 120,
+    color: "#fefe99",
+    content: [{ runs: [{ text: "Hello", bold: true }] }],
+  },
+];
+
+const TEXTS: TextBox[] = [
+  {
+    id: "t",
+    x: 1,
+    y: 2,
+    width: null,
+    height: null,
+    fontSize: 24,
+    color: "#000000",
+    content: [
+      { align: "center", runs: [{ text: "Hi", font: "serif", size: 30 }] },
+    ],
+  },
+  {
+    id: "u",
+    x: 1,
+    y: 2,
+    width: 80,
+    height: 50,
+    fontSize: 12,
+    color: "#ff0000",
+    content: [{ runs: [] }],
+  },
+];
+
+const IMAGES: ImageItem[] = [{ id: "i", x: 5, y: 6, width: 300, height: 200 }];
+
+const CANVASES: CanvasEntry[] = [
+  { id: "a", name: "Sunset", updatedAt: 2 },
+  { id: "b", name: "", updatedAt: 1 },
+];
+
+describe("CanvasStorage", () => {
+  afterEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("restores what it saved", () => {
+    const storage = new CanvasStorage("test");
+
+    expect(storage.saveToolSettings(SETTINGS)).toBe(true);
+    expect(storage.saveCanvases(CANVASES)).toBe(true);
+    expect(storage.saveStrokes("a", STROKES)).toBe(true);
+    expect(storage.saveItems("a", "notes", NOTES)).toBe(true);
+    expect(storage.saveItems("a", "texts", TEXTS)).toBe(true);
+    expect(storage.saveItems("a", "images", IMAGES)).toBe(true);
+
+    const restored = new CanvasStorage("test");
+    expect(restored.loadToolSettings()).toEqual(SETTINGS);
+    expect(restored.loadCanvases()).toEqual(CANVASES);
+    expect(restored.loadStrokes("a")).toEqual(STROKES);
+    expect(restored.loadItems("a", "notes")).toEqual(NOTES);
+    expect(restored.loadItems("a", "texts")).toEqual(TEXTS);
+    expect(restored.loadItems("a", "images")).toEqual(IMAGES);
+  });
+
+  it("restores which canvas was open", () => {
+    new CanvasStorage("test").saveOpenCanvas("a");
+    expect(new CanvasStorage("test").loadOpenCanvas()).toBe("a");
+
+    // A blank canvas was open.
+    new CanvasStorage("test").saveOpenCanvas(null);
+    expect(new CanvasStorage("test").loadOpenCanvas()).toBeNull();
+  });
+
+  it("restores nothing when nothing was saved", () => {
+    const storage = new CanvasStorage("test");
+
+    expect(storage.loadToolSettings()).toBeNull();
+    expect(storage.loadOpenCanvas()).toBeNull();
+    expect(storage.loadCanvases()).toEqual([]);
+    expect(storage.loadStrokes("a")).toBeNull();
+    expect(storage.loadItems("a", "notes")).toBeNull();
+  });
+
+  it("keeps each canvas's drawing apart", () => {
+    const storage = new CanvasStorage("test");
+
+    storage.saveStrokes("a", STROKES);
+
+    expect(storage.loadStrokes("b")).toBeNull();
+  });
+
+  it("deletes a canvas's drawing", () => {
+    const storage = new CanvasStorage("test");
+    storage.saveStrokes("a", STROKES);
+    storage.saveItems("a", "notes", NOTES);
+    storage.saveItems("a", "texts", TEXTS);
+    storage.saveItems("a", "images", IMAGES);
+
+    storage.deleteCanvas("a");
+
+    expect(storage.loadStrokes("a")).toBeNull();
+    expect(storage.loadItems("a", "notes")).toBeNull();
+    expect(storage.loadItems("a", "texts")).toBeNull();
+    expect(storage.loadItems("a", "images")).toBeNull();
+  });
+
+  it("keeps storage keys apart", () => {
+    new CanvasStorage("first").saveToolSettings(SETTINGS);
+
+    expect(new CanvasStorage("second").loadToolSettings()).toBeNull();
+  });
+
+  it("keeps everything in memory without a key", () => {
+    const storage = new CanvasStorage();
+
+    storage.saveStrokes("a", STROKES);
+
+    expect(storage.loadStrokes("a")).toEqual(STROKES);
+    expect(localStorage).toHaveLength(0);
+    // A second canvas on the page doesn't see it.
+    expect(new CanvasStorage().loadStrokes("a")).toBeNull();
+  });
+
+  it("ignores saved data that isn't valid", () => {
+    localStorage.setItem("test:canvas:a:strokes", "not JSON");
+    localStorage.setItem(
+      "test:canvas:a:notes",
+      JSON.stringify([{ ...NOTES[0], width: -1 }])
+    );
+    localStorage.setItem(
+      "test:canvas:a:texts",
+      JSON.stringify([{ ...TEXTS[0], fontSize: "big" }])
+    );
+    localStorage.setItem(
+      "test:canvas:a:images",
+      JSON.stringify([{ ...IMAGES[0], id: 1 }])
+    );
+    const storage = new CanvasStorage("test");
+
+    expect(storage.loadStrokes("a")).toBeNull();
+    expect(storage.loadItems("a", "notes")).toBeNull();
+    expect(storage.loadItems("a", "texts")).toBeNull();
+    expect(storage.loadItems("a", "images")).toBeNull();
+  });
+
+  it("leaves out canvases in the history that aren't valid", () => {
+    localStorage.setItem(
+      "test:canvases",
+      JSON.stringify([CANVASES[0], { id: "c" }])
+    );
+
+    expect(new CanvasStorage("test").loadCanvases()).toEqual([CANVASES[0]]);
+  });
+
+  it("ignores a pencil color that isn't in the palette", () => {
+    localStorage.setItem(
+      "test:settings",
+      JSON.stringify({
+        ...SETTINGS,
+        tools: { ...SETTINGS.tools, pencil: { color: "#123456", size: 10 } },
+      })
+    );
+
+    expect(new CanvasStorage("test").loadToolSettings()).toBeNull();
+  });
+
+  it("warns instead of throwing when storage is full", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    let saved = true;
+    expect(() => {
+      saved = new CanvasStorage("test").saveStrokes("a", []);
+    }).not.toThrow();
+    // So the canvas can say it couldn't save.
+    expect(saved).toBe(false);
+    expect(warn).toHaveBeenCalled();
+  });
+});
+
+describe("CanvasStorage export options", () => {
+  afterEach(() => localStorage.clear());
+
+  it("restores the options last exported with", () => {
+    const options = { format: "svg", scale: 4, transparent: true } as const;
+    new CanvasStorage("test").saveExportOptions(options);
+
+    expect(new CanvasStorage("test").loadExportOptions()).toEqual(options);
+  });
+
+  it("ignores options it can't use", () => {
+    localStorage.setItem(
+      "test:export",
+      JSON.stringify({ format: "gif", scale: 3, transparent: "yes" })
+    );
+
+    expect(new CanvasStorage("test").loadExportOptions()).toBeNull();
+  });
+
+  it("gives settings saved before notes and text their defaults", () => {
+    const { noteColor: _, textSize: __, ...older } = SETTINGS;
+    localStorage.setItem("test:settings", JSON.stringify(older));
+
+    expect(new CanvasStorage("test").loadToolSettings()).toEqual({
+      ...older,
+      noteColor: "--canvas-color-yellow",
+      textSize: 24,
+    });
+  });
+
+  it("turns plain text saved before formatting into paragraphs", () => {
+    const { content: _, ...note } = NOTES[0];
+    const { content: __, height: ___, ...text } = TEXTS[0];
+    localStorage.setItem(
+      "test:canvas:a:notes",
+      JSON.stringify([{ ...note, text: "one\ntwo" }])
+    );
+    localStorage.setItem(
+      "test:canvas:a:texts",
+      JSON.stringify([{ ...text, text: "Hi" }])
+    );
+    const storage = new CanvasStorage("test");
+
+    expect(storage.loadItems("a", "notes")).toEqual([
+      {
+        ...note,
+        content: [{ runs: [{ text: "one" }] }, { runs: [{ text: "two" }] }],
+      },
+    ]);
+    // Text saved before it could be resized fits its text.
+    expect(storage.loadItems("a", "texts")).toEqual([
+      { ...text, height: null, content: [{ runs: [{ text: "Hi" }] }] },
+    ]);
+  });
+
+  it("ignores formatting it doesn't know", () => {
+    localStorage.setItem(
+      "test:canvas:a:notes",
+      JSON.stringify([
+        {
+          ...NOTES[0],
+          content: [{ runs: [{ text: "a", font: "wingdings" }] }],
+        },
+      ])
+    );
+
+    expect(new CanvasStorage("test").loadItems("a", "notes")).toBeNull();
+  });
+
+  it("restores each canvas's viewport, and deletes it with the canvas", () => {
+    const storage = new CanvasStorage("test");
+    const viewport = { x: -20, y: 40.5, zoom: 2 };
+
+    storage.saveViewport("a", viewport);
+    expect(new CanvasStorage("test").loadViewport("a")).toEqual(viewport);
+    expect(storage.loadViewport("b")).toBeNull();
+
+    storage.deleteCanvas("a");
+    expect(storage.loadViewport("a")).toBeNull();
+  });
+
+  it("ignores a viewport zoomed further than the canvas allows", () => {
+    localStorage.setItem(
+      "test:canvas:a:viewport",
+      JSON.stringify({ x: 0, y: 0, zoom: 500 })
+    );
+
+    expect(new CanvasStorage("test").loadViewport("a")).toBeNull();
+  });
+});

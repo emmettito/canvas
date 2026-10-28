@@ -11,13 +11,21 @@ export default defineConfig(({ mode }) => ({
       ? { outDir: "dist-demo" }
       : {
           lib: {
-            entry: "src/index.ts",
+            // The ProseMirror editor is its own entry, so only pages that
+            // import it need ProseMirror.
+            entry: {
+              canvas: "src/index.ts",
+              prosemirror: "src/prosemirror.ts",
+            },
             formats: ["es"],
-            fileName: "canvas",
+            fileName: (_format, name) => `${name}.js`,
             cssFileName: "canvas",
           },
           // Public assets belong to the demo page.
           copyPublicDir: false,
+          // The host page installs ProseMirror to use the editor, so it's
+          // loaded once even if the page uses it too.
+          rollupOptions: { external: [/^prosemirror-/] },
         },
   test: {
     environment: "jsdom",

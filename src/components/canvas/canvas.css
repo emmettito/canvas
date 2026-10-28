@@ -19,3 +19,376 @@
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
+
+/* Placing items has no size to preview, so the pointer shows what's placed. */
+.canvas-input-layer[data-placing="notes"] {
+  cursor: crosshair;
+}
+
+.canvas-input-layer[data-placing="texts"] {
+  cursor: text;
+}
+
+/*
+ * The drawing as it's shown. `--canvas-drawing-filter` changes how it looks
+ * without changing it, e.g. to show it dark, so exports keep its colors.
+ */
+.canvas-surface {
+  position: absolute;
+  inset: 0;
+  background-color: var(--canvas-color-canvas);
+  filter: var(--canvas-drawing-filter, none);
+}
+
+/* Moved and scaled by the zoom and pan, from its top left corner. */
+.canvas-items {
+  transform-origin: 0 0;
+}
+
+/* Holding Space, or dragging with the middle button, pans the drawing,
+ * whatever's under the pointer. */
+.canvas-surface[data-panning],
+.canvas-surface[data-panning] * {
+  cursor: grab !important;
+}
+
+.canvas-surface[data-panning]:active,
+.canvas-surface[data-panning] :active {
+  cursor: grabbing !important;
+}
+
+/* Over the drawing, unfiltered. Only its controls take pointer input. */
+.canvas-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* Above the drawing, images below text below notes. Only the items
+ * themselves take pointer input. */
+.canvas-items,
+.canvas-images,
+.canvas-texts,
+.canvas-notes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.canvas-items {
+  z-index: 2;
+}
+
+.canvas-note,
+.canvas-text,
+.canvas-image {
+  position: absolute;
+  pointer-events: auto;
+  cursor: grab;
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+
+/* Focused from the keyboard, so Delete removes it or Enter opens it. */
+:is(.canvas-note, .canvas-text, .canvas-image):focus-visible {
+  outline: 2px solid var(--canvas-color-accent);
+  outline-offset: 2px;
+}
+
+/*
+ * Resize handles can't be seen: the pointer shows them, as a resize arrow
+ * over each side and corner. Sides are strips along the edge, half inside
+ * and half out, and corners are squares over the ends of them.
+ */
+:is(.canvas-note-resize, .canvas-text-resize, .canvas-image-resize) {
+  /* The same size on screen at any zoom. */
+  --canvas-handle: calc(10px / var(--canvas-zoom, 1));
+  position: absolute;
+
+  &:is([data-handle="n"], [data-handle="s"]) {
+    left: calc(var(--canvas-handle) / 2);
+    right: calc(var(--canvas-handle) / 2);
+    height: var(--canvas-handle);
+    cursor: ns-resize;
+  }
+
+  &:is([data-handle="e"], [data-handle="w"]) {
+    top: calc(var(--canvas-handle) / 2);
+    bottom: calc(var(--canvas-handle) / 2);
+    width: var(--canvas-handle);
+    cursor: ew-resize;
+  }
+
+  &:is(
+    [data-handle="ne"],
+    [data-handle="se"],
+    [data-handle="sw"],
+    [data-handle="nw"]
+  ) {
+    z-index: 1;
+    width: var(--canvas-handle);
+    height: var(--canvas-handle);
+  }
+
+  &[data-handle^="n"] {
+    top: calc(var(--canvas-handle) / -2);
+  }
+
+  &[data-handle^="s"] {
+    bottom: calc(var(--canvas-handle) / -2);
+  }
+
+  &[data-handle$="w"] {
+    left: calc(var(--canvas-handle) / -2);
+  }
+
+  &[data-handle$="e"] {
+    right: calc(var(--canvas-handle) / -2);
+  }
+
+  &:is([data-handle="ne"], [data-handle="sw"]) {
+    cursor: nesw-resize;
+  }
+
+  &:is([data-handle="nw"], [data-handle="se"]) {
+    cursor: nwse-resize;
+  }
+}
+
+/* What ProseMirror needs from the page, so its text wraps and keeps its
+ * spaces. Spaces at a line break stay at the end of the line, the way the
+ * export lays text out. */
+.ProseMirror {
+  position: relative;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0;
+  outline: none;
+  cursor: inherit;
+
+  & p {
+    margin: 0;
+  }
+
+  &[contenteditable="true"] {
+    cursor: text;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+}
+
+.ProseMirror-hideselection *::selection {
+  background: transparent;
+}
+
+.ProseMirror-hideselection {
+  caret-color: transparent;
+}
+
+/*
+ * The plain text editor: a text box over a hidden copy of its text, in
+ * `data-value`, which sizes the element to fit the text. The extra space
+ * keeps a last empty line's height.
+ */
+[data-plain-text] {
+  position: relative;
+
+  &::after {
+    content: attr(data-value) " ";
+    display: block;
+    visibility: hidden;
+    white-space: inherit;
+    overflow-wrap: anywhere;
+  }
+}
+
+.canvas-plain-text {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: inherit;
+  overflow: hidden;
+  resize: none;
+  font: inherit;
+  line-height: inherit;
+  color: inherit;
+  white-space: inherit;
+  overflow-wrap: anywhere;
+  background: transparent;
+  border: 0;
+  outline: none;
+  /* Until it's opened for typing, pressing the text drags its item. */
+  pointer-events: none;
+
+  [data-editable] > & {
+    pointer-events: auto;
+    cursor: text;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+}
+
+.canvas-note {
+  border-radius: var(--canvas-note-radius);
+  /* Its own, since a filter that darkens the drawing would make it glow. */
+  box-shadow: var(--canvas-note-shadow, var(--canvas-shadow));
+  outline: 1px solid rgb(0 0 0 / 0.06);
+  color: var(--canvas-color-note-text);
+
+  &[data-editing] {
+    outline: 2px solid var(--canvas-color-accent);
+  }
+}
+
+/* The padding matches the exported note's, so the text wraps the same way.
+ * Text past the bottom is hidden, as it's left out of exports. */
+.canvas-note-text {
+  height: 100%;
+  white-space: pre-wrap;
+  padding: var(--canvas-note-padding);
+  overflow: hidden;
+}
+
+/* The text sizes the box: as wide as its longest line, until its width is
+ * set, and at least as tall as the text. */
+.canvas-text {
+  min-width: 2px;
+  border-radius: 2px;
+
+  &:hover {
+    outline: 1px dashed var(--canvas-color-text-muted);
+  }
+
+  &[data-editing] {
+    outline: 1px solid var(--canvas-color-accent);
+  }
+}
+
+.canvas-text-text {
+  white-space: pre;
+
+  [data-wraps] > & {
+    white-space: pre-wrap;
+  }
+}
+
+.canvas-image {
+  /* Its file couldn't be found, e.g. the browser's storage was cleared. */
+  &[data-missing] {
+    background-color: var(--canvas-color-hover);
+    outline: 1px dashed var(--canvas-color-text-muted);
+  }
+}
+
+/* `--canvas-image-filter` can undo the drawing's filter, so photos keep their
+ * colors in a dark theme. */
+.canvas-image-file {
+  display: block;
+  filter: var(--canvas-image-filter, none);
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+
+  [data-missing] > & {
+    visibility: hidden;
+  }
+}
+
+/* An item's menu, e.g. to delete it, where it was right-clicked. */
+.canvas-context-menu {
+  position: absolute;
+  padding: 4px;
+  border: 1px solid var(--canvas-color-border);
+  border-radius: 8px;
+  background: var(--canvas-color-surface);
+  box-shadow: var(--canvas-shadow);
+  font-size: 13px;
+  line-height: normal;
+  pointer-events: auto;
+  cursor: default;
+}
+
+/* Floats above the note or text being typed in. */
+.canvas-format-bar {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--canvas-color-border);
+  border-radius: 10px;
+  background: var(--canvas-color-surface);
+  box-shadow: var(--canvas-shadow);
+  color: var(--canvas-color-text);
+  font-size: 13px;
+  line-height: normal;
+  pointer-events: auto;
+  cursor: default;
+  user-select: none;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.canvas-format-select {
+  height: 28px;
+  padding: 0 4px;
+  border-radius: 6px;
+  color: var(--canvas-color-text);
+  background-color: transparent;
+  cursor: pointer;
+
+  &:hover {
+    background-color: var(--canvas-color-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--canvas-color-accent);
+    outline-offset: -2px;
+  }
+}
+
+.canvas-format-bold {
+  font-weight: bold;
+}
+
+.canvas-format-italic {
+  font-style: italic;
+  font-family: Georgia, serif;
+}
+
+.canvas-format-underline {
+  text-decoration: underline;
+}
+
+.canvas-format-strike {
+  text-decoration: line-through;
+}
+
+.canvas-format-color {
+  position: relative;
+}
+
+/* The palette opens below the color button. */
+.canvas-format-colors {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 1px solid var(--canvas-color-border);
+  border-radius: 8px;
+  background: var(--canvas-color-surface);
+  box-shadow: var(--canvas-shadow);
+
+  &[hidden] {
+    display: none;
+  }
+}

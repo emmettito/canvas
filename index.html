@@ -2,35 +2,77 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <!-- Made by scripts/generate-icons.ts. The .ico is for browsers without
+         SVG favicons, and the rest for home screens and installing. -->
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Canvas Demo</title>
     <script>
       // Set before the first paint so the page doesn't flash the wrong theme.
-      // `src/theme.ts` keeps it up to date after that.
+      // `src/theme.ts` keeps it up to date after that. Nothing saved means
+      // following the system.
       let savedTheme = null;
       try {
         savedTheme = localStorage.getItem("theme");
       } catch {
         // Storage can be unavailable, e.g. in some private windows.
       }
-      document.documentElement.dataset.theme =
-        savedTheme ??
-        (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.dataset.theme = [
+        "light",
+        "dark",
+        "oled",
+      ].includes(savedTheme)
+        ? savedTheme
+        : matchMedia("(prefers-color-scheme: dark)").matches
+          ? "dark"
+          : "light";
     </script>
   </head>
   <body>
-    <header class="demo-header">
-      <button
-        class="demo-theme-toggle"
-        type="button"
-        role="switch"
-        aria-checked="false"
-      >
-        <span class="demo-switch-track" aria-hidden="true"></span>
-        Dark mode
-      </button>
-    </header>
+    <!-- Each group of settings is a section, so more can be added. -->
+    <dialog class="demo-settings" aria-labelledby="demo-settings-title">
+      <div class="demo-settings-content">
+        <div class="demo-settings-header">
+          <h2 id="demo-settings-title">Settings</h2>
+          <form method="dialog">
+            <!-- The script adds its icon. -->
+            <button
+              class="demo-icon-button demo-settings-close"
+              aria-label="Close"
+            ></button>
+          </form>
+        </div>
+        <section class="demo-settings-section">
+          <h3>Appearance</h3>
+          <fieldset class="demo-theme-picker">
+            <legend>Theme</legend>
+            <label class="demo-theme-option">
+              <input type="radio" name="theme" value="system" />
+              <span class="demo-theme-preview" data-preview="system"></span>
+              System
+            </label>
+            <label class="demo-theme-option">
+              <input type="radio" name="theme" value="light" />
+              <span class="demo-theme-preview" data-preview="light"></span>
+              Light
+            </label>
+            <label class="demo-theme-option">
+              <input type="radio" name="theme" value="dark" />
+              <span class="demo-theme-preview" data-preview="dark"></span>
+              Dark
+            </label>
+            <label class="demo-theme-option">
+              <input type="radio" name="theme" value="oled" />
+              <span class="demo-theme-preview" data-preview="oled"></span>
+              OLED
+            </label>
+          </fieldset>
+        </section>
+      </div>
+    </dialog>
     <div id="root"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

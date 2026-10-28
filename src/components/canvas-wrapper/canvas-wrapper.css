@@ -1,26 +1,77 @@
 /* Fills its container, so the host page decides the size. */
 .canvas-root {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  row-gap: 30px;
+  position: relative;
   width: 100%;
   height: 100%;
   min-height: 0;
+  overflow: hidden;
+  /* How far the floating toolbars sit from the edges. */
+  --canvas-toolbar-inset: 12px;
 }
 
+/* The drawing surface, edge to edge, under the toolbars. */
 .canvas-wrapper {
-  position: relative;
-  flex: 1;
-  width: 100%;
-  max-width: 1000px;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
   overflow: hidden;
-  background-color: var(--canvas-color-canvas);
-  box-shadow: var(--canvas-shadow-control);
   cursor: none;
   /* Touch input draws instead of scrolling or zooming the page. */
   touch-action: none;
   user-select: none;
   -webkit-touch-callout: none;
+}
+
+/* The toolbars float above the canvas, so they don't change its size. */
+.canvas-root > .canvas-toolbar {
+  position: absolute;
+  z-index: 3;
+  max-width: calc(100% - var(--canvas-toolbar-inset) * 2);
+}
+
+.canvas-root > .canvas-toolbar[data-position="top"] {
+  top: var(--canvas-toolbar-inset);
+  left: var(--canvas-toolbar-inset);
+}
+
+.canvas-root > .canvas-toolbar[data-position="bottom"] {
+  bottom: var(--canvas-toolbar-inset);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* Ctrl+\ (Cmd+\ on a Mac) hides them, to see the whole canvas. */
+.canvas-root[data-toolbars-hidden] > .canvas-toolbar {
+  display: none;
+}
+
+/* Shown while changes can't be saved, e.g. because storage is full, even with
+ * the toolbars hidden. */
+.canvas-status {
+  position: absolute;
+  top: var(--canvas-toolbar-inset);
+  right: var(--canvas-toolbar-inset);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--canvas-color-border);
+  border-radius: 10px;
+  background: var(--canvas-color-surface);
+  box-shadow: var(--canvas-shadow);
+  color: var(--canvas-color-text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+
+  &:not([data-shown]) {
+    display: none;
+  }
+
+  &::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: var(--canvas-color-danger);
+  }
 }
