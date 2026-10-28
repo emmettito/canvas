@@ -2,6 +2,9 @@ import { configDefaults, defineConfig } from "vitest/config";
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => ({
+  // Relative asset paths let the demo page work from any folder, e.g. GitHub
+  // Pages serves it from `/canvas/`.
+  base: mode === "demo" ? "./" : "/",
   // `build` makes the library, and `build --mode demo` makes the demo page.
   build:
     mode === "demo"

@@ -93,6 +93,10 @@ npx playwright install
 `npm run dev` serves the demo page. It follows the system's light or dark mode
 until you use its toggle, then remembers your choice.
 
+Every push to `main` builds the demo page and publishes it to GitHub Pages (see
+`.github/workflows/deploy-demo.yml`). For that to work, set **Settings → Pages →
+Source** to **GitHub Actions** in the repository.
+
 ## To-do list
 
 - [x] Add modularization so it can be used in other projects
