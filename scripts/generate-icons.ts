@@ -35,7 +35,10 @@ function distanceToLine(point: Point, start: Point, end: Point): number {
   if (length === 0) {
     return Math.hypot(point.x - start.x, point.y - start.y);
   }
-  return Math.abs(dy * point.x - dx * point.y + end.x * start.y - end.y * start.x) / length;
+  return (
+    Math.abs(dy * point.x - dx * point.y + end.x * start.y - end.y * start.x) /
+    length
+  );
 }
 
 // Ramer–Douglas–Peucker: keeps only the points the line needs to stay within
@@ -77,9 +80,9 @@ interface Stroke {
 // The canvas exports each stroke as a path of straight lines.
 function readStrokes(svg: string): Stroke[] {
   return [...svg.matchAll(/<path [^>]*\/>/g)].map(([path]) => {
-    const numbers = [...path.match(/ d="([^"]*)"/)![1].matchAll(/-?\d+(?:\.\d+)?/g)].map(
-      ([number]) => Number(number)
-    );
+    const numbers = [
+      ...path.match(/ d="([^"]*)"/)![1].matchAll(/-?\d+(?:\.\d+)?/g),
+    ].map(([number]) => Number(number));
     const points: Point[] = [];
     for (let i = 0; i < numbers.length; i += 2) {
       points.push({ x: numbers[i], y: numbers[i + 1] });
@@ -111,7 +114,10 @@ function createFavicon(strokes: Stroke[]): string {
   const paths = strokes
     .map(({ points, color, width }) => {
       const d = simplify(points)
-        .map((point, index) => `${index === 0 ? "M" : "L"}${round(point.x)} ${round(point.y)}`)
+        .map(
+          (point, index) =>
+            `${index === 0 ? "M" : "L"}${round(point.x)} ${round(point.y)}`
+        )
         .join("");
       return `<path d="${d}" stroke="${color}" stroke-width="${width}"/>`;
     })
@@ -154,13 +160,19 @@ const url = `data:image/svg+xml;base64,${Buffer.from(favicon).toString("base64")
 
 // The icon drawn `size` pixels square, with `padding` around it as a share of
 // the size, over `background` or transparent.
-async function render(size: number, padding = 0, background?: string): Promise<Buffer> {
+async function render(
+  size: number,
+  padding = 0,
+  background?: string
+): Promise<Buffer> {
   await page.setViewportSize({ width: size, height: size });
   const inner = size * (1 - padding * 2);
   await page.setContent(
     `<body style="margin:0;display:grid;place-items:center;height:${size}px;background:${background ?? "transparent"}"><img src="${url}" width="${inner}" height="${inner}"></body>`
   );
-  await page.locator("img").evaluate((image: HTMLImageElement) => image.decode());
+  await page
+    .locator("img")
+    .evaluate((image: HTMLImageElement) => image.decode());
   return page.screenshot({ omitBackground: !background });
 }
 

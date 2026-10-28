@@ -81,9 +81,11 @@ canvas or opening another (see [Saving](#saving)).
 
 The toolbar floats at the bottom middle of the canvas. For a second toolbar at
 the top left, pass `topToolbar` in the same form, e.g. to keep the file
-controls apart from the drawing ones. Its menus open downward. Each control
-can be on one toolbar or the other. Ctrl+\ (Cmd+\ on a Mac) hides and shows
-both, to see the whole canvas.
+controls apart from the drawing ones, and for a third at the top right, pass
+`topRightToolbar`, e.g. for the background and zoom, which change how the
+canvas is shown rather than what's drawn. Their menus open downward. Each
+control can only be on one toolbar. Ctrl+\ (Cmd+\ on a Mac) hides and shows
+them all, to see the whole canvas.
 
 The file actions can go in a File menu instead of being buttons: list any of
 `new-canvas`, `history` (shown as "Open"), `rename` and `export` in its
@@ -106,6 +108,7 @@ mountCanvas(document.getElementById("drawing")!, {
       { action: "custom", label: "Settings", onClick: openSettings },
     ],
   ],
+  topRightToolbar: [[{ action: "background" }, { action: "zoom" }]],
   toolbar: [
     [
       { action: "pencil", icon: pencilIcon },

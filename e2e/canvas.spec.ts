@@ -550,7 +550,7 @@ test("the file menu opens below its button, lined up with it", async ({
   expect(menu.y).toBeGreaterThan(button.y + button.height);
   // Lined up with the left of the File button's toolbar.
   const toolbar = (await page
-    .locator('.canvas-toolbar[data-position="top"]')
+    .locator(".canvas-toolbar", { has: file })
     .boundingBox())!;
   expect(menu.x).toBeCloseTo(toolbar.x, 0);
 

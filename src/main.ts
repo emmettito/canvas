@@ -48,6 +48,7 @@ mountCanvas(document.getElementById("root")!, {
       button("dropper"),
     ],
     [button("image")],
-    [{ action: "background" }, { action: "zoom" }],
   ],
+  // How the canvas is shown, apart from what's drawn on it.
+  topRightToolbar: [[{ action: "background" }, { action: "zoom" }]],
 });

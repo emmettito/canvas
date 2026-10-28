@@ -125,6 +125,11 @@ export interface MountCanvasOptions {
    */
   topToolbar?: ToolbarControl[][];
   /**
+   * Controls for a third toolbar, at the top right, in the same form, e.g.
+   * for the canvas's background and zoom, apart from the drawing tools.
+   */
+  topRightToolbar?: ToolbarControl[][];
+  /**
    * Called with the canvas's name as it mounts and whenever the name changes,
    * e.g. while it's typed or when another canvas is opened. It's empty for an
    * untitled canvas. Use it to show the name elsewhere, e.g. in the page's
@@ -151,6 +156,7 @@ export function mountCanvas(
     storageKey,
     toolbar: controls = [],
     topToolbar: topControls = [],
+    topRightToolbar: topRightControls = [],
     onNameChange,
     textEditor = plainTextEditor,
   }: MountCanvasOptions = {}
@@ -159,13 +165,12 @@ export function mountCanvas(
   if (container.querySelector(":scope > .canvas-root")) {
     throw new Error("This container already has a canvas.");
   }
-  // Checked together, so an action can't be on both.
-  validateToolbar([...topControls, ...controls]);
+  // Checked together, so an action can only be on one.
+  const allControls = [...topControls, ...topRightControls, ...controls];
+  validateToolbar(allControls);
   // Without the history, there's only ever the open canvas, so starting a new
   // one deletes it.
-  const hasHistory = getToolbarActions([...topControls, ...controls]).includes(
-    "history"
-  );
+  const hasHistory = getToolbarActions(allControls).includes("history");
   // In the page from the start, so its CSS can be read, e.g. the background
   // new canvases start with.
   const root = createElement("div", "canvas-root");
@@ -379,11 +384,26 @@ export function mountCanvas(
     toolbarActions,
     "top"
   );
-  root.append(canvasWrapper, status, fileInput);
-  if (topControls.some((group) => group.length > 0)) {
+  const topRightToolbar = new CanvasToolbar(
+    topRightControls,
+    getToolbarState(),
+    toolbarActions,
+    "top"
+  );
+  const toolbars = [toolbar, topToolbar, topRightToolbar];
+  // The status sits beside the top right toolbar, rather than under it.
+  const corner = createElement("div", "canvas-corner");
+  corner.append(status);
+  root.append(canvasWrapper, corner, fileInput);
+  const hasControls = (groups: ToolbarControl[][]) =>
+    groups.some((group) => group.length > 0);
+  if (hasControls(topControls)) {
     root.append(topToolbar.element);
   }
-  if (controls.some((group) => group.length > 0)) {
+  if (hasControls(topRightControls)) {
+    corner.append(topRightToolbar.element);
+  }
+  if (hasControls(controls)) {
     root.append(toolbar.element);
   }
   reportName();
@@ -464,8 +484,9 @@ export function mountCanvas(
     const hidden = !root.hasAttribute("data-toolbars-hidden");
     root.toggleAttribute("data-toolbars-hidden", hidden);
     if (hidden) {
-      toolbar.close();
-      topToolbar.close();
+      for (const each of toolbars) {
+        each.close();
+      }
     }
   }
   document.addEventListener("keydown", onKeyDown);
@@ -579,8 +600,10 @@ export function mountCanvas(
   }
 
   function updateToolbars() {
-    toolbar.update(getToolbarState());
-    topToolbar.update(getToolbarState());
+    const state = getToolbarState();
+    for (const each of toolbars) {
+      each.update(state);
+    }
   }
 
   // The note and text tools draw nothing, so the canvas keeps the pencil's
@@ -800,8 +823,9 @@ export function mountCanvas(
       observer.disconnect();
       document.removeEventListener("paste", onPaste);
       document.removeEventListener("keydown", onKeyDown);
-      toolbar.destroy();
-      topToolbar.destroy();
+      for (const each of toolbars) {
+        each.destroy();
+      }
       canvas.destroy();
       root.remove();
     },

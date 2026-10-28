@@ -181,6 +181,31 @@ describe("mountCanvas", () => {
     expect(bottom.dataset.position).toBe("bottom");
   });
 
+  it("puts the top right toolbar in the corner, beside the status", () => {
+    const container = document.createElement("div");
+
+    mountCanvas(container, {
+      topRightToolbar: [[{ action: "zoom" }]],
+    });
+
+    const corner = container.querySelector(".canvas-corner")!;
+    expect(corner.querySelector(".canvas-status")).not.toBeNull();
+    const toolbar = corner.querySelector<HTMLElement>(".canvas-toolbar")!;
+    expect(toolbar.dataset.position).toBe("top");
+    expect(toolbar.querySelector("button")!.textContent).toBe("100%");
+  });
+
+  it("throws for a control on two toolbars", () => {
+    const container = document.createElement("div");
+
+    expect(() =>
+      mountCanvas(container, {
+        toolbar: [[{ action: "zoom" }]],
+        topRightToolbar: [[{ action: "zoom" }]],
+      })
+    ).toThrow('The toolbar lists "zoom" more than once.');
+  });
+
   it("hides and shows the toolbars with Ctrl+\\ or Cmd+\\", () => {
     const container = document.createElement("div");
     const canvas = mountCanvas(container, {

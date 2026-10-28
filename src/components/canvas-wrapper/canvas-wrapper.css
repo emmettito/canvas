@@ -39,18 +39,51 @@
   transform: translateX(-50%);
 }
 
+/* The top right corner: the top right toolbar, with the status beside it. */
+.canvas-corner {
+  position: absolute;
+  top: var(--canvas-toolbar-inset);
+  right: var(--canvas-toolbar-inset);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - var(--canvas-toolbar-inset) * 2);
+  pointer-events: none;
+
+  & > * {
+    pointer-events: auto;
+  }
+}
+
+/* Its menus line up with the end of their button, inside the corner, and the
+ * last button's with the toolbar's edge. */
+.canvas-corner .canvas-toolbar[data-position="top"] .canvas-popover,
+.canvas-corner
+  .canvas-toolbar[data-position="top"]
+  > .canvas-toolbar-group:first-child
+  > .canvas-toolbar-item:first-child
+  .canvas-popover {
+  left: auto;
+  right: 0;
+}
+
+.canvas-corner
+  .canvas-toolbar[data-position="top"]
+  > .canvas-toolbar-group:not(:has(~ .canvas-toolbar-group))
+  > .canvas-toolbar-item:last-child
+  .canvas-popover {
+  right: -5px;
+}
+
 /* Ctrl+\ (Cmd+\ on a Mac) hides them, to see the whole canvas. */
-.canvas-root[data-toolbars-hidden] > .canvas-toolbar {
+.canvas-root[data-toolbars-hidden] .canvas-toolbar {
   display: none;
 }
 
 /* Shown while changes can't be saved, e.g. because storage is full, even with
  * the toolbars hidden. */
 .canvas-status {
-  position: absolute;
-  top: var(--canvas-toolbar-inset);
-  right: var(--canvas-toolbar-inset);
-  z-index: 3;
   display: flex;
   align-items: center;
   gap: 6px;
