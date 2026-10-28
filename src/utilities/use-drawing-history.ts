@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Stroke } from "../models/stroke.model";
+import { type Stroke } from "../models/stroke.model";
 
 interface DrawingHistory {
   strokes: Stroke[];
@@ -14,7 +14,10 @@ export function useDrawingHistory() {
 
   const addStroke = useCallback((stroke: Stroke) => {
     // A new stroke invalidates anything that could have been redone.
-    setHistory(({ strokes }) => ({ strokes: [...strokes, stroke], undone: [] }));
+    setHistory(({ strokes }) => ({
+      strokes: [...strokes, stroke],
+      undone: [],
+    }));
   }, []);
 
   const undo = useCallback(() => {
@@ -23,7 +26,10 @@ export function useDrawingHistory() {
         ? history
         : {
             strokes: history.strokes.slice(0, -1),
-            undone: [history.strokes[history.strokes.length - 1], ...history.undone],
+            undone: [
+              history.strokes[history.strokes.length - 1],
+              ...history.undone,
+            ],
           }
     );
   }, []);

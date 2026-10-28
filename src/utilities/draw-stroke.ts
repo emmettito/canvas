@@ -1,4 +1,4 @@
-import { Stroke } from "../models/stroke.model";
+import { type Stroke } from "../models/stroke.model";
 
 /**
  * Draws a stroke onto the canvas. Pass `startIndex` to draw only the segments

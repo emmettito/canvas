@@ -1,12 +1,12 @@
-import { JSX, useEffect, useRef, useState } from "react";
+import { type JSX, useEffect, useRef, useState } from "react";
 import { COLORS } from "../../constants/colors.const";
 import { MAX_TOOL_SIZE } from "../../constants/max-tool-size.const";
 import { MIN_TOOL_SIZE } from "../../constants/min-tool-size.const";
 import { TOOLS } from "../../constants/tools.const";
 import redoIcon from "../../images/redo.svg";
 import undoIcon from "../../images/undo.svg";
-import { ToolState } from "../../models/tool-state.model";
-import { Tool } from "../../models/tool.model";
+import { type ToolState } from "../../models/tool-state.model";
+import { type Tool } from "../../models/tool.model";
 import { Popover } from "../popover/popover";
 import "./canvas-toolbar.css";
 

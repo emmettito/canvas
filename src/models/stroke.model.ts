@@ -1,4 +1,4 @@
-import { Point } from "./point.model";
+import { type Point } from "./point.model";
 
 export interface Stroke {
   // A resolved color value, so strokes keep their color if the theme changes.

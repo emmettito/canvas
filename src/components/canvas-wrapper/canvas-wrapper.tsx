@@ -1,9 +1,9 @@
-import { JSX, useCallback, useEffect, useRef, useState } from "react";
+import { type JSX, useCallback, useEffect, useRef, useState } from "react";
 import { COLORS } from "../../constants/colors.const";
 import { DEFAULT_TOOL_SIZE } from "../../constants/default-tool-size.const";
-import { CanvasState } from "../../models/canvas-state.model";
-import { ToolState } from "../../models/tool-state.model";
-import { Tool } from "../../models/tool.model";
+import { type CanvasState } from "../../models/canvas-state.model";
+import { type ToolState } from "../../models/tool-state.model";
+import { type Tool } from "../../models/tool.model";
 import { useDebouncedCallback } from "../../utilities/use-debounced-callback";
 import { useDrawingHistory } from "../../utilities/use-drawing-history";
 import { CanvasToolbar } from "../canvas-toolbar/canvas-toolbar";

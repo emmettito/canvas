@@ -1,7 +1,7 @@
 import { useCallback, useRef } from "react";
 import { DEFAULT_DEBOUNCE_TIME } from "../constants/default-debounce-time.const";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// oxlint-disable-next-line typescript/no-explicit-any
 type VoidFunction = (...args: any[]) => void;
 
 export function useDebouncedCallback<T extends VoidFunction>(

@@ -1,7 +1,7 @@
-import { JSX, PointerEvent, useEffect, useRef } from "react";
-import { Point } from "../../models/point.model";
-import { Stroke } from "../../models/stroke.model";
-import { ToolState } from "../../models/tool-state.model";
+import { type JSX, type PointerEvent, useEffect, useRef } from "react";
+import { type Point } from "../../models/point.model";
+import { type Stroke } from "../../models/stroke.model";
+import { type ToolState } from "../../models/tool-state.model";
 import { drawStroke } from "../../utilities/draw-stroke";
 import { getCssVariable } from "../../utilities/get-css-variable";
 import "./canvas.css";
