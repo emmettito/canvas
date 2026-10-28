@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "serve": "vite",
+    "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "oxlint",
+    "lint": "oxlint --deny-warnings",
+    "typecheck": "tsc -b",
     "preview": "vite preview",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
