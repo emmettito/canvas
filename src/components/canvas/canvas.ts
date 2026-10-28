@@ -150,7 +150,12 @@ export class Canvas {
   // typing in one doesn't.
   #placesOnRelease = false;
   // The note or text being typed in, which the format bar formats.
-  #editing: { kind: TypedKind; view: TypedView<TypedItem> } | null = null;
+  // `from` is the item as typing started, to tell if it changed.
+  #editing: {
+    kind: TypedKind;
+    view: TypedView<TypedItem>;
+    from: TypedItem;
+  } | null = null;
   #formatBar = new FormatBar((color) => this.#options.onCustomColor(color));
   // An item's menu, while it's open.
   #menu: HTMLElement | null = null;
@@ -897,8 +902,9 @@ export class Canvas {
     }
     this.#finishEditing();
     this.#closeMenu();
-    this.#editing = { kind, view: typed };
+    this.#editing = { kind, view: typed, from: view.item };
     view.element.toggleAttribute("data-editing", true);
+    this.#showEmpty(typed);
     view.editor.edit();
     // Only an editor that formats text has a format bar.
     const { formatting } = view.editor;
@@ -925,6 +931,7 @@ export class Canvas {
     this.#formatBar.close();
     view.element.removeAttribute("data-editing");
     view.editor.stopEditing();
+    view.element.removeAttribute("data-empty");
     // Text past a note's bottom isn't shown, so it shows its start again.
     view.editor.element.scrollTop = 0;
     const layer = this.#getLayer(kind);
@@ -938,17 +945,60 @@ export class Canvas {
       }
     } else if (blank) {
       this.#options.onItemRemove(kind, item.id);
-    } else if (JSON.stringify(content) !== JSON.stringify(view.item.content)) {
+    } else if (JSON.stringify(item) !== JSON.stringify(editing.from)) {
+      // Its text, or its color, changed.
       this.#options.onItemChange(kind, item as never);
     }
+  }
+
+  // An empty text box shows a hint, and is wide enough to find again.
+  #showEmpty({ element, editor }: TypedView<TypedItem>): void {
+    element.toggleAttribute(
+      "data-empty",
+      editor.isEditable && isBlank(editor.content)
+    );
+  }
+
+  /** Whether a note or text box is being typed in. */
+  get isTyping(): boolean {
+    return this.#editing !== null;
+  }
+
+  /**
+   * Colors what's being typed: the selection, or what's typed next, with an
+   * editor that formats text, or else a text box's text.
+   */
+  colorTyping(color: string): void {
+    const editing = this.#editing;
+    if (!editing) {
+      return;
+    }
+    const { formatting } = editing.view.editor;
+    if (formatting) {
+      formatting.setValue("color", color);
+      this.#formatBar.update();
+    } else if (editing.kind === "texts") {
+      const box: TextBox = { ...(editing.view.item as TextBox), color };
+      editing.view.item = box;
+      editing.view.element.style.color = color;
+    }
+  }
+
+  /** Puts focus back in what's being typed, e.g. once a color's picked. */
+  focusTyping(): void {
+    this.#editing?.view.editor.focus();
   }
 
   // Typing goes on while focus is in the text or the format bar.
   #onEditingFocusOut = (event: FocusEvent): void => {
     const next = event.relatedTarget as Node | null;
     const editing = this.#editing;
+    // Some controls color the text, so typing goes on while they're used.
+    const keepsTyping =
+      next instanceof Element && next.closest("[data-canvas-keeps-typing]");
     if (
       editing &&
+      !keepsTyping &&
       !(next && editing.view.element.contains(next)) &&
       !(next && this.#formatBar.element.contains(next))
     ) {
@@ -972,7 +1022,9 @@ export class Canvas {
       className: kind === "notes" ? "canvas-note-text" : "canvas-text-text",
       label,
       onUpdate: () => {
-        if (this.#editing?.view.editor === editor) {
+        const editing = this.#editing;
+        if (editing?.view.editor === editor) {
+          this.#showEmpty(editing.view);
           this.#formatBar.update();
           this.#placeFormatBar();
         }

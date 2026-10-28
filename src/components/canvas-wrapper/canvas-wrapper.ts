@@ -259,12 +259,7 @@ export function mountCanvas(
     },
     createTextEditor: textEditor,
     onPickColor: (color) => {
-      // A palette color is kept as the palette's, so it follows the theme.
-      const palette = COLORS.find(
-        (option) =>
-          toHex(parseColor(resolveColor(root, option)) ?? []) === color
-      );
-      useColor(palette ?? color);
+      useColor(color);
       activeTool = previousTool;
       update();
     },
@@ -321,18 +316,22 @@ export function mountCanvas(
       }
       update();
     },
+    // A color picked while typing colors the text too, and typing goes on.
     onUpdateTool: (tool, values) => {
-      if (isCustomColor(values.color)) {
-        recentColors = addRecentColor(recentColors, values.color);
+      const color = values.color && keepColor(values.color);
+      tools = {
+        ...tools,
+        [tool]: { ...tools[tool], ...values, ...(color && { color }) },
+      };
+      if (color && canvas.isTyping) {
+        canvas.colorTyping(resolveColor(root, color));
+        canvas.focusTyping();
       }
-      tools = { ...tools, [tool]: { ...tools[tool], ...values } };
       update();
     },
     onUpdateNoteColor: (color) => {
-      if (isCustomColor(color)) {
-        recentColors = addRecentColor(recentColors, color);
-      }
-      noteColor = color;
+      noteColor = keepColor(color);
+      canvas.focusTyping();
       update();
     },
     onSetBackground: (color, custom) => {
@@ -626,10 +625,24 @@ export function mountCanvas(
     return tool === "note" ? "note" : "pencil";
   }
 
-  function useColor(color: ToolColor) {
-    if (isCustomColor(color)) {
-      recentColors = addRecentColor(recentColors, color);
+  // A custom color that's the palette's, e.g. "red" typed, is kept as the
+  // palette's, so it follows the palette. Others are offered again.
+  function keepColor(color: ToolColor): ToolColor {
+    if (!isCustomColor(color)) {
+      return color;
     }
+    const palette = COLORS.find(
+      (option) => toHex(parseColor(resolveColor(root, option)) ?? []) === color
+    );
+    if (palette) {
+      return palette;
+    }
+    recentColors = addRecentColor(recentColors, color);
+    return color;
+  }
+
+  function useColor(picked: ToolColor) {
+    const color = keepColor(picked);
     if (getColorTarget() === "note") {
       noteColor = color;
     } else {

@@ -1,6 +1,6 @@
 import { type CustomColor } from "../../models/color.model";
 import { createElement } from "../../utilities/create-element";
-import { isCustomColor } from "../../utilities/colors";
+import { isCustomColor, readCssColor } from "../../utilities/colors";
 import "./color-picker.css";
 
 // A color to pick, as it's applied and as it's shown.
@@ -61,8 +61,8 @@ function createSwatches(
 
 /**
  * Swatches to pick from, the custom colors picked recently, and a custom
- * color, picked with the browser's picker, typed as hex, or, where the
- * browser can, picked from anywhere on screen.
+ * color, picked with the browser's picker, typed as any CSS color, e.g. hex
+ * or "orange", or, where the browser can, picked from anywhere on screen.
  */
 export function createColorPicker({
   swatches,
@@ -97,23 +97,22 @@ export function createColorPicker({
   wheel.setAttribute("aria-label", "Custom color");
   wheel.title = "Custom color";
   wheel.addEventListener("change", () => onPick(wheel.value, true));
-  // The same color as hex, which can be typed, e.g. from a brand guide.
+  // The color typed, e.g. hex from a brand guide, or a CSS name. It's kept
+  // as hex.
   const hex = createElement("input", "canvas-text-input canvas-color-hex");
   hex.type = "text";
   hex.value = isCustomColor(selected) ? selected : "";
-  hex.placeholder = "#rrggbb";
+  hex.placeholder = "#ff8800 or orange";
   hex.spellcheck = false;
-  hex.maxLength = 7;
-  hex.setAttribute("aria-label", "Hex color");
+  hex.setAttribute("aria-label", "Color code");
   hex.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") {
       return;
     }
     event.preventDefault();
-    const value = hex.value.trim();
-    const color = value.startsWith("#") ? value : `#${value}`;
-    if (isCustomColor(color)) {
-      onPick(color.toLowerCase(), true);
+    const color = readCssColor(hex.value);
+    if (color) {
+      onPick(color, true);
     } else {
       hex.setAttribute("aria-invalid", "true");
     }

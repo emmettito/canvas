@@ -71,3 +71,20 @@ test("dragging text's side wraps it", async ({ page }) => {
   const after = (await text.boundingBox())!;
   expect(after.height).toBeGreaterThan(before.height * 1.5);
 });
+
+test("picking a color while typing colors plain text", async ({ page }) => {
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await page.mouse.click(400, 300);
+  await page.getByRole("button", { name: "Color: black" }).click();
+  await page.getByRole("button", { name: "blue", exact: true }).click();
+  await page.keyboard.type("Blue");
+  await page.keyboard.press("Escape");
+
+  await expect(page.locator(".canvas-text")).toHaveCSS(
+    "color",
+    "rgb(44, 113, 255)"
+  );
+  // It's kept, as part of the text box.
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(page.locator(".canvas-text")).toHaveCount(0);
+});

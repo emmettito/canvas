@@ -596,7 +596,12 @@ export class CanvasToolbar {
     if (control.action === "color") {
       const button = createButton("canvas-toolbar-button");
       button.append(this.#colorSwatch);
-      button.addEventListener("click", () => this.#togglePopover("color"));
+      // Pressing it leaves focus in text being typed, which it colors.
+      button.addEventListener("mousedown", (event) => event.preventDefault());
+      button.addEventListener("click", (event) =>
+        // A click from the keyboard has no `detail`, and moves focus in.
+        this.#togglePopover("color", event.detail === 0)
+      );
       return button;
     }
     if (control.action === "background") {
@@ -677,7 +682,9 @@ export class CanvasToolbar {
     this.update(this.#state);
   }
 
-  #togglePopover(popover: ToolbarPopover): void {
+  // `takesFocus` is false to leave focus where it is, e.g. in text being
+  // typed, when it's opened with the pointer.
+  #togglePopover(popover: ToolbarPopover, takesFocus = true): void {
     const wasOpen = this.#openPopover === popover;
     this.#closePopover();
     if (wasOpen) {
@@ -687,8 +694,11 @@ export class CanvasToolbar {
     this.#hideTooltip();
     this.update(this.#state);
     const [opener, content] = this.#getPopover(popover);
-    this.#removePopover = showPopover(opener, content, () =>
-      this.#closePopover()
+    this.#removePopover = showPopover(
+      opener,
+      content,
+      () => this.#closePopover(),
+      takesFocus
     );
     document.addEventListener("pointerdown", this.#onDocumentPointerDown);
   }
@@ -809,7 +819,7 @@ export class CanvasToolbar {
   }
 
   #createColorOptions(): HTMLDivElement {
-    return createColorPicker({
+    const picker = createColorPicker({
       swatches: COLORS.map((color) => ({
         label: getColorName(color),
         value: color,
@@ -819,6 +829,9 @@ export class CanvasToolbar {
       recent: this.#state.recentColors,
       onPick: (value) => this.#onColorClick(value as ToolColor),
     });
+    // Typing a color code here doesn't stop typing text, which it colors.
+    picker.dataset.canvasKeepsTyping = "";
+    return picker;
   }
 
   #createBackgroundOptions(): HTMLDivElement {

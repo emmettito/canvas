@@ -150,7 +150,8 @@ tool is picked:
 - Click it, or press Tab to reach it, then Delete or Backspace to delete it.
 
 **Text**: with `text` picked, clicking the canvas starts text there, in the
-pencil's color, at the size picked by clicking `text` again. Text is as wide
+pencil's color, at the size picked by clicking `text` again. Until it's typed
+in, it shows "Text", and is wide enough to click. Text is as wide
 as its longest line, with Enter for a new line, until a side is dragged, which
 sets the width it wraps at. Resizing only resizes the box, never the text, and
 the box can't be made shorter than its text.
@@ -175,8 +176,11 @@ exports include them unchanged.
 
 `color` picks the pencil's color, which text uses too, or new notes' while
 `note` is picked. Besides the palette, any color can be picked with the
-browser's color picker, or typed as hex, e.g. `#ff8800`. Custom colors are
-offered again under Recent. Where the browser can, e.g. Chrome and Edge,
+browser's color picker, or typed as any solid CSS color, e.g. `#ff8800`,
+`orange` or `hsl(30 100% 50%)`, which is kept as hex. One that's the
+palette's, e.g. `red`, is the palette's. Custom colors are offered again under
+Recent. While text or a note is being typed in, `color` colors the text too,
+and typing carries on. Where the browser can, e.g. Chrome and Edge,
 "Pick from screen" picks a color from anywhere on screen.
 
 `dropper` picks a color from the drawing, wherever it's clicked, including

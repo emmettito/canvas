@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
 
 // Types a custom color into the open color picker.
 async function typeHex(page: Page, hex: string) {
-  const field = page.getByRole("textbox", { name: "Hex color" });
+  const field = page.getByRole("textbox", { name: "Color code" });
   await field.fill(hex);
   await field.press("Enter");
 }
@@ -73,12 +73,45 @@ test("a hex that isn't a color isn't used", async ({ page }) => {
   await typeHex(page, "#12345");
 
   await expect(
-    page.getByRole("textbox", { name: "Hex color" })
+    page.getByRole("textbox", { name: "Color code" })
   ).toHaveAttribute("aria-invalid", "true");
   await page.keyboard.press("Escape");
   await expect(
     page.getByRole("button", { name: "Color: black" })
   ).toBeVisible();
+});
+
+test("any CSS color can be typed, and a palette one stays the palette's", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Color: black" }).click();
+  await typeHex(page, "rebeccapurple");
+  await expect(
+    page.getByRole("button", { name: "Color: #663399" })
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Color: #663399" }).click();
+  await typeHex(page, "hsl(120 100% 25%)");
+  await expect(
+    page.getByRole("button", { name: "Color: #008000" })
+  ).toBeVisible();
+
+  // The palette's own red.
+  await page.getByRole("button", { name: "Color: #008000" }).click();
+  await typeHex(page, "red");
+  await expect(page.getByRole("button", { name: "Color: red" })).toBeVisible();
+});
+
+test("colors that can be seen through, or aren't colors, aren't used", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Color: black" }).click();
+  for (const value of ["transparent", "rgb(0 0 0 / 50%)", "inherit"]) {
+    await typeHex(page, value);
+    await expect(
+      page.getByRole("textbox", { name: "Color code" })
+    ).toHaveAttribute("aria-invalid", "true");
+  }
 });
 
 test("the browser's color picker picks a custom color", async ({ page }) => {
@@ -214,8 +247,8 @@ test("text can be any color, which is offered again", async ({ page }) => {
   const bar = page.getByRole("toolbar", { name: "Text formatting" });
 
   await bar.getByRole("button", { name: "Text color" }).click();
-  await bar.getByRole("textbox", { name: "Hex color" }).fill("#7c3aed");
-  await bar.getByRole("textbox", { name: "Hex color" }).press("Enter");
+  await bar.getByRole("textbox", { name: "Color code" }).fill("#7c3aed");
+  await bar.getByRole("textbox", { name: "Color code" }).press("Enter");
   // Still typing.
   await expect(bar).toBeVisible();
   await page.keyboard.press("Escape");

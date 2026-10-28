@@ -319,3 +319,43 @@ test("a selection with mixed formatting shows none", async ({ page }) => {
     );
   }
 });
+
+test("an empty text box shows a hint, and is wide enough to find", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await page.mouse.click(400, 300);
+
+  const text = page.locator(".canvas-text");
+  await expect(text).toHaveAttribute("data-empty");
+  // Four characters wide, at the 24-unit default.
+  expect((await text.boundingBox())!.width).toBeGreaterThanOrEqual(96);
+
+  await page.keyboard.type("Hi");
+  await expect(text).not.toHaveAttribute("data-empty");
+});
+
+test("picking a color while typing colors the text, and typing goes on", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await page.mouse.click(400, 300);
+
+  // From the toolbar, before typing anything.
+  await page.getByRole("button", { name: "Color: black" }).click();
+  await page.getByRole("button", { name: "red", exact: true }).click();
+  await page.keyboard.type("Red ");
+
+  // A color code typed in, too.
+  await page.getByRole("button", { name: "Color: red" }).click();
+  const code = page.getByRole("textbox", { name: "Color code" });
+  await code.fill("#0000ff");
+  await code.press("Enter");
+  await page.keyboard.type("blue");
+  await page.keyboard.press("Escape");
+
+  const spans = getTexts(page).locator("[data-color]");
+  await expect(spans).toHaveText(["Red ", "blue"]);
+  await expect(spans.first()).toHaveCSS("color", "rgb(255, 0, 0)");
+  await expect(spans.last()).toHaveCSS("color", "rgb(0, 0, 255)");
+});

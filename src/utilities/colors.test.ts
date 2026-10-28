@@ -6,6 +6,7 @@ import {
   isDarkColor,
   isToolColor,
   parseColor,
+  readCssColor,
   toHex,
 } from "./colors";
 
@@ -48,5 +49,15 @@ describe("colors", () => {
     }
     expect(recent).toHaveLength(8);
     expect(addRecentColor([], "#ABCDEF")).toEqual(["#abcdef"]);
+  });
+
+  // Without a browser canvas, only hex can be read. The browser tests cover
+  // names and other CSS colors.
+  it("reads a typed color as hex, with or without its #", () => {
+    expect(readCssColor(" #FF8800 ")).toBe("#ff8800");
+    expect(readCssColor("ff8800")).toBe("#ff8800");
+    expect(readCssColor("")).toBeNull();
+    expect(readCssColor("inherit")).toBeNull();
+    expect(readCssColor("nope")).toBeNull();
   });
 });

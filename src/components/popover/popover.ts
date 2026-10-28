@@ -12,7 +12,8 @@ const VIEWPORT_MARGIN = 8;
 export function showPopover(
   opener: HTMLElement,
   content: Node,
-  onClose: () => void
+  onClose: () => void,
+  takesFocus = true
 ): () => void {
   const popover = createElement("div", "canvas-popover");
   popover.append(content);
@@ -30,12 +31,14 @@ export function showPopover(
   popover.style.setProperty("--popover-shift", `${shift}px`);
 
   // Move focus inside, preferring the selected option, so keyboard users can
-  // reach the controls.
+  // reach the controls. Some leave it where it is, e.g. in text being typed.
   const target =
     popover.querySelector<HTMLElement>(
       '[aria-pressed="true"], input[type="radio"]:checked'
     ) ?? popover.querySelector<HTMLElement>("button:not(:disabled), input");
-  target?.focus();
+  if (takesFocus) {
+    target?.focus();
+  }
 
   popover.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") {
