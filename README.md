@@ -18,8 +18,8 @@ Import the stylesheet once and mount the canvas in an element. The canvas fills
 the element, so give it a size.
 
 ```ts
-import { mountCanvas } from "canvas";
-import "canvas/styles.css";
+import { mountCanvas } from "@emmettito/canvas";
+import "@emmettito/canvas/styles.css";
 
 const canvas = mountCanvas(document.getElementById("drawing")!);
 
@@ -93,3 +93,7 @@ npx playwright install
 - [x] Add modularization so it can be used in other projects
 - [ ] Other canvas tools (eg. paint brushes & a ruler)
 - [ ] Paint bucket
+
+## License
+
+[MIT](LICENSE)
