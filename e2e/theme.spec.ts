@@ -7,21 +7,21 @@ test("follows the system setting until the toggle is used", async ({
 }) => {
   await page.emulateMedia({ colorScheme: "dark" });
   await page.goto("/");
-  const toggle = page.getByRole("button", { name: "Dark mode" });
+  const toggle = page.getByRole("switch", { name: "Dark mode" });
 
   await expect(html(page)).toHaveAttribute("data-theme", "dark");
-  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(toggle).toBeChecked();
 
   await page.emulateMedia({ colorScheme: "light" });
   await expect(html(page)).toHaveAttribute("data-theme", "light");
-  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(toggle).not.toBeChecked();
 });
 
 test("remembers the toggle over the system setting", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Dark mode" }).click();
+  await page.getByRole("switch", { name: "Dark mode" }).click();
   await expect(html(page)).toHaveAttribute("data-theme", "dark");
 
   await page.reload();

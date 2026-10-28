@@ -33,7 +33,7 @@ function getSystemTheme(): Theme {
 export function setUpThemeToggle(toggle: HTMLButtonElement): void {
   const applyTheme = (theme: Theme) => {
     document.documentElement.dataset.theme = theme;
-    toggle.setAttribute("aria-pressed", String(theme === "dark"));
+    toggle.setAttribute("aria-checked", String(theme === "dark"));
   };
 
   applyTheme(getSavedTheme() ?? getSystemTheme());
