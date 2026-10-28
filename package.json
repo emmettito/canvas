@@ -1,7 +1,8 @@
 {
-  "name": "canvas",
+  "name": "@emmettito/canvas",
   "private": true,
   "version": "0.0.0",
+  "license": "MIT",
   "type": "module",
   "files": [
     "dist"
@@ -15,6 +16,9 @@
       "default": "./dist/canvas.js"
     },
     "./styles.css": "./dist/canvas.css"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "dev": "vite",
