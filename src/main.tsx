@@ -1,10 +1,10 @@
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
-import Canvas from './components/canvas/canvas';
-import './index.css';
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { CanvasWrapper } from "./components/canvas-wrapper/canvas-wrapper";
+import "./index.scss";
 
-createRoot(document.getElementById('root')!).render(
+createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Canvas />
-  </StrictMode>,
-)
+    <CanvasWrapper />
+  </StrictMode>
+);

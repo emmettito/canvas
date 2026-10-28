@@ -1,0 +1,21 @@
+body {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  font-family: system-ui, sans-serif;
+  touch-action: manipulation;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  row-gap: 30px;
+  flex: 1;
+  min-height: 0;
+  padding: 30px;
+  background-color: #eee;
+}

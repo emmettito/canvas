@@ -1,0 +1,16 @@
+.canvas-wrapper {
+  flex: 1;
+  line-height: 0;
+  width: 100%;
+  max-width: 1000px;
+  position: relative;
+  overflow: hidden;
+  cursor: none;
+  box-sizing: border-box;
+  box-shadow: 0 0 3px #ccc;
+  background-color: white;
+  // Lets touch input draw instead of scrolling or zooming the page.
+  touch-action: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}

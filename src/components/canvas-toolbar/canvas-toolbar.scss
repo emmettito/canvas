@@ -1,0 +1,115 @@
+$button-size: 30px;
+$button-background: #d3d3d3;
+
+.canvas-toolbar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  user-select: none;
+}
+
+.canvas-toolbar-item {
+  position: relative;
+}
+
+.canvas-toolbar-button {
+  position: relative;
+  height: $button-size;
+  min-width: $button-size;
+  padding: 0 14px;
+  border: none;
+  border-radius: $button-size * 0.5;
+  box-shadow: 0 0 3px #ccc;
+  background-color: $button-background;
+  color: #333;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+
+  &[aria-pressed="true"] {
+    background-color: #333;
+    color: white;
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  img {
+    display: block;
+    width: 14px;
+    height: 14px;
+  }
+}
+
+.icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: $button-size;
+  padding: 0;
+}
+
+.color-ring {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  bottom: 3px;
+  left: 3px;
+  border: 2px solid;
+  border-radius: 50%;
+}
+
+.color-swatch {
+  display: grid;
+  grid-template-columns: repeat(5, 40px);
+  gap: 10px;
+}
+
+.color-option {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+
+  .color-ring {
+    border-width: 3px;
+  }
+}
+
+.tool-size-slider {
+  appearance: none;
+  width: 200px;
+  height: 10px;
+  margin: 5px;
+  border-radius: 5px;
+  background: $button-background;
+  outline: none;
+  cursor: pointer;
+
+  @mixin thumb {
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 50%;
+    background: white;
+    box-shadow: 0 0 3px #ccc;
+    cursor: grab;
+  }
+
+  &::-webkit-slider-thumb {
+    appearance: none;
+    @include thumb;
+  }
+
+  &::-moz-range-thumb {
+    @include thumb;
+  }
+}
