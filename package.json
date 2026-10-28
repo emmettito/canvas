@@ -23,6 +23,7 @@
     "lint": "oxlint --deny-warnings",
     "typecheck": "tsc -b",
     "preview": "vite preview --outDir dist-demo",
+    "prepublishOnly": "node -e \"console.error('Publishing to npm is disabled for now.'); process.exit(1)\"",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "test": "vitest run",
