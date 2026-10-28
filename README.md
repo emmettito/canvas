@@ -3,6 +3,8 @@
 A simple art canvas with no dependencies. Draw with a pencil or eraser, pick
 from a color palette, adjust the size of each tool, and undo or redo strokes.
 
+**[Try the live demo](https://emmettito.github.io/canvas/)**
+
 ## Using it in another project
 
 Build the library, then install it in the other project. It works with any
@@ -99,7 +101,6 @@ Source** to **GitHub Actions** in the repository.
 
 ## To-do list
 
-- [x] Add modularization so it can be used in other projects
 - [ ] Other canvas tools (eg. paint brushes & a ruler)
 - [ ] Paint bucket
 
