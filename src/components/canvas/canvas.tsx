@@ -14,6 +14,20 @@ interface CanvasProps {
   onStrokeComplete: (stroke: Stroke) => void;
 }
 
+// What is currently drawn on the canvas.
+interface Painted {
+  height: number;
+  width: number;
+  strokes: Stroke[];
+}
+
+function startsWith(strokes: Stroke[], prefix: Stroke[]): boolean {
+  return (
+    prefix.length <= strokes.length &&
+    prefix.every((stroke, index) => stroke === strokes[index])
+  );
+}
+
 export function Canvas({
   height,
   width,
@@ -24,26 +38,49 @@ export function Canvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
   // The stroke being drawn is kept out of state so moves don't re-render.
-  const strokeRef = useRef<Stroke>(null);
+  const strokeRef = useRef<Stroke | null>(null);
+  const paintedRef = useRef<Painted | null>(null);
 
-  // Resizing clears the canvas, so everything is redrawn on any change.
   useEffect(() => {
-    if (height === undefined || width === undefined) {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) {
       return;
     }
-    const canvas = canvasRef.current;
-    const context = canvas.getContext("2d");
+    const painted = paintedRef.current;
+    paintedRef.current = { height, width, strokes };
+
+    // Strokes that were only added, e.g. by redo, can be drawn on top.
+    if (
+      painted &&
+      painted.height === height &&
+      painted.width === width &&
+      startsWith(strokes, painted.strokes)
+    ) {
+      for (const stroke of strokes.slice(painted.strokes.length)) {
+        drawStroke(context, stroke);
+      }
+      return;
+    }
+
+    // Resizing clears the canvas, so everything is redrawn.
     // Scale canvas for HD
     const scale = window.devicePixelRatio || 1;
-    canvas.width = width * scale;
-    canvas.height = height * scale;
+    canvas.width = Math.round(width * scale);
+    canvas.height = Math.round(height * scale);
     canvas.style.width = width + "px";
     canvas.style.height = height + "px";
     context.scale(scale, scale);
     for (const stroke of strokes) {
       drawStroke(context, stroke);
     }
+    // Keep a stroke in progress, e.g. if the window resizes mid-stroke.
+    if (strokeRef.current) {
+      drawStroke(context, strokeRef.current);
+    }
   }, [height, width, strokes]);
+
+  const getContext = () => canvasRef.current?.getContext("2d");
 
   const getPoint = (event: PointerEvent<HTMLDivElement>): Point => {
     const { left, top } = event.currentTarget.getBoundingClientRect();
@@ -52,6 +89,9 @@ export function Canvas({
 
   const moveCursor = (event: PointerEvent<HTMLDivElement>) => {
     const cursor = cursorRef.current;
+    if (!cursor) {
+      return;
+    }
     // Touch and pen have no hover position, so the cursor only follows a mouse.
     if (event.pointerType !== "mouse") {
       cursor.style.visibility = "hidden";
@@ -67,7 +107,8 @@ export function Canvas({
   };
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (!event.isPrimary || event.button !== 0) {
+    const context = getContext();
+    if (!context || !event.isPrimary || event.button !== 0) {
       return;
     }
     // Capture keeps the stroke going if the pointer leaves the canvas.
@@ -80,7 +121,7 @@ export function Canvas({
       points: [getPoint(event)],
       size: toolState.size,
     };
-    drawStroke(canvasRef.current.getContext("2d"), strokeRef.current);
+    drawStroke(context, strokeRef.current);
   };
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
@@ -89,15 +130,12 @@ export function Canvas({
     }
     moveCursor(event);
     const stroke = strokeRef.current;
-    if (!stroke) {
+    const context = getContext();
+    if (!stroke || !context) {
       return;
     }
     stroke.points.push(getPoint(event));
-    drawStroke(
-      canvasRef.current.getContext("2d"),
-      stroke,
-      stroke.points.length - 2
-    );
+    drawStroke(context, stroke, stroke.points.length - 2);
   };
 
   const onPointerUp = (event: PointerEvent<HTMLDivElement>) => {
@@ -106,16 +144,26 @@ export function Canvas({
       return;
     }
     strokeRef.current = null;
+    // The stroke is already drawn, so it shouldn't be drawn again once added.
+    const painted = paintedRef.current;
+    if (painted) {
+      paintedRef.current = {
+        ...painted,
+        strokes: [...painted.strokes, stroke],
+      };
+    }
     onStrokeComplete(stroke);
   };
 
   const onPointerLeave = () => {
-    cursorRef.current.style.visibility = "hidden";
+    if (cursorRef.current) {
+      cursorRef.current.style.visibility = "hidden";
+    }
   };
 
   return (
     <>
-      {/* The interface layer is used for compatibility when tracking a mouse pointer. */}
+      {/* The interface layer sits above the canvas and handles all pointer input. */}
       <div
         className="absolute inset-0 z-1"
         onPointerDown={onPointerDown}

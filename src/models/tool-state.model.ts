@@ -1,5 +1,7 @@
+import { type Color } from "./color.model";
+
 export interface ToolState {
-  // A CSS variable name from `COLORS`. An undefined color erases.
-  color?: string;
+  // An undefined color erases.
+  color?: Color;
   size: number;
 }

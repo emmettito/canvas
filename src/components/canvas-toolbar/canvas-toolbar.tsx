@@ -5,6 +5,7 @@ import { MIN_TOOL_SIZE } from "../../constants/min-tool-size.const";
 import { TOOLS } from "../../constants/tools.const";
 import redoIcon from "../../images/redo.svg";
 import undoIcon from "../../images/undo.svg";
+import { type Color } from "../../models/color.model";
 import { type ToolState } from "../../models/tool-state.model";
 import { type Tool } from "../../models/tool.model";
 import { Popover } from "../popover/popover";
@@ -29,14 +30,14 @@ interface CanvasToolbarProps {
 }
 
 // The selection ring needs to stand out against the color it sits on.
-function getRingColor(color: string): string {
+function getRingColor(color: Color): string {
   return color === "--color-white"
     ? "var(--color-ring-on-light)"
     : "var(--color-ring)";
 }
 
 // e.g. "--color-red" becomes "red".
-function getColorName(color: string): string {
+function getColorName(color: Color): string {
   return color.replace("--color-", "");
 }
 
@@ -51,8 +52,10 @@ export function CanvasToolbar({
   onUpdateTool,
 }: CanvasToolbarProps): JSX.Element {
   const toolbarRef = useRef<HTMLDivElement>(null);
-  const [openPopover, setOpenPopover] = useState<ToolbarPopover>(null);
-  const pencilColor = tools.pencil.color;
+  const [openPopover, setOpenPopover] = useState<ToolbarPopover | null>(null);
+  // The pencil always has a color. The fallback only satisfies the type.
+  const pencilColor = tools.pencil.color ?? COLORS[0];
+  const closePopover = () => setOpenPopover(null);
 
   // Close the open popover on any press outside the toolbar, e.g. on the canvas.
   useEffect(() => {
@@ -60,7 +63,7 @@ export function CanvasToolbar({
       return;
     }
     const onPointerDown = (event: PointerEvent) => {
-      if (!toolbarRef.current.contains(event.target as Node)) {
+      if (!toolbarRef.current?.contains(event.target as Node)) {
         setOpenPopover(null);
       }
     };
@@ -82,7 +85,7 @@ export function CanvasToolbar({
     }
   };
 
-  const onColorClick = (color: string) => {
+  const onColorClick = (color: Color) => {
     onUpdateTool("pencil", { color });
     onSelectTool("pencil");
     setOpenPopover(null);
@@ -115,12 +118,13 @@ export function CanvasToolbar({
           <button
             className="toolbar-button"
             aria-pressed={tool === activeTool}
+            aria-expanded={openPopover === tool}
             onClick={() => onToolClick(tool)}
           >
             {TOOL_LABELS[tool]}
           </button>
           {openPopover === tool && (
-            <Popover>
+            <Popover onClose={closePopover}>
               <input
                 className="tool-size-slider"
                 type="range"
@@ -140,7 +144,8 @@ export function CanvasToolbar({
       <div className="relative">
         <button
           className="toolbar-button toolbar-icon-button"
-          aria-label="Color"
+          aria-label={`Color: ${getColorName(pencilColor)}`}
+          aria-expanded={openPopover === "color"}
           style={{ backgroundColor: `var(${pencilColor})` }}
           onClick={() => togglePopover("color")}
         >
@@ -150,7 +155,7 @@ export function CanvasToolbar({
           />
         </button>
         {openPopover === "color" && (
-          <Popover>
+          <Popover onClose={closePopover}>
             <div className="grid grid-cols-[repeat(5,40px)] gap-10">
               {COLORS.map((color) => (
                 <button

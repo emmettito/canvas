@@ -15,4 +15,4 @@ export const COLORS = [
   "--color-yellow",
   "--color-lime",
   "--color-green",
-];
+] as const;

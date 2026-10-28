@@ -10,7 +10,8 @@
     line-height: 0;
     border-radius: 20px;
     background: var(--color-popover);
-    transform: translateX(-50%);
+    /* Set by the component to keep the popover inside the viewport. */
+    transform: translateX(calc(-50% + var(--popover-shift, 0px)));
 
     &::after {
       content: "";
@@ -20,7 +21,7 @@
       border-top: var(--arrow-size) solid var(--color-popover);
       border-right: var(--arrow-size) solid transparent;
       border-left: var(--arrow-size) solid transparent;
-      transform: translateX(-50%);
+      transform: translateX(calc(-50% - var(--popover-shift, 0px)));
     }
   }
 }
