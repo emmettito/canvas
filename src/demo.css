@@ -1,4 +1,35 @@
 /* The demo page, laid out like a host page would be. */
+:root {
+  --demo-color-surface: #eeeeee;
+  --demo-color-control: #d3d3d3;
+  --demo-color-control-text: #333333;
+  --demo-color-accent: #2c71ff;
+
+  color-scheme: light;
+}
+
+/*
+ * Set by the theme toggle. The drawing surface stays white, so only the page
+ * and the controls around it change, through the library's variables.
+ */
+:root[data-theme="dark"] {
+  --demo-color-surface: #1e1e1e;
+  --demo-color-control: #3a3a3a;
+  --demo-color-control-text: #e6e6e6;
+
+  color-scheme: dark;
+
+  .canvas-root {
+    --canvas-color-control: #3a3a3a;
+    --canvas-color-control-text: #e6e6e6;
+    --canvas-color-control-active-text: #1e1e1e;
+    --canvas-color-control-thumb: #e6e6e6;
+    /* Darker than the controls, so the size slider stands out on it. */
+    --canvas-color-popover: rgb(8 8 8 / 0.9);
+    --canvas-shadow-control: 0 0 3px rgb(0 0 0 / 0.6);
+  }
+}
+
 body {
   display: flex;
   flex-direction: column;
@@ -6,7 +37,75 @@ body {
   margin: 0;
   overflow: hidden;
   font-family: system-ui, sans-serif;
+  background-color: var(--demo-color-surface);
   touch-action: manipulation;
+}
+
+.demo-header {
+  display: flex;
+  justify-content: flex-end;
+  padding: 15px 30px 0;
+}
+
+.demo-theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--demo-color-control-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--demo-color-accent);
+    outline-offset: 4px;
+    border-radius: 4px;
+  }
+}
+
+.demo-switch-track {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background-color: var(--demo-color-control);
+  transition: background-color 150ms;
+
+  /* The knob. */
+  &::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background-color: #ffffff;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+    transition: transform 150ms;
+  }
+
+  /*
+   * Follows the theme rather than `aria-checked`, which is only set once the
+   * script runs, so the knob doesn't slide across when a dark page loads.
+   */
+  :root[data-theme="dark"] & {
+    background-color: var(--demo-color-accent);
+
+    &::after {
+      transform: translateX(16px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &,
+    &::after {
+      transition: none;
+    }
+  }
 }
 
 #root {
@@ -14,5 +113,4 @@ body {
   flex: 1;
   min-height: 0;
   padding: 30px;
-  background-color: #eeeeee;
 }

@@ -5,8 +5,32 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Canvas Demo</title>
+    <script>
+      // Set before the first paint so the page doesn't flash the wrong theme.
+      // `src/theme.ts` keeps it up to date after that.
+      let savedTheme = null;
+      try {
+        savedTheme = localStorage.getItem("theme");
+      } catch {
+        // Storage can be unavailable, e.g. in some private windows.
+      }
+      document.documentElement.dataset.theme =
+        savedTheme ??
+        (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    </script>
   </head>
   <body>
+    <header class="demo-header">
+      <button
+        class="demo-theme-toggle"
+        type="button"
+        role="switch"
+        aria-checked="false"
+      >
+        <span class="demo-switch-track" aria-hidden="true"></span>
+        Dark mode
+      </button>
+    </header>
     <div id="root"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
