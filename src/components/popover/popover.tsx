@@ -50,7 +50,12 @@ export function Popover({ children, onClose }: PopoverProps): JSX.Element {
     }
     // Strict mode runs this twice, and focus is already inside the second time.
     if (!popover.contains(document.activeElement)) {
-      openerRef.current = document.activeElement;
+      // Safari doesn't focus buttons on click, so fall back to the button the
+      // popover is anchored to.
+      openerRef.current =
+        document.activeElement === document.body
+          ? (popover.parentElement?.querySelector(":scope > button") ?? null)
+          : document.activeElement;
     }
     const target =
       popover.querySelector<HTMLElement>('[aria-pressed="true"]') ??
