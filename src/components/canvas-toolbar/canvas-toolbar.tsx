@@ -3,8 +3,6 @@ import { COLORS } from "../../constants/colors.const";
 import { MAX_TOOL_SIZE } from "../../constants/max-tool-size.const";
 import { MIN_TOOL_SIZE } from "../../constants/min-tool-size.const";
 import { TOOLS } from "../../constants/tools.const";
-import redoIcon from "../../images/redo.svg";
-import undoIcon from "../../images/undo.svg";
 import { type Color } from "../../models/color.model";
 import { type ToolState } from "../../models/tool-state.model";
 import { type Tool } from "../../models/tool.model";
@@ -96,21 +94,11 @@ export function CanvasToolbar({
       className="flex flex-wrap items-center justify-center gap-20 select-none"
       ref={toolbarRef}
     >
-      <button
-        className="toolbar-button toolbar-icon-button"
-        aria-label="Undo"
-        disabled={!canUndo}
-        onClick={onUndo}
-      >
-        <img className="size-14" src={undoIcon} alt="" />
+      <button className="toolbar-button" disabled={!canUndo} onClick={onUndo}>
+        Undo
       </button>
-      <button
-        className="toolbar-button toolbar-icon-button"
-        aria-label="Redo"
-        disabled={!canRedo}
-        onClick={onRedo}
-      >
-        <img className="size-14" src={redoIcon} alt="" />
+      <button className="toolbar-button" disabled={!canRedo} onClick={onRedo}>
+        Redo
       </button>
 
       {TOOLS.map((tool) => (
