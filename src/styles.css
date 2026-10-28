@@ -1,0 +1,65 @@
+/*
+ * The variables and reset shared by every component. They're loaded on pages
+ * we don't control, so:
+ * - They're scoped to `.canvas-root`, so nothing applies to the rest of the
+ *   page.
+ * - They're in a layer, so an unlayered rule on the host page can change a
+ *   variable. Component styles aren't layered, so the host page's element
+ *   styles, e.g. `button {}`, don't override them.
+ */
+@layer canvas {
+  .canvas-root {
+    --canvas-color-canvas: #ffffff;
+    --canvas-color-cursor: rgb(0 0 0 / 0.25);
+    --canvas-color-control: #d3d3d3;
+    --canvas-color-control-text: #333333;
+    --canvas-color-control-active-text: #ffffff;
+    --canvas-color-control-thumb: #ffffff;
+    --canvas-color-popover: rgb(0 0 0 / 0.85);
+    --canvas-color-ring: #ffffff;
+    /* Used in place of the ring color on light swatches. */
+    --canvas-color-ring-on-light: #cccccc;
+
+    --canvas-shadow-control: 0 0 3px #cccccc;
+
+    /* Drawing colors offered in the color swatch. */
+    --canvas-color-black: #000000;
+    --canvas-color-gray: #cacccd;
+    --canvas-color-white: #ffffff;
+    --canvas-color-cyan: #00daff;
+    --canvas-color-blue: #2c71ff;
+    --canvas-color-purple: #9453e8;
+    --canvas-color-magenta: #ca37e0;
+    --canvas-color-pink: #ea4c8e;
+    --canvas-color-red: #ff0000;
+    --canvas-color-orange: #ff6500;
+    --canvas-color-amber: #ffab00;
+    --canvas-color-gold: #ffcc00;
+    --canvas-color-yellow: #fcfd00;
+    --canvas-color-lime: #cff00e;
+    --canvas-color-green: #7cd460;
+
+    /* Reset browser defaults the component doesn't want. */
+    &,
+    & *,
+    & ::before,
+    & ::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      border: 0 solid;
+    }
+
+    & button,
+    & input {
+      font: inherit;
+      color: inherit;
+      background-color: transparent;
+      border-radius: 0;
+    }
+
+    & canvas {
+      display: block;
+    }
+  }
+}

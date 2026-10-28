@@ -1,84 +1,102 @@
-@layer components {
-  .toolbar-button {
-    position: relative;
-    height: 30px;
-    min-width: 30px;
-    padding: 0 14px;
-    border-radius: 15px;
-    background-color: var(--color-control);
-    box-shadow: var(--shadow-control);
-    color: var(--color-control-text);
-    font-size: 13px;
-    cursor: pointer;
+.canvas-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  user-select: none;
+}
 
-    &[aria-pressed="true"] {
-      background-color: var(--color-control-text);
-      color: var(--color-control-active-text);
-    }
+/* Popovers are positioned against the item that holds their button. */
+.canvas-toolbar-item {
+  position: relative;
+}
 
-    &:disabled {
-      opacity: 0.4;
-      cursor: default;
-    }
+.canvas-toolbar-button {
+  position: relative;
+  height: 30px;
+  min-width: 30px;
+  padding: 0 14px;
+  border-radius: 15px;
+  background-color: var(--canvas-color-control);
+  box-shadow: var(--canvas-shadow-control);
+  color: var(--canvas-color-control-text);
+  font-size: 13px;
+  cursor: pointer;
+
+  &[aria-pressed="true"] {
+    background-color: var(--canvas-color-control-text);
+    color: var(--canvas-color-control-active-text);
   }
 
-  .toolbar-icon-button {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    padding: 0;
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
+}
 
-  .color-option {
-    position: relative;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    cursor: pointer;
+.canvas-toolbar-icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  padding: 0;
+}
+
+.canvas-color-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 40px);
+  gap: 10px;
+}
+
+.canvas-color-option {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+/* Border color is set inline to contrast with the color underneath. */
+.canvas-color-ring {
+  position: absolute;
+  inset: 3px;
+  border: 2px solid;
+  border-radius: 50%;
+
+  .canvas-color-option & {
+    border-width: 3px;
   }
+}
 
-  /* Border color is set inline to contrast with the color underneath. */
-  .color-ring {
-    position: absolute;
-    inset: 3px;
-    border: 2px solid;
-    border-radius: 50%;
+.canvas-tool-size-slider {
+  appearance: none;
+  width: 200px;
+  height: 10px;
+  margin: 5px;
+  border-radius: 5px;
+  background: var(--canvas-color-control);
+  outline: none;
+  cursor: pointer;
 
-    .color-option & {
-      border-width: 3px;
-    }
-  }
-
-  .tool-size-slider {
+  /* Separate rules: browsers drop a whole rule with a selector they don't recognize. */
+  &::-webkit-slider-thumb {
     appearance: none;
-    width: 200px;
-    height: 10px;
-    margin: 5px;
-    border-radius: 5px;
-    background: var(--color-control);
-    outline: none;
-    cursor: pointer;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--canvas-color-control-thumb);
+    box-shadow: var(--canvas-shadow-control);
+    cursor: grab;
+  }
 
-    /* Separate rules: browsers drop a whole rule with a selector they don't recognize. */
-    &::-webkit-slider-thumb {
-      appearance: none;
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      background: var(--color-control-thumb);
-      box-shadow: var(--shadow-control);
-      cursor: grab;
-    }
-
-    &::-moz-range-thumb {
-      width: 20px;
-      height: 20px;
-      border: none;
-      border-radius: 50%;
-      background: var(--color-control-thumb);
-      box-shadow: var(--shadow-control);
-      cursor: grab;
-    }
+  &::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 50%;
+    background: var(--canvas-color-control-thumb);
+    box-shadow: var(--canvas-shadow-control);
+    cursor: grab;
   }
 }

@@ -32,14 +32,14 @@ export interface CanvasToolbarActions {
 
 // The selection ring needs to stand out against the color it sits on.
 function getRingColor(color: Color): string {
-  return color === "--color-white"
-    ? "var(--color-ring-on-light)"
-    : "var(--color-ring)";
+  return color === "--canvas-color-white"
+    ? "var(--canvas-color-ring-on-light)"
+    : "var(--canvas-color-ring)";
 }
 
-// e.g. "--color-red" becomes "red".
+// e.g. "--canvas-color-red" becomes "red".
 function getColorName(color: Color): string {
-  return color.replace("--color-", "");
+  return color.replace("--canvas-color-", "");
 }
 
 // Buttons default to submitting a form, e.g. if the host mounts the canvas in one.
@@ -50,7 +50,7 @@ function createButton(className: string): HTMLButtonElement {
 }
 
 function createColorRing(color: Color): HTMLSpanElement {
-  const ring = createElement("span", "color-ring");
+  const ring = createElement("span", "canvas-color-ring");
   ring.style.borderColor = getRingColor(color);
   return ring;
 }
@@ -61,20 +61,19 @@ function getPencilColor(state: CanvasToolbarState): Color {
 }
 
 export class CanvasToolbar {
-  readonly element = createElement(
-    "div",
-    "flex flex-wrap items-center justify-center gap-20 select-none"
-  );
+  readonly element = createElement("div", "canvas-toolbar");
   #state: CanvasToolbarState;
   #actions: CanvasToolbarActions;
-  #undoButton = createButton("toolbar-button");
-  #redoButton = createButton("toolbar-button");
+  #undoButton = createButton("canvas-toolbar-button");
+  #redoButton = createButton("canvas-toolbar-button");
   #toolButtons: Record<Tool, HTMLButtonElement> = {
-    eraser: createButton("toolbar-button"),
-    pencil: createButton("toolbar-button"),
+    eraser: createButton("canvas-toolbar-button"),
+    pencil: createButton("canvas-toolbar-button"),
   };
-  #colorButton = createButton("toolbar-button toolbar-icon-button");
-  #colorRing = createElement("span", "color-ring");
+  #colorButton = createButton(
+    "canvas-toolbar-button canvas-toolbar-icon-button"
+  );
+  #colorRing = createElement("span", "canvas-color-ring");
   #openPopover: ToolbarPopover | null = null;
   #removePopover: (() => void) | null = null;
 
@@ -92,7 +91,7 @@ export class CanvasToolbar {
       const button = this.#toolButtons[tool];
       button.textContent = TOOL_LABELS[tool];
       button.addEventListener("click", () => this.#onToolClick(tool));
-      const anchor = createElement("div", "relative");
+      const anchor = createElement("div", "canvas-toolbar-item");
       anchor.append(button);
       this.element.append(anchor);
     }
@@ -101,7 +100,7 @@ export class CanvasToolbar {
     this.#colorButton.addEventListener("click", () =>
       this.#togglePopover("color")
     );
-    const colorAnchor = createElement("div", "relative");
+    const colorAnchor = createElement("div", "canvas-toolbar-item");
     colorAnchor.append(this.#colorButton);
     this.element.append(colorAnchor);
 
@@ -191,7 +190,7 @@ export class CanvasToolbar {
   }
 
   #createSizeSlider(tool: Tool): HTMLInputElement {
-    const slider = createElement("input", "tool-size-slider");
+    const slider = createElement("input", "canvas-tool-size-slider");
     slider.type = "range";
     slider.setAttribute("aria-label", `${TOOL_LABELS[tool]} size`);
     slider.min = String(MIN_TOOL_SIZE);
@@ -205,9 +204,9 @@ export class CanvasToolbar {
 
   #createColorOptions(): HTMLDivElement {
     const pencilColor = getPencilColor(this.#state);
-    const grid = createElement("div", "grid grid-cols-[repeat(5,40px)] gap-10");
+    const grid = createElement("div", "canvas-color-grid");
     for (const color of COLORS) {
-      const option = createButton("color-option");
+      const option = createButton("canvas-color-option");
       option.setAttribute("aria-label", getColorName(color));
       option.setAttribute("aria-pressed", String(color === pencilColor));
       option.style.backgroundColor = `var(${color})`;

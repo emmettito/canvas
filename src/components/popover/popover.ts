@@ -14,7 +14,7 @@ export function showPopover(
   content: Node,
   onClose: () => void
 ): () => void {
-  const popover = createElement("div", "popover");
+  const popover = createElement("div", "canvas-popover");
   popover.append(content);
   opener.after(popover);
 

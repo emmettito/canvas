@@ -23,8 +23,8 @@ function startsWith(strokes: Stroke[], prefix: Stroke[]): boolean {
 /** The drawing surface. Strokes are drawn with the current tool. */
 export class Canvas {
   // The interface layer sits above the canvas and handles all pointer input.
-  #interfaceLayer = createElement("div", "absolute inset-0 z-1");
-  #canvas = createElement("canvas", "absolute top-0 left-0");
+  #interfaceLayer = createElement("div", "canvas-input-layer");
+  #canvas = createElement("canvas", "canvas-drawing");
   #cursor = createElement("div", "canvas-cursor");
   #height = 0;
   #width = 0;
@@ -147,7 +147,10 @@ export class Canvas {
     // Capture keeps the stroke going if the pointer leaves the canvas.
     this.#interfaceLayer.setPointerCapture(event.pointerId);
     this.#stroke = {
-      color: color === undefined ? undefined : getCssVariable(color),
+      color:
+        color === undefined
+          ? undefined
+          : getCssVariable(this.#interfaceLayer, color),
       points: [this.#getPoint(event)],
       size,
     };

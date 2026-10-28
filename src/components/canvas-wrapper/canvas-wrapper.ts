@@ -36,14 +36,8 @@ export function mountCanvas(container: HTMLElement): MountedCanvas {
   };
   const history = new DrawingHistory();
 
-  const root = createElement(
-    "div",
-    "canvas-root flex size-full min-h-0 flex-col items-center gap-y-30"
-  );
-  const canvasWrapper = createElement(
-    "div",
-    "canvas-wrapper w-full max-w-1000 flex-1"
-  );
+  const root = createElement("div", "canvas-root");
+  const canvasWrapper = createElement("div", "canvas-wrapper");
   const canvas = new Canvas(canvasWrapper, tools[activeTool], (stroke) => {
     history.addStroke(stroke);
     update();
