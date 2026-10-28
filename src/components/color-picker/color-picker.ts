@@ -102,7 +102,7 @@ export function createColorPicker({
   const hex = createElement("input", "canvas-text-input canvas-color-hex");
   hex.type = "text";
   hex.value = isCustomColor(selected) ? selected : "";
-  hex.placeholder = "#ff8800 or orange";
+  hex.placeholder = "Hex or name";
   hex.spellcheck = false;
   hex.setAttribute("aria-label", "Color code");
   hex.addEventListener("keydown", (event) => {

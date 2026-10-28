@@ -59,7 +59,12 @@
   width: 0;
   flex: 1;
   min-width: 80px;
-  font-family: ui-monospace, Menlo, Consolas, monospace;
+
+  /* A code lines up in monospace. The hint is in the page's font, which
+   * fits it. */
+  &:not(:placeholder-shown) {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
 
   &[aria-invalid="true"] {
     border-color: var(--canvas-color-danger);
