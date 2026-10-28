@@ -5,5 +5,7 @@ import { mountCanvas } from "./index";
 // enough: `sideEffects` in package.json lets the build skip that file, along
 // with its own import of the styles.
 import "./styles.css";
+import { setUpThemeToggle } from "./theme";
 
+setUpThemeToggle(document.querySelector(".demo-theme-toggle")!);
 mountCanvas(document.getElementById("root")!);

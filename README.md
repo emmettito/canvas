@@ -88,6 +88,11 @@ once before the first run:
 npx playwright install
 ```
 
+## Demo page
+
+`npm run dev` serves the demo page. It follows the system's light or dark mode
+until you use its toggle, then remembers your choice.
+
 ## To-do list
 
 - [x] Add modularization so it can be used in other projects
