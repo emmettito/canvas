@@ -1,5 +1,5 @@
+// The demo page, which uses the library the way another project would.
 import "./demo.css";
-import "./styles.css";
-import { mountCanvas } from "./components/canvas-wrapper/canvas-wrapper";
+import { mountCanvas } from "./index";
 
 mountCanvas(document.getElementById("root")!);

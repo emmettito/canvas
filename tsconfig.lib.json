@@ -1,0 +1,15 @@
+{
+  // Emits type declarations for the library. Type-checking is done by
+  // `tsconfig.app.json`.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.lib.tsbuildinfo",
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "./dist/types",
+    "rootDir": "./src"
+  },
+  "include": ["src"],
+  "exclude": ["src/main.ts", "src/**/*.test.ts"]
+}

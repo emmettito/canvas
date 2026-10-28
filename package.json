@@ -3,12 +3,26 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "files": [
+    "dist"
+  ],
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/canvas.js"
+    },
+    "./styles.css": "./dist/canvas.css"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && tsc -p tsconfig.lib.json && node scripts/strip-css-imports.ts",
+    "build:demo": "tsc -b && vite build --mode demo",
     "lint": "oxlint --deny-warnings",
     "typecheck": "tsc -b",
-    "preview": "vite preview",
+    "preview": "vite preview --outDir dist-demo",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "test": "vitest run",
