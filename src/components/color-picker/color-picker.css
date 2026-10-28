@@ -1,0 +1,71 @@
+.canvas-color-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.canvas-color-heading {
+  padding: 4px 6px 0;
+  color: var(--canvas-color-text-muted);
+  font-size: 12px;
+}
+
+/* A custom color: the browser's picker, as a swatch, and its hex. */
+.canvas-color-custom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border-top: 1px solid var(--canvas-color-border);
+}
+
+.canvas-color-input {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  /* A rainbow, so it reads as "any color". */
+  background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red);
+  box-shadow: inset 0 0 0 1px var(--canvas-color-swatch-outline);
+  cursor: pointer;
+
+  /* The browser's own swatch is hidden, so the rainbow shows. Each
+   * browser's is its own rule, since one it doesn't know would drop the
+   * whole rule. */
+  &::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+
+  &::-webkit-color-swatch {
+    border: 0;
+    opacity: 0;
+  }
+
+  &::-moz-color-swatch {
+    border: 0;
+    opacity: 0;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--canvas-color-accent);
+    outline-offset: 2px;
+  }
+}
+
+.canvas-color-hex {
+  width: 0;
+  flex: 1;
+  min-width: 80px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+
+  &[aria-invalid="true"] {
+    border-color: var(--canvas-color-danger);
+  }
+}
+
+.canvas-color-screen {
+  flex: 1 0 100%;
+}

@@ -14,60 +14,36 @@
 }
 
 /*
- * Set by the theme picker, through the library's variables. The drawing is
- * shown inverted, with its hues turned back, so white is near black and black
- * near white but colors stay themselves. Exports keep its own colors.
+ * Set by the theme picker, through the library's variables. Dark is true
+ * black, which OLED screens show by turning the pixels off. Shadows don't show
+ * on black, so borders separate things. New canvases start black too, but
+ * each canvas keeps its own background, whatever the theme.
  */
-:root:is([data-theme="dark"], [data-theme="oled"]) {
-  --demo-color-surface: #0d0e10;
-  --demo-color-dialog: #18191b;
-  --demo-color-border: #2a2b2f;
+:root[data-theme="dark"] {
+  --demo-color-surface: #000000;
+  --demo-color-dialog: #000000;
+  --demo-color-border: #26272b;
   --demo-color-text: #ececee;
   --demo-color-text-muted: #8b8d93;
   --demo-color-hover: rgb(255 255 255 / 0.06);
-  --demo-shadow: 0 16px 48px rgb(0 0 0 / 0.5), 0 2px 6px rgb(0 0 0 / 0.3);
+  --demo-shadow: none;
 
   color-scheme: dark;
 
   .canvas-root {
-    --canvas-color-surface: #18191b;
-    --canvas-color-border: #2a2b2f;
+    --canvas-color-canvas: #000000;
+    --canvas-color-surface: #000000;
+    --canvas-color-border: #26272b;
     --canvas-color-text: #ececee;
     --canvas-color-text-muted: #8b8d93;
     --canvas-color-hover: rgb(255 255 255 / 0.06);
     --canvas-color-selected: rgb(255 255 255 / 0.1);
     /* Lighter than the toolbar, so it stands out against it. */
-    --canvas-color-tooltip: #2e2f34;
+    --canvas-color-tooltip: #1f2023;
     --canvas-color-tooltip-text: #ececee;
     /* Keeps black visible against the toolbar. */
     --canvas-color-swatch-outline: rgb(255 255 255 / 0.25);
-    /* Short of a full invert, so white is a soft black. */
-    --canvas-drawing-filter: invert(93%) hue-rotate(180deg);
-    /* Inverting images again keeps photos close to their own colors. */
-    --canvas-image-filter: invert(100%) hue-rotate(180deg);
-    /* The filter would turn notes' shadows into glows. */
-    --canvas-note-shadow: none;
-    --canvas-shadow: 0 4px 16px rgb(0 0 0 / 0.4), 0 1px 2px rgb(0 0 0 / 0.3);
-  }
-}
-
-/*
- * Dark, with true black behind everything, which OLED screens show by turning
- * the pixels off. Shadows don't show on black, so borders separate things.
- */
-:root[data-theme="oled"] {
-  --demo-color-surface: #000000;
-  --demo-color-dialog: #000000;
-  --demo-color-border: #26272b;
-  --demo-shadow: none;
-
-  .canvas-root {
-    --canvas-color-surface: #000000;
-    --canvas-color-border: #26272b;
-    --canvas-color-tooltip: #1f2023;
     --canvas-shadow: none;
-    /* A full invert, so white is true black. */
-    --canvas-drawing-filter: invert(100%) hue-rotate(180deg);
   }
 }
 
@@ -238,20 +214,13 @@ body {
   }
 
   &[data-preview="dark"] {
-    --preview-surface: #0d0e10;
-    --preview-toolbar: #18191b;
-    --preview-border: #2a2b2f;
-  }
-
-  &[data-preview="oled"] {
     --preview-surface: #000000;
     --preview-toolbar: #000000;
     --preview-border: #26272b;
   }
 
-  /* Half light, half dark. */
   &[data-preview="system"] {
-    --preview-surface: linear-gradient(135deg, #f4f4f5 50%, #0d0e10 50%);
+    --preview-surface: linear-gradient(135deg, #f4f4f5 50%, #000000 50%);
     --preview-toolbar: linear-gradient(135deg, #ffffff 50%, #18191b 50%);
     --preview-border: #8b8d93;
   }

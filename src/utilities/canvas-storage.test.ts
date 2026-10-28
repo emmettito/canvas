@@ -13,8 +13,9 @@ const SETTINGS: ToolSettings = {
     eraser: { color: undefined, size: 20 },
     pencil: { color: "--canvas-color-red", size: 10 },
   },
-  noteColor: "--canvas-color-pink",
+  noteColor: "#ff8800",
   textSize: 32,
+  recentColors: ["#ff8800", "#123456"],
 };
 
 const STROKES: Stroke[] = [
@@ -182,12 +183,12 @@ describe("CanvasStorage", () => {
     expect(new CanvasStorage("test").loadCanvases()).toEqual([CANVASES[0]]);
   });
 
-  it("ignores a pencil color that isn't in the palette", () => {
+  it("ignores a pencil color that's neither the palette's nor hex", () => {
     localStorage.setItem(
       "test:settings",
       JSON.stringify({
         ...SETTINGS,
-        tools: { ...SETTINGS.tools, pencil: { color: "#123456", size: 10 } },
+        tools: { ...SETTINGS.tools, pencil: { color: "tomato", size: 10 } },
       })
     );
 
@@ -230,13 +231,19 @@ describe("CanvasStorage export options", () => {
   });
 
   it("gives settings saved before notes and text their defaults", () => {
-    const { noteColor: _, textSize: __, ...older } = SETTINGS;
+    const {
+      noteColor: _,
+      textSize: __,
+      recentColors: ___,
+      ...older
+    } = SETTINGS;
     localStorage.setItem("test:settings", JSON.stringify(older));
 
     expect(new CanvasStorage("test").loadToolSettings()).toEqual({
       ...older,
       noteColor: "--canvas-color-yellow",
       textSize: 24,
+      recentColors: [],
     });
   });
 
@@ -298,5 +305,54 @@ describe("CanvasStorage export options", () => {
     );
 
     expect(new CanvasStorage("test").loadViewport("a")).toBeNull();
+  });
+
+  it("keeps custom colors, and leaves out ones that aren't", () => {
+    localStorage.setItem(
+      "test:settings",
+      JSON.stringify({
+        ...SETTINGS,
+        tools: {
+          ...SETTINGS.tools,
+          pencil: { color: "#abcdef", size: 10 },
+        },
+        recentColors: ["#abcdef", "red", 5],
+      })
+    );
+
+    const settings = new CanvasStorage("test").loadToolSettings()!;
+    expect(settings.tools.pencil.color).toBe("#abcdef");
+    expect(settings.recentColors).toEqual(["#abcdef"]);
+  });
+
+  it("doesn't reopen with the dropper, which is only picked for a moment", () => {
+    localStorage.setItem(
+      "test:settings",
+      JSON.stringify({ ...SETTINGS, activeTool: "dropper" })
+    );
+
+    expect(new CanvasStorage("test").loadToolSettings()?.activeTool).toBe(
+      "pencil"
+    );
+  });
+
+  it("restores each canvas's background, and deletes it with the canvas", () => {
+    const storage = new CanvasStorage("test");
+
+    storage.saveBackground("a", "#1f2023");
+    expect(new CanvasStorage("test").loadBackground("a")).toBe("#1f2023");
+    expect(storage.loadBackground("b")).toBeNull();
+
+    storage.deleteCanvas("a");
+    expect(storage.loadBackground("a")).toBeNull();
+  });
+
+  it("ignores a background that isn't a color", () => {
+    localStorage.setItem(
+      "test:canvas:a:background",
+      JSON.stringify("url(evil.png)")
+    );
+
+    expect(new CanvasStorage("test").loadBackground("a")).toBeNull();
   });
 });

@@ -9,7 +9,7 @@ import { TOOLBAR_ACTIONS } from "../../constants/toolbar-actions.const";
 import { TOOLS } from "../../constants/tools.const";
 import { UNTITLED_NAME } from "../../constants/untitled-name.const";
 import { type CanvasEntry } from "../../models/canvas-entry.model";
-import { type Color } from "../../models/color.model";
+import { type CustomColor, type ToolColor } from "../../models/color.model";
 import {
   type ExportFormat,
   type ExportOptions,
@@ -25,7 +25,9 @@ import {
 import { type ToolState } from "../../models/tool-state.model";
 import { type StrokeTool, type Tool } from "../../models/tool.model";
 import { createElement } from "../../utilities/create-element";
+import { getColorName, isCustomColor } from "../../utilities/colors";
 import { canExportAt, getExportSize } from "../../utilities/export-drawing";
+import { createColorPicker } from "../color-picker/color-picker";
 import { showPopover } from "../popover/popover";
 import "./canvas-toolbar.css";
 
@@ -40,8 +42,9 @@ export type ToolbarPosition = "top" | "bottom";
 
 // Each tool with a size has a slider for it.
 type ToolbarPopover =
-  | Exclude<Tool, "note">
+  | SizedTool
   | "color"
+  | "background"
   | "zoom"
   | "file-menu"
   | "history"
@@ -59,6 +62,7 @@ const ACTION_LABELS: Record<ToolbarAction, string> = {
   pencil: "Pencil",
   eraser: "Eraser",
   note: "Sticky note",
+  dropper: "Dropper",
   text: "Text",
   image: "Insert image",
 };
@@ -77,7 +81,19 @@ const EXPORT_FORMAT_LABELS: Record<ExportFormat, string> = {
   svg: "SVG",
 };
 
-const TOOL_LABELS: Record<Exclude<Tool, "note">, string> = {
+// The tools with a size, which clicking them again picks.
+type SizedTool = Exclude<Tool, "note" | "dropper">;
+
+// Backgrounds offered for the canvas. Any other can be picked too.
+const BACKGROUNDS = [
+  { label: "White", value: "#ffffff" },
+  { label: "Paper", value: "#fdf6e3" },
+  { label: "Gray", value: "#e7e5e4" },
+  { label: "Charcoal", value: "#1f2023" },
+  { label: "Black", value: "#000000" },
+];
+
+const TOOL_LABELS: Record<SizedTool, string> = {
   eraser: ACTION_LABELS.eraser,
   pencil: ACTION_LABELS.pencil,
   text: ACTION_LABELS.text,
@@ -93,6 +109,7 @@ const ANCHORED: ControlName[] = [
   "text",
   "color",
   "zoom",
+  "background",
   "file-menu",
 ];
 
@@ -121,7 +138,14 @@ const ZOOM_ITEMS: { action: ZoomAction; label: string; hint: string }[] = [
 export interface CanvasToolbarState {
   activeTool: Tool;
   tools: Record<StrokeTool, ToolState>;
-  noteColor: Color;
+  noteColor: ToolColor;
+  // Which color the color control picks: the pencil's, which text uses too,
+  // or new notes'.
+  colorTarget: "pencil" | "note";
+  // Custom colors picked, most recent first.
+  recentColors: CustomColor[];
+  // The canvas's background.
+  background: string;
   textSize: number;
   canUndo: boolean;
   canRedo: boolean;
@@ -152,7 +176,9 @@ export interface CanvasToolbarActions {
   onExport: (options: ExportOptions) => void;
   onSelectTool: (tool: Tool) => void;
   onUpdateTool: (tool: StrokeTool, values: Partial<ToolState>) => void;
-  onUpdateNoteColor: (color: Color) => void;
+  onUpdateNoteColor: (color: ToolColor) => void;
+  // `custom` is true for a color picked outside the offered backgrounds.
+  onSetBackground: (color: string, custom: boolean) => void;
   onUpdateTextSize: (size: number) => void;
   onInsertImage: () => void;
   onZoom: (action: ZoomAction) => void;
@@ -177,6 +203,7 @@ export function validateToolbar(groups: ToolbarControl[][]): void {
       !isButton &&
       action !== "color" &&
       action !== "zoom" &&
+      action !== "background" &&
       action !== "file-menu" &&
       action !== "custom"
     ) {
@@ -223,9 +250,9 @@ export function getToolbarActions(groups: ToolbarControl[][]): ActionName[] {
     );
 }
 
-// e.g. "--canvas-color-red" becomes "red".
-function getColorName(color: Color): string {
-  return color.replace("--canvas-color-", "");
+// A CSS color to show a tool's color with.
+function toCss(color: ToolColor): string {
+  return isCustomColor(color) ? color : `var(${color})`;
 }
 
 // Buttons default to submitting a form, e.g. if the host mounts the canvas in one.
@@ -301,14 +328,21 @@ function createSegmented(
   return field;
 }
 
-// What the color control shows and changes: the note color while adding
-// notes, and the pencil's otherwise, which text is in too. The pencil always has a color. The
-// fallback only satisfies the type.
-function getColor(state: CanvasToolbarState): Color {
-  if (state.activeTool === "note") {
+// What the color control shows and changes. The pencil always has a color.
+// The fallback only satisfies the type.
+function getColor(state: CanvasToolbarState): ToolColor {
+  if (state.colorTarget === "note") {
     return state.noteColor;
   }
   return state.tools.pencil.color ?? COLORS[0];
+}
+
+// What a background's called: its name if it's offered, or its hex.
+function getBackgroundName(color: string): string {
+  return (
+    BACKGROUNDS.find(({ value }) => value === color.toLowerCase())?.label ??
+    color
+  );
 }
 
 /** The controls the host page asked for, in the groups it listed them in. */
@@ -318,6 +352,10 @@ export class CanvasToolbar {
   #actions: CanvasToolbarActions;
   #buttons: Partial<Record<ControlName, HTMLButtonElement>> = {};
   #colorSwatch = createElement("span", "canvas-color-swatch");
+  #backgroundSwatch = createElement(
+    "span",
+    "canvas-color-swatch canvas-background-swatch"
+  );
   #fileMenuItems: FileMenuItem[] = [];
   #openPopover: ToolbarPopover | null = null;
   #removePopover: (() => void) | null = null;
@@ -418,7 +456,16 @@ export class CanvasToolbar {
       colorButton.setAttribute("aria-label", label);
       colorButton.dataset.tooltip = label;
       expanded(colorButton, this.#openPopover === "color");
-      this.#colorSwatch.style.backgroundColor = `var(${color})`;
+      this.#colorSwatch.style.backgroundColor = toCss(color);
+    }
+
+    const backgroundButton = buttons.background;
+    if (backgroundButton) {
+      const label = `Background: ${getBackgroundName(state.background)}`;
+      backgroundButton.setAttribute("aria-label", label);
+      backgroundButton.dataset.tooltip = label;
+      expanded(backgroundButton, this.#openPopover === "background");
+      this.#backgroundSwatch.style.backgroundColor = state.background;
     }
 
     const zoomButton = buttons.zoom;
@@ -552,6 +599,12 @@ export class CanvasToolbar {
       button.addEventListener("click", () => this.#togglePopover("color"));
       return button;
     }
+    if (control.action === "background") {
+      const button = createButton("canvas-toolbar-button");
+      button.append(this.#backgroundSwatch);
+      button.addEventListener("click", () => this.#togglePopover("background"));
+      return button;
+    }
     if (control.action === "zoom") {
       const button = createButton(
         "canvas-toolbar-button canvas-toolbar-text-button"
@@ -582,6 +635,7 @@ export class CanvasToolbar {
       eraser: () => this.#onToolClick("eraser"),
       note: () => this.#onToolClick("note"),
       text: () => this.#onToolClick("text"),
+      dropper: () => this.#onToolClick("dropper"),
       image: () => {
         this.#closePopover();
         actions.onInsertImage();
@@ -663,6 +717,8 @@ export class CanvasToolbar {
     switch (popover) {
       case "color":
         return [opener, this.#createColorOptions()];
+      case "background":
+        return [opener, this.#createBackgroundOptions()];
       case "zoom":
         return [
           opener,
@@ -699,10 +755,13 @@ export class CanvasToolbar {
     }
   }
 
-  // Clicking the active tool again opens its size slider. Notes have no size.
+  // Clicking the active tool again opens its size slider. Notes have no
+  // size, and the dropper goes back to the tool before it.
   #onToolClick(tool: Tool): void {
     if (tool === this.#state.activeTool) {
-      if (tool !== "note") {
+      if (tool === "dropper") {
+        this.#actions.onSelectTool(tool);
+      } else if (tool !== "note") {
         this.#togglePopover(tool);
       }
     } else {
@@ -712,9 +771,9 @@ export class CanvasToolbar {
   }
 
   // Picking a color while erasing goes back to the pencil.
-  #onColorClick(color: Color): void {
+  #onColorClick(color: ToolColor): void {
     this.#closePopover();
-    if (this.#state.activeTool === "note") {
+    if (this.#state.colorTarget === "note") {
       this.#actions.onUpdateNoteColor(color);
       return;
     }
@@ -725,7 +784,7 @@ export class CanvasToolbar {
   }
 
   // Text has a font size, and the pencil and eraser a stroke size.
-  #createSizeSlider(tool: Exclude<Tool, "note">): HTMLInputElement {
+  #createSizeSlider(tool: SizedTool): HTMLInputElement {
     const slider = createElement("input", "canvas-tool-size-slider");
     slider.type = "range";
     slider.setAttribute("aria-label", `${TOOL_LABELS[tool]} size`);
@@ -750,17 +809,32 @@ export class CanvasToolbar {
   }
 
   #createColorOptions(): HTMLDivElement {
-    const selected = getColor(this.#state);
-    const grid = createElement("div", "canvas-color-grid");
-    for (const color of COLORS) {
-      const option = createButton("canvas-color-option");
-      option.setAttribute("aria-label", getColorName(color));
-      option.setAttribute("aria-pressed", String(color === selected));
-      option.style.backgroundColor = `var(${color})`;
-      option.addEventListener("click", () => this.#onColorClick(color));
-      grid.append(option);
-    }
-    return grid;
+    return createColorPicker({
+      swatches: COLORS.map((color) => ({
+        label: getColorName(color),
+        value: color,
+        shown: toCss(color),
+      })),
+      selected: getColor(this.#state),
+      recent: this.#state.recentColors,
+      onPick: (value) => this.#onColorClick(value as ToolColor),
+    });
+  }
+
+  #createBackgroundOptions(): HTMLDivElement {
+    return createColorPicker({
+      swatches: BACKGROUNDS.map(({ label, value }) => ({
+        label,
+        value,
+        shown: value,
+      })),
+      selected: this.#state.background,
+      recent: this.#state.recentColors,
+      onPick: (value, custom) => {
+        this.#closePopover();
+        this.#actions.onSetBackground(value, custom);
+      },
+    });
   }
 
   // Choosing an item closes the menu. The selected one has a check mark.

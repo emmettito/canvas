@@ -70,6 +70,8 @@ mountCanvas(document.getElementById("drawing")!, {
 | `note`             | Add sticky notes                                  |
 | `image`            | Insert images from files                          |
 | `color`            | Pick the pencil's or notes' color (no icon)       |
+| `dropper`          | Pick a color from the drawing                     |
+| `background`       | Pick the canvas's background (no icon)            |
 | `zoom`             | Show the zoom, with a menu to change it (no icon) |
 | `file-menu`        | A File menu of file actions (no icon)             |
 | `custom`           | Your own text button, e.g. Settings (no icon)     |
@@ -168,6 +170,29 @@ pointer is over the canvas, or dropped onto it, where they're dropped. Each is
 scaled down to fit the canvas if it's bigger, and resizes from its corners,
 keeping its shape. Images are kept byte for byte, so nothing is lost, and SVG
 exports include them unchanged.
+
+### Colors
+
+`color` picks the pencil's color, which text uses too, or new notes' while
+`note` is picked. Besides the palette, any color can be picked with the
+browser's color picker, or typed as hex, e.g. `#ff8800`. Custom colors are
+offered again under Recent. Where the browser can, e.g. Chrome and Edge,
+"Pick from screen" picks a color from anywhere on screen.
+
+`dropper` picks a color from the drawing, wherever it's clicked, including
+images, notes and the background, then goes back to the tool before it. A
+color from the palette is kept as the palette's.
+
+Colors are kept as they're picked, whatever the theme.
+
+### Backgrounds
+
+Each canvas has its own background, which `background` picks, and exports
+keep. It's undone like any other change, and stays the same whatever the
+page's theme. A new canvas starts with `--canvas-color-canvas`, so a dark
+theme can start new canvases dark. When a canvas opens or its background
+changes, a black pencil turns white on a dark background, and white black on a
+light one, so it shows.
 
 ### Formatting text
 
@@ -272,7 +297,7 @@ isn't in a CSS layer:
 
 | Variable                        | Used for                                 |
 | ------------------------------- | ---------------------------------------- |
-| `--canvas-color-canvas`         | Drawing surface                          |
+| `--canvas-color-canvas`         | New canvases' background                 |
 | `--canvas-color-cursor`         | Tool size preview under the pointer      |
 | `--canvas-color-surface`        | Toolbar and menu background              |
 | `--canvas-color-border`         | Borders and dividers                     |
@@ -287,28 +312,11 @@ isn't in a CSS layer:
 | `--canvas-color-swatch-outline` | Outline around each color swatch         |
 | `--canvas-color-note-text`      | Text on sticky notes                     |
 | `--canvas-shadow`               | Shadow under toolbars, menus and notes   |
-| `--canvas-note-shadow`          | Shadow under notes, if not the above     |
-| `--canvas-drawing-filter`       | How the drawing is shown (see below)     |
-| `--canvas-image-filter`         | How images are shown (see below)         |
 
 The drawing colors are `--canvas-color-` followed by `black`, `gray`, `white`,
 `cyan`, `blue`, `purple`, `magenta`, `pink`, `red`, `orange`, `amber`, `gold`,
 `yellow`, `lime` and `green`. Changing one changes its swatch and new strokes in
 that color.
-
-Strokes and items keep the colors they were drawn in, so a dark theme doesn't
-change them. To show the drawing dark, set `--canvas-drawing-filter` to a CSS
-filter that inverts it, and `--canvas-image-filter` to one that inverts images
-back, so photos keep their colors. Exports aren't filtered, so they keep the
-drawing's own colors. The demo page does this:
-
-```css
-.canvas-root {
-  --canvas-drawing-filter: invert(93%) hue-rotate(180deg);
-  --canvas-image-filter: invert(100%) hue-rotate(180deg);
-  --canvas-note-shadow: none;
-}
-```
 
 ## Development
 
@@ -345,8 +353,8 @@ npx playwright install
 
 `npm run dev` serves the demo page, where the canvas fills the window, with
 formatted text. Its Settings dialog, beside the File menu, picks a theme:
-System, Light, Dark, or OLED, which is dark on true black, for the page, its
-toolbars and the drawing. System
+System, Light, or Dark, which is true black, for the page and its toolbars.
+New canvases start on the theme's background. System
 follows the system's light or dark mode, and is the default. The page
 remembers your choice. The dialog has a section per group of settings, so more
 can be added beside Appearance.

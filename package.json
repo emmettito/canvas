@@ -86,8 +86,5 @@
   },
   "allowScripts": {
     "fsevents": false
-  },
-  "overrides": {
-    "prosemirror-transform": "1.12.2"
   }
 }

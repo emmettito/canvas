@@ -24,24 +24,35 @@ test("remembers the chosen theme over the system setting", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/");
 
-  await chooseTheme(page, "OLED");
-  await expect(html(page)).toHaveAttribute("data-theme", "oled");
+  await chooseTheme(page, "Dark");
+  await expect(html(page)).toHaveAttribute("data-theme", "dark");
 
   await page.reload();
-  await expect(html(page)).toHaveAttribute("data-theme", "oled");
+  await expect(html(page)).toHaveAttribute("data-theme", "dark");
   await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.getByRole("radio", { name: "OLED" })).toBeChecked();
+  await expect(page.getByRole("radio", { name: "Dark" })).toBeChecked();
 
   // A saved choice wins over a system change.
   await page.emulateMedia({ colorScheme: "dark" });
   await page.emulateMedia({ colorScheme: "light" });
-  await expect(html(page)).toHaveAttribute("data-theme", "oled");
+  await expect(html(page)).toHaveAttribute("data-theme", "dark");
 
   // Choosing System follows it again.
   await page.getByRole("radio", { name: "System" }).check();
   await expect(html(page)).toHaveAttribute("data-theme", "light");
   await page.reload();
   await expect(html(page)).toHaveAttribute("data-theme", "light");
+});
+
+test("OLED, chosen before it became Dark, is Dark", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => localStorage.setItem("theme", "oled"));
+
+  await page.reload();
+
+  await expect(html(page)).toHaveAttribute("data-theme", "dark");
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("radio", { name: "Dark" })).toBeChecked();
 });
 
 test("the Settings dialog closes from its button, Escape or the backdrop", async ({
@@ -70,9 +81,9 @@ test("the Settings dialog closes from its button, Escape or the backdrop", async
   await expect(dialog).toBeHidden();
 });
 
-test("OLED mode puts the page and toolbars on true black", async ({ page }) => {
+test("Dark puts the page and toolbars on true black", async ({ page }) => {
   await page.goto("/");
-  await chooseTheme(page, "OLED");
+  await chooseTheme(page, "Dark");
 
   await expect(page.locator("body")).toHaveCSS(
     "background-color",
@@ -84,50 +95,43 @@ test("OLED mode puts the page and toolbars on true black", async ({ page }) => {
   );
 });
 
-test("shows the drawing dark in dark mode, but exports its own colors", async ({
+test("a new canvas in Dark starts black, with a white pencil", async ({
   page,
 }) => {
   await page.emulateMedia({ colorScheme: "dark" });
   await page.goto("/");
 
-  const surface = page.locator(".canvas-surface");
-  await expect(surface).toHaveCSS("filter", "invert(0.93) hue-rotate(180deg)");
-  // The drawing itself is still white, which exports use.
-  await expect(surface).toHaveCSS("background-color", "rgb(255, 255, 255)");
-  // The format bar and menus aren't filtered.
-  await expect(page.locator(".canvas-overlay")).toHaveCSS("filter", "none");
-  await expect(page.locator("body")).toHaveCSS(
+  await expect(page.locator(".canvas-surface")).toHaveCSS(
     "background-color",
-    "rgb(13, 14, 16)"
+    "rgb(0, 0, 0)"
   );
+  await expect(
+    page.getByRole("button", { name: "Color: white" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Background: Black" })
+  ).toBeVisible();
 });
 
-test("OLED mode shows the drawing on true black", async ({ page }) => {
+test("a canvas keeps its background when the theme changes", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/");
-  await page.evaluate(() => {
-    document.documentElement.dataset.theme = "oled";
-  });
+  // Drawn on, so it's kept.
+  const box = (await page.locator("canvas").boundingBox())!;
+  await page.mouse.click(box.x + 100, box.y + 100);
+
+  await chooseTheme(page, "Dark");
+  await page.keyboard.press("Escape");
 
   await expect(page.locator(".canvas-surface")).toHaveCSS(
-    "filter",
-    "invert(1) hue-rotate(180deg)"
+    "background-color",
+    "rgb(255, 255, 255)"
   );
-  // What's shown where nothing is drawn, as the screen shows it.
-  const pixel = await page.screenshot({
-    clip: { x: 600, y: 300, width: 1, height: 1 },
-  });
-  const color = await page.evaluate(
-    async (bytes) => {
-      const bitmap = await createImageBitmap(
-        new Blob([new Uint8Array(bytes)], { type: "image/png" })
-      );
-      const canvas = document.createElement("canvas");
-      canvas.width = canvas.height = 1;
-      const context = canvas.getContext("2d")!;
-      context.drawImage(bitmap, 0, 0);
-      return [...context.getImageData(0, 0, 1, 1).data];
-    },
-    [...pixel]
+  await page.reload();
+  await expect(page.locator(".canvas-surface")).toHaveCSS(
+    "background-color",
+    "rgb(255, 255, 255)"
   );
-  expect(color).toEqual([0, 0, 0, 255]);
 });

@@ -29,15 +29,21 @@
   cursor: text;
 }
 
-/*
- * The drawing as it's shown. `--canvas-drawing-filter` changes how it looks
- * without changing it, e.g. to show it dark, so exports keep its colors.
- */
+/* The drawing, on its own background, which the canvas sets. */
 .canvas-surface {
   position: absolute;
   inset: 0;
-  background-color: var(--canvas-color-canvas);
-  filter: var(--canvas-drawing-filter, none);
+}
+
+/* The dropper picks from anything on the drawing. */
+.canvas-surface[data-picking],
+.canvas-surface[data-picking] * {
+  cursor: crosshair !important;
+}
+
+/* On a dark background, the tool's size shows light. */
+.canvas-surface[data-dark] .canvas-cursor {
+  background-color: rgb(255 255 255 / 0.25);
 }
 
 /* Moved and scaled by the zoom and pan, from its top left corner. */
@@ -57,7 +63,7 @@
   cursor: grabbing !important;
 }
 
-/* Over the drawing, unfiltered. Only its controls take pointer input. */
+/* Over the drawing. Only its controls take pointer input. */
 .canvas-overlay {
   position: absolute;
   inset: 0;
@@ -235,9 +241,14 @@
 
 .canvas-note {
   border-radius: var(--canvas-note-radius);
-  /* Its own, since a filter that darkens the drawing would make it glow. */
-  box-shadow: var(--canvas-note-shadow, var(--canvas-shadow));
+  box-shadow: var(--canvas-shadow);
   outline: 1px solid rgb(0 0 0 / 0.06);
+
+  /* A shadow doesn't show on a dark background, so an edge does. */
+  [data-dark] & {
+    box-shadow: none;
+    outline-color: rgb(255 255 255 / 0.2);
+  }
   color: var(--canvas-color-note-text);
 
   &[data-editing] {
@@ -285,11 +296,8 @@
   }
 }
 
-/* `--canvas-image-filter` can undo the drawing's filter, so photos keep their
- * colors in a dark theme. */
 .canvas-image-file {
   display: block;
-  filter: var(--canvas-image-filter, none);
   width: 100%;
   height: 100%;
   pointer-events: none;
@@ -380,6 +388,8 @@
 /* The palette opens below the color button. */
 .canvas-format-colors {
   position: absolute;
+  width: max-content;
+  padding: 4px;
   top: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);

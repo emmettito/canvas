@@ -4,7 +4,7 @@ import { RESIZE_HANDLES } from "../../constants/resize-handles.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
 import { ZOOM } from "../../constants/zoom.const";
 import { type Box } from "../../models/box.model";
-import { type Color } from "../../models/color.model";
+import { type CustomColor, type ToolColor } from "../../models/color.model";
 import {
   type Drawing,
   type DrawingItem,
@@ -27,7 +27,8 @@ import { type Viewport } from "../../models/viewport.model";
 import { createElement } from "../../utilities/create-element";
 import { createId } from "../../utilities/create-id";
 import { drawStroke } from "../../utilities/draw-stroke";
-import { exportDrawing } from "../../utilities/export-drawing";
+import { isDarkColor, resolveColor, toHex } from "../../utilities/colors";
+import { exportDrawing, renderDrawing } from "../../utilities/export-drawing";
 import { getCssVariable } from "../../utilities/get-css-variable";
 import { getNoteColor } from "../../utilities/lighten-color";
 import { resizeBox, resizeBoxKeepingShape } from "../../utilities/resize-box";
@@ -61,12 +62,16 @@ export interface CanvasOptions {
   createTextEditor: TextEditorFactory;
   // The canvas was zoomed or panned, e.g. by scrolling.
   onViewportChange: (viewport: Viewport) => void;
+  // The dropper picked a color from the drawing.
+  onPickColor: (color: CustomColor) => void;
+  // A custom color was picked in the format bar, to pick again.
+  onCustomColor: (color: CustomColor) => void;
 }
 
 /** What pressing the canvas places, instead of drawing. */
 export type Placing =
-  | { kind: "notes"; color: Color }
-  | { kind: "texts"; color: Color; fontSize: number };
+  | { kind: "notes"; color: ToolColor }
+  | { kind: "texts"; color: ToolColor; fontSize: number };
 
 // A note or text box, which is typed in.
 type TypedItem = PlacedItem & { content: RichText };
@@ -146,7 +151,7 @@ export class Canvas {
   #placesOnRelease = false;
   // The note or text being typed in, which the format bar formats.
   #editing: { kind: TypedKind; view: TypedView<TypedItem> } | null = null;
-  #formatBar = new FormatBar();
+  #formatBar = new FormatBar((color) => this.#options.onCustomColor(color));
   // An item's menu, while it's open.
   #menu: HTMLElement | null = null;
   #toolState: ToolState;
@@ -155,6 +160,9 @@ export class Canvas {
   #stroke: Stroke | null = null;
   #painted: Painted | null = null;
   #viewport: Viewport = DEFAULT_VIEWPORT;
+  #background = "#ffffff";
+  // Whether pressing the drawing picks a color from it, with the dropper.
+  #picking = false;
   // Dragging the drawing around, with the middle button or Space held.
   #pan: { pointerId: number; last: Point } | null = null;
   #spaceHeld = false;
@@ -217,6 +225,7 @@ export class Canvas {
     // Before the drawing and items get them, so panning and pinching don't
     // also draw or drag.
     surface.addEventListener("pointerdown", this.#onSurfaceDown, true);
+    surface.addEventListener("pointerdown", this.#onPick, true);
     surface.addEventListener("pointermove", this.#onSurfaceMove, true);
     surface.addEventListener("pointerup", this.#onSurfaceUp, true);
     surface.addEventListener("pointercancel", this.#onSurfaceUp, true);
@@ -248,6 +257,24 @@ export class Canvas {
 
   get viewport(): Viewport {
     return this.#viewport;
+  }
+
+  /** The color behind the drawing. On a dark one, its controls show light. */
+  setBackground(color: string): void {
+    this.#background = color;
+    this.#surface.style.backgroundColor = color;
+    this.#surface.toggleAttribute("data-dark", isDarkColor(color));
+  }
+
+  /** Whether pressing the drawing picks a color from it, with the dropper. */
+  setPicking(picking: boolean): void {
+    this.#picking = picking;
+    this.#surface.toggleAttribute("data-picking", picking);
+  }
+
+  /** Custom colors picked before, which the format bar offers again. */
+  setRecentColors(colors: CustomColor[]): void {
+    this.#formatBar.setRecentColors(colors);
   }
 
   /** Shows another part of the drawing, e.g. once a canvas is opened. */
@@ -355,11 +382,20 @@ export class Canvas {
    * from the screen, so its size doesn't depend on the screen's.
    */
   async export(options: ExportOptions): Promise<Blob | null> {
-    // The canvas color comes from CSS, so the drawing doesn't have it.
-    const background = getCssVariable(
-      this.#interfaceLayer,
-      "--canvas-color-canvas"
+    const { drawing, textStyle, files } = await this.#getRendering();
+    return exportDrawing(
+      drawing,
+      this.visibleArea,
+      options,
+      this.#background,
+      textStyle,
+      files
     );
+  }
+
+  // What drawing the drawing again needs: the drawing, how its text looks,
+  // which comes from CSS, and its images' files.
+  async #getRendering() {
     const textStyle = {
       noteColor: getCssVariable(
         this.#interfaceLayer,
@@ -368,6 +404,7 @@ export class Canvas {
       fontFamily: getComputedStyle(this.#items).fontFamily,
     };
     const drawing: Drawing = {
+      background: this.#background,
       strokes: this.#strokes,
       images: this.#layers.images.items,
       texts: this.#layers.texts.items,
@@ -380,15 +417,51 @@ export class Canvas {
         files.set(id, file);
       }
     }
-    return exportDrawing(
+    return { drawing, textStyle, files };
+  }
+
+  // The color of the drawing at `point`, as it's drawn, including images,
+  // notes and the background.
+  async #sampleColor(point: Point): Promise<CustomColor | null> {
+    const { drawing, textStyle, files } = await this.#getRendering();
+    // One pixel, at the screen's zoom, so it's the color that's seen.
+    const zoom = this.#viewport.zoom;
+    const size = 1 / zoom;
+    const image = await renderDrawing(
       drawing,
-      this.visibleArea,
-      options,
-      background,
+      {
+        x: point.x - size / 2,
+        y: point.y - size / 2,
+        width: size,
+        height: size,
+      },
+      zoom,
+      this.#background,
       textStyle,
       files
     );
+    const context = image?.getContext("2d");
+    if (!context) {
+      return null;
+    }
+    return toHex([...context.getImageData(0, 0, 1, 1).data]);
   }
+
+  // With the dropper, pressing anywhere on the drawing picks its color, even
+  // over an item, without drawing or dragging.
+  #onPick = (event: PointerEvent): void => {
+    if (!this.#picking || event.button !== 0 || !event.isPrimary) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const point = this.getDrawingPoint(event.clientX, event.clientY);
+    void this.#sampleColor(point).then((color) => {
+      if (color) {
+        this.#options.onPickColor(color);
+      }
+    });
+  };
 
   #paint(): void {
     const canvas = this.#canvas;
@@ -495,7 +568,7 @@ export class Canvas {
       color:
         color === undefined
           ? undefined
-          : getCssVariable(this.#interfaceLayer, color),
+          : resolveColor(this.#interfaceLayer, color),
       points: [this.#getPoint(event)],
       size,
     };
@@ -764,7 +837,7 @@ export class Canvas {
   // A note centered where the canvas was pressed, or text starting there,
   // ready to type in.
   #placeDraft(point: Point, placing: Placing): void {
-    const color = getCssVariable(this.#interfaceLayer, placing.color);
+    const color = resolveColor(this.#interfaceLayer, placing.color);
     if (placing.kind === "notes") {
       const { size } = NOTE_LAYOUT;
       const view = this.#layers.notes.addDraft({

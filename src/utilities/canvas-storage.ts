@@ -1,14 +1,13 @@
-import { COLORS } from "../constants/colors.const";
 import { DEFAULT_NOTE_COLOR } from "../constants/default-note-color.const";
 import { EXPORT_FORMATS } from "../constants/export-formats.const";
 import { EXPORT_SCALES } from "../constants/export-scales.const";
 import { ITEM_KINDS } from "../constants/item-kinds.const";
+import { MAX_RECENT_COLORS } from "../constants/recent-colors.const";
 import { MAX_TOOL_SIZE } from "../constants/max-tool-size.const";
 import { MIN_TOOL_SIZE } from "../constants/min-tool-size.const";
 import { TEXT_LAYOUT } from "../constants/text-layout.const";
 import { TOOLS } from "../constants/tools.const";
 import { type CanvasEntry } from "../models/canvas-entry.model";
-import { type Color } from "../models/color.model";
 import { type DrawingItem, type ItemKind } from "../models/drawing.model";
 import {
   type ExportFormat,
@@ -23,6 +22,7 @@ import { type TextBox } from "../models/text-box.model";
 import { type ToolSettings } from "../models/tool-settings.model";
 import { type Tool } from "../models/tool.model";
 import { type Viewport } from "../models/viewport.model";
+import { isCustomColor, isToolColor } from "./colors";
 import { fromPlainText, isRichText } from "./rich-text";
 import { clampZoom } from "./viewport";
 
@@ -140,6 +140,14 @@ const ITEM_READERS: {
   notes: readNote,
 };
 
+// A CSS color, as the canvas saves them: "#rrggbb" or "rgb(...)".
+function isBackground(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^(#[0-9a-f]{3,8}|rgba?\([\d.,\s%/]+\))$/i.test(value)
+  );
+}
+
 function isViewport(value: unknown): value is Viewport {
   return (
     isObject(value) &&
@@ -163,14 +171,15 @@ function isToolSize(value: unknown): value is number {
   return isNumber(value) && value >= MIN_TOOL_SIZE && value <= MAX_TOOL_SIZE;
 }
 
-// Settings saved before notes and text have no note color or text size, so
-// they're checked on their own.
+// Settings saved before notes, text and custom colors have no note color,
+// text size or recent colors, so they're checked on their own.
 function isToolSettings(value: unknown): value is Omit<
   ToolSettings,
-  "noteColor" | "textSize"
+  "noteColor" | "textSize" | "recentColors"
 > & {
   noteColor?: unknown;
   textSize?: unknown;
+  recentColors?: unknown;
 } {
   if (
     !isObject(value) ||
@@ -185,7 +194,7 @@ function isToolSettings(value: unknown): value is Omit<
     eraser.color === undefined &&
     isToolSize(eraser.size) &&
     isObject(pencil) &&
-    COLORS.includes(pencil.color as Color) &&
+    isToolColor(pencil.color) &&
     isToolSize(pencil.size)
   );
 }
@@ -282,14 +291,16 @@ export class CanvasStorage {
     if (!isToolSettings(settings)) {
       return null;
     }
-    const { activeTool, tools, noteColor, textSize } = settings;
+    const { activeTool, tools, noteColor, textSize, recentColors } = settings;
     return {
-      activeTool,
+      // The dropper is only picked for a moment, so it isn't kept.
+      activeTool: activeTool === "dropper" ? "pencil" : activeTool,
       tools,
-      noteColor: COLORS.includes(noteColor as Color)
-        ? (noteColor as Color)
-        : DEFAULT_NOTE_COLOR,
+      noteColor: isToolColor(noteColor) ? noteColor : DEFAULT_NOTE_COLOR,
       textSize: isTextSize(textSize) ? textSize : TEXT_LAYOUT.defaultSize,
+      recentColors: Array.isArray(recentColors)
+        ? recentColors.filter(isCustomColor).slice(0, MAX_RECENT_COLORS)
+        : [],
     };
   }
 
@@ -354,6 +365,19 @@ export class CanvasStorage {
     return this.#store.write(this.#canvasKey(id, kind), items);
   }
 
+  /**
+   * A canvas's background. Null if it has none, e.g. it was saved before
+   * canvases had their own.
+   */
+  loadBackground(id: string): string | null {
+    const background = this.#store.read(this.#canvasKey(id, "background"));
+    return isBackground(background) ? background : null;
+  }
+
+  saveBackground(id: string, background: string): boolean {
+    return this.#store.write(this.#canvasKey(id, "background"), background);
+  }
+
   /** Which part of a canvas was shown, and how big. */
   loadViewport(id: string): Viewport | null {
     const viewport = this.#store.read(this.#canvasKey(id, "viewport"));
@@ -369,12 +393,20 @@ export class CanvasStorage {
    * it from the history.
    */
   deleteCanvas(id: string): void {
-    for (const part of ["strokes", "viewport", ...ITEM_KINDS] as const) {
+    for (const part of [
+      "strokes",
+      "background",
+      "viewport",
+      ...ITEM_KINDS,
+    ] as const) {
       this.#store.remove(this.#canvasKey(id, part));
     }
   }
 
-  #canvasKey(id: string, part: "strokes" | "viewport" | ItemKind): string {
+  #canvasKey(
+    id: string,
+    part: "strokes" | "background" | "viewport" | ItemKind
+  ): string {
     return `${this.#key}:canvas:${id}:${part}`;
   }
 }

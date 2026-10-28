@@ -22,7 +22,7 @@ function createNote(id: string, text = "Note"): Note {
 }
 
 function createDrawing(strokes: Stroke[] = []): Drawing {
-  return { strokes, images: [], texts: [], notes: [] };
+  return { background: "#ffffff", strokes, images: [], texts: [], notes: [] };
 }
 
 function createHistory(strokes: Stroke[] = []): DrawingHistory {
@@ -206,5 +206,16 @@ describe("DrawingHistory", () => {
 
     history.undo();
     expect(history.drawing.texts).toHaveLength(1);
+  });
+
+  it("keeps the background when clearing", () => {
+    const history = new DrawingHistory({
+      ...createDrawing([createStroke(1)]),
+      background: "#000000",
+    });
+
+    history.clear();
+
+    expect(history.drawing.background).toBe("#000000");
   });
 });

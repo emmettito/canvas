@@ -6,6 +6,9 @@ import { type TextBox } from "./text-box.model";
 // One version of the drawing in the undo history. Images, text and notes are
 // above every stroke, so the eraser doesn't erase them.
 export interface Drawing {
+  // The color behind everything, e.g. "#ffffff". It's the drawing's own, so
+  // the page's theme doesn't change it, and exports keep it.
+  background: string;
   strokes: Stroke[];
   images: ImageItem[];
   texts: TextBox[];

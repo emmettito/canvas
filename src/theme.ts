@@ -1,10 +1,10 @@
-// What the page looks like. OLED is dark with true black, which turns those
-// pixels off on OLED screens.
-type Theme = "light" | "dark" | "oled";
+// What the page looks like. Dark is true black, which turns those pixels off
+// on OLED screens.
+type Theme = "light" | "dark";
 // What the user picked. "system" follows the system's light or dark mode.
 type ThemePreference = Theme | "system";
 
-const THEMES: Theme[] = ["light", "dark", "oled"];
+const THEMES: Theme[] = ["light", "dark"];
 const STORAGE_KEY = "theme";
 const darkQuery = matchMedia("(prefers-color-scheme: dark)");
 
@@ -12,6 +12,10 @@ const darkQuery = matchMedia("(prefers-color-scheme: dark)");
 function getSavedPreference(): ThemePreference {
   try {
     const theme = localStorage.getItem(STORAGE_KEY);
+    // OLED was a darker dark, before it became the only one.
+    if (theme === "oled") {
+      return "dark";
+    }
     return THEMES.includes(theme as Theme) ? (theme as Theme) : "system";
   } catch {
     // Storage can be unavailable, e.g. in some private windows.

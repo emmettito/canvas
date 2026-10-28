@@ -1,4 +1,4 @@
-import { type Color } from "./color.model";
+import { type CustomColor, type ToolColor } from "./color.model";
 import { type ToolState } from "./tool-state.model";
 import { type StrokeTool, type Tool } from "./tool.model";
 
@@ -7,7 +7,9 @@ export interface ToolSettings {
   activeTool: Tool;
   tools: Record<StrokeTool, ToolState>;
   // The color new sticky notes are a light shade of.
-  noteColor: Color;
+  noteColor: ToolColor;
+  // Custom colors picked, most recent first, to pick again.
+  recentColors: CustomColor[];
   // The font size of new text, in drawing units. It's in the pencil's color.
   textSize: number;
 }

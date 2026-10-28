@@ -1,3 +1,3 @@
 import { type Tool } from "../models/tool.model";
 
-export const TOOLS: Tool[] = ["pencil", "eraser", "note", "text"];
+export const TOOLS: Tool[] = ["pencil", "eraser", "note", "text", "dropper"];

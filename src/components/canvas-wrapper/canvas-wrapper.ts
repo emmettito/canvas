@@ -6,7 +6,7 @@ import { IMAGE_LAYOUT } from "../../constants/image-layout.const";
 import { ITEM_KINDS } from "../../constants/item-kinds.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
 import { type CanvasEntry } from "../../models/canvas-entry.model";
-import { type Color } from "../../models/color.model";
+import { type CustomColor, type ToolColor } from "../../models/color.model";
 import { type Drawing } from "../../models/drawing.model";
 import { type Point } from "../../models/point.model";
 import {
@@ -21,7 +21,16 @@ import { CanvasStorage } from "../../utilities/canvas-storage";
 import { createElement } from "../../utilities/create-element";
 import { createId } from "../../utilities/create-id";
 import { downloadBlob } from "../../utilities/download-blob";
+import {
+  addRecentColor,
+  isCustomColor,
+  isDarkColor,
+  parseColor,
+  resolveColor,
+  toHex,
+} from "../../utilities/colors";
 import { DrawingHistory } from "../../utilities/drawing-history";
+import { getCssVariable } from "../../utilities/get-css-variable";
 import { EXPORT_EXTENSIONS } from "../../utilities/export-drawing";
 import { getFileName } from "../../utilities/get-file-name";
 import { getImageSize } from "../../utilities/get-image-size";
@@ -46,6 +55,9 @@ function createEntry(): CanvasEntry {
 function isImage(file: File): boolean {
   return file.type.startsWith("image/");
 }
+
+// What canvases saved before they had their own background were drawn on.
+const LEGACY_BACKGROUND = "#ffffff";
 
 // How long scrolling or zooming has to pause before the view is saved, so
 // it isn't saved for every step.
@@ -154,12 +166,19 @@ export function mountCanvas(
   const hasHistory = getToolbarActions([...topControls, ...controls]).includes(
     "history"
   );
+  // In the page from the start, so its CSS can be read, e.g. the background
+  // new canvases start with.
+  const root = createElement("div", "canvas-root");
+  container.append(root);
   const storage = new CanvasStorage(storageKey);
   const imageStore = new ImageStore(storageKey);
   const saved = storage.loadToolSettings();
   let exportOptions = storage.loadExportOptions() ?? DEFAULT_EXPORT_OPTIONS;
   let activeTool: Tool = saved?.activeTool ?? "pencil";
-  let noteColor: Color = saved?.noteColor ?? DEFAULT_NOTE_COLOR;
+  let noteColor: ToolColor = saved?.noteColor ?? DEFAULT_NOTE_COLOR;
+  let recentColors: CustomColor[] = saved?.recentColors ?? [];
+  // The tool the dropper goes back to, whose color it picks.
+  let previousTool: Tool = activeTool;
   let textSize = saved?.textSize ?? TEXT_LAYOUT.defaultSize;
   let tools: Record<StrokeTool, ToolState> = saved?.tools ?? {
     eraser: {
@@ -179,13 +198,14 @@ export function mountCanvas(
   let open: CanvasEntry =
     canvases.find(({ id }) => id === lastOpenId) ?? createEntry();
   const history = new DrawingHistory(loadDrawing(open.id));
+  fitPencilToBackground();
   // The drawing and name as of the last update, so an update can tell
   // whether they were changed.
   let lastDrawing: Drawing = history.drawing;
   let lastName = open.name;
   // What's in storage, so each part is only saved again once it changes, or
   // tried again after it couldn't be.
-  let stored: Drawing = history.drawing;
+  let stored: Drawing = withStoredBackground(history.drawing, open.id);
   let storedViewport: Viewport =
     storage.loadViewport(open.id) ?? DEFAULT_VIEWPORT;
   let viewportTimer: ReturnType<typeof setTimeout> | undefined;
@@ -199,7 +219,6 @@ export function mountCanvas(
   // Null while it's elsewhere.
   let pointer: Point | null = null;
 
-  const root = createElement("div", "canvas-root");
   const canvasWrapper = createElement("div", "canvas-wrapper");
   // Only shown when a change couldn't be saved, e.g. because storage is full.
   const status = createElement("span", "canvas-status");
@@ -239,6 +258,20 @@ export function mountCanvas(
       viewportTimer = setTimeout(save, VIEWPORT_SAVE_DELAY);
     },
     createTextEditor: textEditor,
+    onPickColor: (color) => {
+      // A palette color is kept as the palette's, so it follows the theme.
+      const palette = COLORS.find(
+        (option) =>
+          toHex(parseColor(resolveColor(root, option)) ?? []) === color
+      );
+      useColor(palette ?? color);
+      activeTool = previousTool;
+      update();
+    },
+    onCustomColor: (color) => {
+      recentColors = addRecentColor(recentColors, color);
+      update();
+    },
   });
   canvas.setViewport(storedViewport);
   showDrawing();
@@ -275,16 +308,41 @@ export function mountCanvas(
         update();
       }
     },
+    // The dropper is picked for a moment: picking it again, or a color with
+    // it, goes back to the tool before it.
     onSelectTool: (tool) => {
-      activeTool = tool;
+      if (tool !== "dropper") {
+        activeTool = tool;
+      } else if (activeTool === "dropper") {
+        activeTool = previousTool;
+      } else {
+        previousTool = activeTool;
+        activeTool = "dropper";
+      }
       update();
     },
     onUpdateTool: (tool, values) => {
+      if (isCustomColor(values.color)) {
+        recentColors = addRecentColor(recentColors, values.color);
+      }
       tools = { ...tools, [tool]: { ...tools[tool], ...values } };
       update();
     },
     onUpdateNoteColor: (color) => {
+      if (isCustomColor(color)) {
+        recentColors = addRecentColor(recentColors, color);
+      }
       noteColor = color;
+      update();
+    },
+    onSetBackground: (color, custom) => {
+      if (custom && isCustomColor(color)) {
+        recentColors = addRecentColor(recentColors, color);
+      }
+      if (color !== history.drawing.background) {
+        history.change({ ...history.drawing, background: color });
+        fitPencilToBackground();
+      }
       update();
     },
     onUpdateTextSize: (size) => {
@@ -329,7 +387,6 @@ export function mountCanvas(
   if (controls.some((group) => group.length > 0)) {
     root.append(toolbar.element);
   }
-  container.append(root);
   reportName();
   save();
 
@@ -419,7 +476,13 @@ export function mountCanvas(
   // can't be brought back by undoing once it's opened again, so they're
   // removed.
   function loadDrawing(id: string): Drawing {
+    const isSaved = canvases.some((canvas) => canvas.id === id);
     const drawing: Drawing = {
+      // A canvas saved before canvases had their own background was drawn on
+      // white. A new one starts with the theme's.
+      background:
+        storage.loadBackground(id) ??
+        (isSaved ? LEGACY_BACKGROUND : getDefaultBackground()),
       strokes: storage.loadStrokes(id) ?? [],
       images: storage.loadItems(id, "images") ?? [],
       texts: storage.loadItems(id, "texts") ?? [],
@@ -443,7 +506,8 @@ export function mountCanvas(
     history.reset(drawing);
     lastDrawing = drawing;
     lastName = entry.name;
-    stored = drawing;
+    stored = withStoredBackground(drawing, entry.id);
+    fitPencilToBackground();
     storedViewport = storage.loadViewport(entry.id) ?? DEFAULT_VIEWPORT;
     canvas.setViewport(storedViewport);
     update();
@@ -528,6 +592,51 @@ export function mountCanvas(
     ];
   }
 
+  // The background new canvases start with, from the page's CSS, so a dark
+  // theme can start them dark.
+  function getDefaultBackground(): string {
+    const value = getCssVariable(root, "--canvas-color-canvas");
+    const channels = value ? parseColor(value) : null;
+    return channels ? toHex(channels) : LEGACY_BACKGROUND;
+  }
+
+  // What's stored of `drawing`, so a background that isn't stored yet, e.g. a
+  // new canvas's, is saved once the canvas is.
+  function withStoredBackground(drawing: Drawing, id: string): Drawing {
+    return { ...drawing, background: storage.loadBackground(id) ?? "" };
+  }
+
+  // The pencil stays visible on a new background: black becomes white on a
+  // dark one, and white black on a light one. Other colors are left as
+  // they're picked.
+  function fitPencilToBackground() {
+    const dark = isDarkColor(history.drawing.background);
+    const { color } = tools.pencil;
+    const from = dark ? "--canvas-color-black" : "--canvas-color-white";
+    const to = dark ? "--canvas-color-white" : "--canvas-color-black";
+    if (color === from) {
+      tools = { ...tools, pencil: { ...tools.pencil, color: to } };
+    }
+  }
+
+  // Whose color the color control and the dropper set: new notes', or the
+  // pencil's, which text uses too.
+  function getColorTarget(): "pencil" | "note" {
+    const tool = activeTool === "dropper" ? previousTool : activeTool;
+    return tool === "note" ? "note" : "pencil";
+  }
+
+  function useColor(color: ToolColor) {
+    if (isCustomColor(color)) {
+      recentColors = addRecentColor(recentColors, color);
+    }
+    if (getColorTarget() === "note") {
+      noteColor = color;
+    } else {
+      tools = { ...tools, pencil: { ...tools.pencil, color } };
+    }
+  }
+
   // Text is in the pencil's color.
   function getPlacing(): Placing | null {
     if (activeTool === "note") {
@@ -548,6 +657,9 @@ export function mountCanvas(
       activeTool,
       tools,
       noteColor,
+      colorTarget: getColorTarget(),
+      recentColors,
+      background: history.drawing.background,
       textSize,
       canUndo: history.canUndo,
       canRedo: history.canRedo,
@@ -570,8 +682,11 @@ export function mountCanvas(
     for (const kind of ITEM_KINDS) {
       canvas.setItems(kind, drawing[kind]);
     }
+    canvas.setBackground(drawing.background);
     canvas.setToolState(getStrokeToolState());
     canvas.setPlacing(getPlacing());
+    canvas.setPicking(activeTool === "dropper");
+    canvas.setRecentColors(recentColors);
   }
 
   function update() {
@@ -594,10 +709,13 @@ export function mountCanvas(
   // of it couldn't be kept.
   function save() {
     let saved = storage.saveToolSettings({
-      activeTool,
+      // The dropper is only picked for a moment, so the tool before it is
+      // what's kept.
+      activeTool: activeTool === "dropper" ? previousTool : activeTool,
       tools,
       noteColor,
       textSize,
+      recentColors,
     });
     if (canvases !== storedCanvases) {
       if (storage.saveCanvases(canvases)) {
@@ -610,6 +728,13 @@ export function mountCanvas(
     const inHistory = isInHistory();
     if (inHistory) {
       const { drawing } = history;
+      if (drawing.background !== stored.background) {
+        if (storage.saveBackground(open.id, drawing.background)) {
+          stored = { ...stored, background: drawing.background };
+        } else {
+          saved = false;
+        }
+      }
       if (drawing.strokes !== stored.strokes) {
         if (storage.saveStrokes(open.id, drawing.strokes)) {
           stored = { ...stored, strokes: drawing.strokes };

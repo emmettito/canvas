@@ -45,8 +45,9 @@ mountCanvas(document.getElementById("root")!, {
       button("note"),
       button("text"),
       { action: "color" },
+      button("dropper"),
     ],
     [button("image")],
-    [{ action: "zoom" }],
+    [{ action: "background" }, { action: "zoom" }],
   ],
 });

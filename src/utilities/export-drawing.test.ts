@@ -62,7 +62,14 @@ function toSvg(
   } = {}
 ): string {
   return createSvg(
-    { strokes: [], images: [], texts: [], notes: [], ...drawing },
+    {
+      background: "#ffffff",
+      strokes: [],
+      images: [],
+      texts: [],
+      notes: [],
+      ...drawing,
+    },
     SIZE,
     scale,
     fill,
@@ -105,7 +112,13 @@ describe("createSvg", () => {
 
   it("exports the area it's given, wherever it is on the drawing", () => {
     const svg = createSvg(
-      { strokes: [DOT], images: [], texts: [], notes: [] },
+      {
+        background: "#ffffff",
+        strokes: [DOT],
+        images: [],
+        texts: [],
+        notes: [],
+      },
       { x: -50, y: 20, width: 100, height: 80 },
       1,
       "#ffffff",
@@ -271,7 +284,13 @@ describe("createSvg with images", () => {
 describe("exportDrawing", () => {
   it("makes an SVG file with the images' files in it", async () => {
     const blob = await exportDrawing(
-      { strokes: [DOT], images: [IMAGE], texts: [], notes: [] },
+      {
+        background: "#ffffff",
+        strokes: [DOT],
+        images: [IMAGE],
+        texts: [],
+        notes: [],
+      },
       SIZE,
       { format: "svg", scale: 1, transparent: false },
       "#ffffff",

@@ -1,7 +1,7 @@
-import { type Color } from "./color.model";
+import { type ToolColor } from "./color.model";
 
 export interface ToolState {
   // An undefined color erases.
-  color?: Color;
+  color?: ToolColor;
   size: number;
 }

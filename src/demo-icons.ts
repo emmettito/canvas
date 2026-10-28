@@ -12,6 +12,7 @@ import exportIcon from "@phosphor-icons/core/regular/download-simple.svg?raw";
 import pencil from "@phosphor-icons/core/regular/pencil-simple.svg?raw";
 import eraser from "@phosphor-icons/core/regular/eraser.svg?raw";
 import note from "@phosphor-icons/core/regular/note.svg?raw";
+import dropper from "@phosphor-icons/core/regular/eyedropper.svg?raw";
 import text from "@phosphor-icons/core/regular/text-t.svg?raw";
 import image from "@phosphor-icons/core/regular/image.svg?raw";
 import close from "@phosphor-icons/core/regular/x.svg?raw";
@@ -29,6 +30,7 @@ const ICONS: Record<ToolbarAction, string> = {
   pencil,
   eraser,
   note,
+  dropper,
   text,
   image,
 };

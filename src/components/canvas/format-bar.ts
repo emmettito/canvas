@@ -1,10 +1,12 @@
 import { COLORS } from "../../constants/colors.const";
 import { FONTS } from "../../constants/fonts.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
-import { type Color } from "../../models/color.model";
+import { type CustomColor } from "../../models/color.model";
 import { type TextAlign } from "../../models/rich-text.model";
 import { createElement } from "../../utilities/create-element";
+import { getColorName } from "../../utilities/colors";
 import { getCssVariable } from "../../utilities/get-css-variable";
+import { createColorPicker } from "../color-picker/color-picker";
 import {
   type Format,
   type TextFormatting,
@@ -104,8 +106,15 @@ export class FormatBar {
   #colorButton = createButton("canvas-toolbar-button", "Text color");
   #colorSwatch = createElement("span", "canvas-color-swatch");
   #colors = createElement("div", "canvas-format-colors");
+  // What the palette's colors are read from, and the custom colors it offers
+  // again.
+  #root: Element | null = null;
+  #recentColors: CustomColor[] = [];
+  #onCustomColor: (color: CustomColor) => void;
 
-  constructor() {
+  /** `onCustomColor` is told of each custom color picked, to offer again. */
+  constructor(onCustomColor: (color: CustomColor) => void) {
+    this.#onCustomColor = onCustomColor;
     const bar = this.element;
     bar.setAttribute("role", "toolbar");
     bar.setAttribute("aria-label", "Text formatting");
@@ -149,6 +158,10 @@ export class FormatBar {
     const color = createElement("div", "canvas-format-color");
     this.#colorButton.append(this.#colorSwatch);
     this.#colorButton.addEventListener("click", () => {
+      // Made as it opens, with the color at the cursor chosen.
+      if (this.#colors.hidden) {
+        this.#colors.replaceChildren(this.#createColors());
+      }
       this.#colors.hidden = !this.#colors.hidden;
       this.#colorButton.setAttribute(
         "aria-expanded",
@@ -194,7 +207,7 @@ export class FormatBar {
     this.#formatting = formatting;
     this.#focusText = focusText;
     this.#defaults = defaults;
-    this.#colors.replaceChildren(this.#createColors(root));
+    this.#root = root;
     this.#colors.hidden = true;
     this.element.hidden = false;
     this.update();
@@ -238,14 +251,10 @@ export class FormatBar {
     const color =
       format.color === null ? null : (format.color ?? this.#defaults.color);
     this.#colorSwatch.style.backgroundColor = color ?? "transparent";
-    for (const option of this.#colors.querySelectorAll<HTMLElement>(
-      "[data-color]"
-    )) {
-      option.setAttribute(
-        "aria-pressed",
-        String(option.dataset.color === color)
-      );
-    }
+  }
+
+  setRecentColors(colors: CustomColor[]): void {
+    this.#recentColors = colors;
   }
 
   /**
@@ -268,26 +277,30 @@ export class FormatBar {
 
   // The palette's colors, resolved, so text keeps its color if the theme
   // changes, like a stroke's.
-  #createColors(root: Element): HTMLElement {
-    const grid = createElement("div", "canvas-color-grid");
-    const swatches: [string, string, string][] = [
-      ["Default", "", this.#defaults.color],
-      ...COLORS.map((color: Color): [string, string, string] => {
-        const value = getCssVariable(root, color);
-        return [color.replace("--canvas-color-", ""), value, value];
-      }),
-    ];
-    for (const [label, value, shown] of swatches) {
-      const option = createButton("canvas-color-option", label);
-      option.style.backgroundColor = shown;
-      option.dataset.color = value || this.#defaults.color;
-      option.addEventListener("click", () => {
+  #createColors(): HTMLElement {
+    const root = this.#root ?? document.documentElement;
+    const color = this.#formatting?.getFormat().color;
+    return createColorPicker({
+      swatches: [
+        // The text's own color, which is no formatting at all.
+        { label: "Default", value: "", shown: this.#defaults.color },
+        ...COLORS.map((palette) => {
+          const value = getCssVariable(root, palette);
+          return { label: getColorName(palette), value, shown: value };
+        }),
+      ],
+      // None is chosen for a selection with more than one.
+      selected: color === undefined ? "" : color,
+      recent: this.#recentColors,
+      onPick: (value, custom) => {
         this.#formatting?.setValue("color", value || undefined);
+        if (custom) {
+          this.#onCustomColor(value as CustomColor);
+        }
         this.#colors.hidden = true;
         this.#colorButton.setAttribute("aria-expanded", "false");
-      });
-      grid.append(option);
-    }
-    return grid;
+        this.#focusText();
+      },
+    });
   }
 }

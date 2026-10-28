@@ -146,7 +146,7 @@ const STRIKE_OFFSET = -0.3;
 const DECORATION_THICKNESS = 1 / 16;
 
 /** The exported image's size in pixels, for a drawing `size` units big. */
-export function getExportSize(size: Size, scale: ExportScale): Size {
+export function getExportSize(size: Size, scale: number): Size {
   return {
     width: Math.max(1, Math.round(size.width * scale)),
     height: Math.max(1, Math.round(size.height * scale)),
@@ -184,7 +184,20 @@ export async function exportDrawing(
     const svg = createSvg(drawing, area, scale, fill, textStyle, urls);
     return new Blob([svg], { type: "image/svg+xml" });
   }
-  return createImage(drawing, area, scale, fill, textStyle, images, format);
+  const image = await renderDrawing(
+    drawing,
+    area,
+    scale,
+    fill,
+    textStyle,
+    images
+  );
+  return (
+    image &&
+    new Promise((resolve) =>
+      image.toBlob(resolve, `image/${format}`, JPEG_QUALITY)
+    )
+  );
 }
 
 // The file as a `data:` URL, so the SVG holds it, byte for byte.
@@ -259,15 +272,19 @@ function drawNote(
   drawSpans(context, layOutNote(note, textStyle, measurer));
 }
 
-async function createImage(
+/**
+ * Draws the part of the drawing in `area` onto a new canvas, `scale` pixels
+ * per drawing unit, as exports do, e.g. to read a color from it. `fill` is
+ * the background, or null for none. Null if the browser can't draw it.
+ */
+export async function renderDrawing(
   { strokes, images, texts, notes }: Drawing,
   area: Box,
-  scale: ExportScale,
+  scale: number,
   fill: string | null,
   textStyle: TextStyle,
-  files: Map<string, Blob>,
-  format: "png" | "jpeg"
-): Promise<Blob | null> {
+  files: Map<string, Blob>
+): Promise<HTMLCanvasElement | null> {
   const { width, height } = getExportSize(area, scale);
   // Strokes go on their own layer, so the eraser can't erase the background.
   const layer = document.createElement("canvas");
@@ -311,9 +328,7 @@ async function createImage(
   for (const note of notes) {
     drawNote(context, note, textStyle, measurer);
   }
-  return new Promise((resolve) =>
-    image.toBlob(resolve, `image/${format}`, JPEG_QUALITY)
-  );
+  return image;
 }
 
 // Two decimal places is far finer than a pixel, and keeps the file small.

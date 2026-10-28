@@ -11,5 +11,6 @@ export const TOOLBAR_ACTIONS: ToolbarAction[] = [
   "eraser",
   "note",
   "text",
+  "dropper",
   "image",
 ];

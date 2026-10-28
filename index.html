@@ -20,11 +20,13 @@
       } catch {
         // Storage can be unavailable, e.g. in some private windows.
       }
-      document.documentElement.dataset.theme = [
-        "light",
-        "dark",
-        "oled",
-      ].includes(savedTheme)
+      // OLED was a darker dark, before it became the only one.
+      if (savedTheme === "oled") {
+        savedTheme = "dark";
+      }
+      document.documentElement.dataset.theme = ["light", "dark"].includes(
+        savedTheme
+      )
         ? savedTheme
         : matchMedia("(prefers-color-scheme: dark)").matches
           ? "dark"
@@ -63,11 +65,6 @@
               <input type="radio" name="theme" value="dark" />
               <span class="demo-theme-preview" data-preview="dark"></span>
               Dark
-            </label>
-            <label class="demo-theme-option">
-              <input type="radio" name="theme" value="oled" />
-              <span class="demo-theme-preview" data-preview="oled"></span>
-              OLED
             </label>
           </fieldset>
         </section>

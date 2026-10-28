@@ -78,7 +78,14 @@ export class DrawingHistory {
     if (!this.canClear) {
       return;
     }
-    this.change({ strokes: [], images: [], texts: [], notes: [] });
+    // The background stays.
+    this.change({
+      ...this.#drawing,
+      strokes: [],
+      images: [],
+      texts: [],
+      notes: [],
+    });
   }
 
   /** Replaces the drawing, so it can be undone. */

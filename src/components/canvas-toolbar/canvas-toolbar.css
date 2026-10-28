@@ -514,3 +514,8 @@
   color: var(--canvas-color-text-muted);
   font-size: 12px;
 }
+
+/* The canvas's background, square to tell it from the drawing color. */
+.canvas-background-swatch {
+  border-radius: 4px;
+}
