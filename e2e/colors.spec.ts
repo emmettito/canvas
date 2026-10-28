@@ -262,3 +262,40 @@ test("text can be any color, which is offered again", async ({ page }) => {
     page.getByRole("button", { name: "#7c3aed", exact: true })
   ).toBeVisible();
 });
+
+test("the color code box shows the color picked now", async ({ page }) => {
+  const code = page.getByRole("textbox", { name: "Color code" });
+
+  // A palette color, as it's shown.
+  await page.getByRole("button", { name: "Color: black" }).click();
+  await expect(code).toHaveValue("#000000");
+  await expect(page.getByLabel("Custom color")).toHaveValue("#000000");
+  await page.getByRole("button", { name: "red", exact: true }).click();
+  await page.getByRole("button", { name: "Color: red" }).click();
+  await expect(code).toHaveValue("#ff0000");
+
+  // Clicking it selects the code, so a new one types over it.
+  await code.click();
+  await page.keyboard.type("orange");
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Color: #ffa500" })
+  ).toBeVisible();
+
+  // And the background's.
+  await page.getByRole("button", { name: "Background: White" }).click();
+  await expect(code).toHaveValue("#ffffff");
+});
+
+test("the format bar's color code shows the text's color", async ({ page }) => {
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await page.mouse.click(400, 300);
+  const bar = page.getByRole("toolbar", { name: "Text formatting" });
+
+  await bar.getByRole("button", { name: "Text color" }).click();
+
+  // The pencil's black, which new text is in.
+  await expect(bar.getByRole("textbox", { name: "Color code" })).toHaveValue(
+    "#000000"
+  );
+});

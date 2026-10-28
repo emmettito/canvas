@@ -291,6 +291,7 @@ export class FormatBar {
       ],
       // None is chosen for a selection with more than one.
       selected: color === undefined ? "" : color,
+      current: color === undefined ? this.#defaults.color : color,
       recent: this.#recentColors,
       onPick: (value, custom) => {
         this.#formatting?.setValue("color", value || undefined);

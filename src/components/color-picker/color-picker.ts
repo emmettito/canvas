@@ -1,6 +1,6 @@
 import { type CustomColor } from "../../models/color.model";
 import { createElement } from "../../utilities/create-element";
-import { isCustomColor, readCssColor } from "../../utilities/colors";
+import { readCssColor } from "../../utilities/colors";
 import "./color-picker.css";
 
 // A color to pick, as it's applied and as it's shown.
@@ -16,6 +16,9 @@ export interface ColorPickerOptions {
   swatches: Swatch[];
   // The value picked now, if any, which is shown as chosen.
   selected: string | null;
+  // The color picked now, as a CSS color, whose code the box shows. Null for
+  // none, e.g. a selection with more than one.
+  current: string | null;
   // Custom colors picked before, most recent first.
   recent: CustomColor[];
   // `custom` is true for a color from outside the swatches.
@@ -67,6 +70,7 @@ function createSwatches(
 export function createColorPicker({
   swatches,
   selected,
+  current,
   recent,
   onPick,
 }: ColorPickerOptions): HTMLDivElement {
@@ -89,11 +93,12 @@ export function createColorPicker({
   }
 
   const custom = createElement("div", "canvas-color-custom");
-  const current = isCustomColor(selected) ? selected : "#000000";
+  // The current color's code, e.g. a palette color's as it's shown.
+  const code = current ? readCssColor(current) : null;
   // A swatch that opens the browser's color picker.
   const wheel = createElement("input", "canvas-color-input");
   wheel.type = "color";
-  wheel.value = current;
+  wheel.value = code ?? "#000000";
   wheel.setAttribute("aria-label", "Custom color");
   wheel.title = "Custom color";
   wheel.addEventListener("change", () => onPick(wheel.value, true));
@@ -101,7 +106,7 @@ export function createColorPicker({
   // as hex.
   const hex = createElement("input", "canvas-text-input canvas-color-hex");
   hex.type = "text";
-  hex.value = isCustomColor(selected) ? selected : "";
+  hex.value = code ?? "";
   hex.placeholder = "Hex or name";
   hex.spellcheck = false;
   hex.setAttribute("aria-label", "Color code");
@@ -118,6 +123,21 @@ export function createColorPicker({
     }
   });
   hex.addEventListener("input", () => hex.removeAttribute("aria-invalid"));
+  // Selected, so a new color can be typed over it. Safari puts the caret
+  // where it's clicked as the button's released, after focus, so a click
+  // into it selects it again then. Later clicks put the caret as usual.
+  let clickedIn = false;
+  hex.addEventListener("mousedown", () => {
+    clickedIn = document.activeElement !== hex;
+  });
+  hex.addEventListener("mouseup", (event) => {
+    if (clickedIn) {
+      clickedIn = false;
+      event.preventDefault();
+      hex.select();
+    }
+  });
+  hex.addEventListener("focus", () => hex.select());
   custom.append(wheel, hex);
 
   const EyeDropper = getEyeDropper();

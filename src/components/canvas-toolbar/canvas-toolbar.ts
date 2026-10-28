@@ -25,7 +25,11 @@ import {
 import { type ToolState } from "../../models/tool-state.model";
 import { type StrokeTool, type Tool } from "../../models/tool.model";
 import { createElement } from "../../utilities/create-element";
-import { getColorName, isCustomColor } from "../../utilities/colors";
+import {
+  getColorName,
+  isCustomColor,
+  resolveColor,
+} from "../../utilities/colors";
 import { canExportAt, getExportSize } from "../../utilities/export-drawing";
 import { createColorPicker } from "../color-picker/color-picker";
 import { showPopover } from "../popover/popover";
@@ -826,6 +830,7 @@ export class CanvasToolbar {
         shown: toCss(color),
       })),
       selected: getColor(this.#state),
+      current: resolveColor(this.element, getColor(this.#state)),
       recent: this.#state.recentColors,
       onPick: (value) => this.#onColorClick(value as ToolColor),
     });
@@ -842,6 +847,7 @@ export class CanvasToolbar {
         shown: value,
       })),
       selected: this.#state.background,
+      current: this.#state.background,
       recent: this.#state.recentColors,
       onPick: (value, custom) => {
         this.#closePopover();

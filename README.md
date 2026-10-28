@@ -177,7 +177,8 @@ exports include them unchanged.
 `color` picks the pencil's color, which text uses too, or new notes' while
 `note` is picked. Besides the palette, any color can be picked with the
 browser's color picker, or typed as any solid CSS color, e.g. `#ff8800`,
-`orange` or `hsl(30 100% 50%)`, which is kept as hex. One that's the
+`orange` or `hsl(30 100% 50%)`, which is kept as hex. The box shows the
+color picked now, selected to type over. One that's the
 palette's, e.g. `red`, is the palette's. Custom colors are offered again under
 Recent. While text or a note is being typed in, `color` colors the text too,
 and typing carries on. Where the browser can, e.g. Chrome and Edge,
