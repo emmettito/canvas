@@ -1,6 +1,6 @@
 # Canvas
 
-A simple art canvas using React. Draw with a pencil or eraser, pick from a
+A simple art canvas in TypeScript. Draw with a pencil or eraser, pick from a
 color palette, adjust the size of each tool, and undo or redo strokes.
 
 ## Development
