@@ -1,27 +1,25 @@
-@layer components {
-  .popover {
-    --arrow-size: 10px;
+.canvas-popover {
+  --arrow-size: 10px;
 
+  position: absolute;
+  bottom: calc(100% + var(--arrow-size) + 5px);
+  left: 50%;
+  z-index: 10;
+  padding: 10px;
+  line-height: 0;
+  border-radius: 20px;
+  background: var(--canvas-color-popover);
+  /* Set by the component to keep the popover inside the viewport. */
+  transform: translateX(calc(-50% + var(--popover-shift, 0px)));
+
+  &::after {
+    content: "";
     position: absolute;
-    bottom: calc(100% + var(--arrow-size) + 5px);
+    top: 100%;
     left: 50%;
-    z-index: 10;
-    padding: 10px;
-    line-height: 0;
-    border-radius: 20px;
-    background: var(--color-popover);
-    /* Set by the component to keep the popover inside the viewport. */
-    transform: translateX(calc(-50% + var(--popover-shift, 0px)));
-
-    &::after {
-      content: "";
-      position: absolute;
-      top: 100%;
-      left: 50%;
-      border-top: var(--arrow-size) solid var(--color-popover);
-      border-right: var(--arrow-size) solid transparent;
-      border-left: var(--arrow-size) solid transparent;
-      transform: translateX(calc(-50% - var(--popover-shift, 0px)));
-    }
+    border-top: var(--arrow-size) solid var(--canvas-color-popover);
+    border-right: var(--arrow-size) solid transparent;
+    border-left: var(--arrow-size) solid transparent;
+    transform: translateX(calc(-50% - var(--popover-shift, 0px)));
   }
 }

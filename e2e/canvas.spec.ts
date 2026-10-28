@@ -62,7 +62,8 @@ test("clicking the active tool opens its size slider", async ({ page }) => {
   await pencil.click();
   await expect(slider).toBeFocused();
 
-  // Safari doesn't focus buttons on click, so this checks the fallback there.
+  // Safari doesn't focus buttons on click, so this checks focus still returns
+  // to the button there.
   await page.keyboard.press("Escape");
   await expect(slider).toBeHidden();
   await expect(pencil).toBeFocused();

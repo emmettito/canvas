@@ -1,0 +1,18 @@
+/* The demo page, laid out like a host page would be. */
+body {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  margin: 0;
+  overflow: hidden;
+  font-family: system-ui, sans-serif;
+  touch-action: manipulation;
+}
+
+#root {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding: 30px;
+  background-color: #eeeeee;
+}

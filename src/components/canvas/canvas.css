@@ -1,10 +1,21 @@
-@layer components {
-  .canvas-cursor {
-    visibility: hidden;
-    position: absolute;
-    border-radius: 50%;
-    background-color: var(--color-cursor);
-    transform: translate(-50%, -50%);
-    pointer-events: none;
-  }
+/* Sits above the drawing and handles all pointer input. */
+.canvas-input-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.canvas-drawing {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.canvas-cursor {
+  visibility: hidden;
+  position: absolute;
+  border-radius: 50%;
+  background-color: var(--canvas-color-cursor);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
