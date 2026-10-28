@@ -3,7 +3,8 @@ import { Point } from "../../models/point.model";
 import { Stroke } from "../../models/stroke.model";
 import { ToolState } from "../../models/tool-state.model";
 import { drawStroke } from "../../utilities/draw-stroke";
-import "./canvas.scss";
+import { getCssVariable } from "../../utilities/get-css-variable";
+import "./canvas.css";
 
 interface CanvasProps {
   height: number;
@@ -72,7 +73,10 @@ export function Canvas({
     // Capture keeps the stroke going if the pointer leaves the canvas.
     event.currentTarget.setPointerCapture(event.pointerId);
     strokeRef.current = {
-      color: toolState.color,
+      color:
+        toolState.color === undefined
+          ? undefined
+          : getCssVariable(toolState.color),
       points: [getPoint(event)],
       size: toolState.size,
     };
@@ -113,7 +117,7 @@ export function Canvas({
     <>
       {/* The interface layer is used for compatibility when tracking a mouse pointer. */}
       <div
-        className="canvas-interface-layer"
+        className="absolute inset-0 z-1"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -121,7 +125,7 @@ export function Canvas({
         onPointerLeave={onPointerLeave}
         onContextMenu={(event) => event.preventDefault()}
       ></div>
-      <canvas className="canvas" ref={canvasRef} />
+      <canvas className="absolute top-0 left-0" ref={canvasRef} />
       <div className="canvas-cursor" ref={cursorRef}></div>
     </>
   );

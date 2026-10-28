@@ -1,0 +1,13 @@
+@layer components {
+  .canvas-wrapper {
+    position: relative;
+    overflow: hidden;
+    background-color: var(--color-canvas);
+    box-shadow: var(--shadow-control);
+    cursor: none;
+    /* Touch input draws instead of scrolling or zooming the page. */
+    touch-action: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}

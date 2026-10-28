@@ -8,7 +8,7 @@ import undoIcon from "../../images/undo.svg";
 import { ToolState } from "../../models/tool-state.model";
 import { Tool } from "../../models/tool.model";
 import { Popover } from "../popover/popover";
-import "./canvas-toolbar.scss";
+import "./canvas-toolbar.css";
 
 type ToolbarPopover = Tool | "color";
 
@@ -30,7 +30,14 @@ interface CanvasToolbarProps {
 
 // The selection ring needs to stand out against the color it sits on.
 function getRingColor(color: string): string {
-  return color === "#FFFFFF" ? "#CCCCCC" : "#FFFFFF";
+  return color === "--color-white"
+    ? "var(--color-ring-on-light)"
+    : "var(--color-ring)";
+}
+
+// e.g. "--color-red" becomes "red".
+function getColorName(color: string): string {
+  return color.replace("--color-", "");
 }
 
 export function CanvasToolbar({
@@ -82,28 +89,31 @@ export function CanvasToolbar({
   };
 
   return (
-    <div className="canvas-toolbar" ref={toolbarRef}>
+    <div
+      className="flex flex-wrap items-center justify-center gap-20 select-none"
+      ref={toolbarRef}
+    >
       <button
-        className="canvas-toolbar-button icon-button"
+        className="toolbar-button toolbar-icon-button"
         aria-label="Undo"
         disabled={!canUndo}
         onClick={onUndo}
       >
-        <img src={undoIcon} alt="" />
+        <img className="size-14" src={undoIcon} alt="" />
       </button>
       <button
-        className="canvas-toolbar-button icon-button"
+        className="toolbar-button toolbar-icon-button"
         aria-label="Redo"
         disabled={!canRedo}
         onClick={onRedo}
       >
-        <img src={redoIcon} alt="" />
+        <img className="size-14" src={redoIcon} alt="" />
       </button>
 
       {TOOLS.map((tool) => (
-        <div className="canvas-toolbar-item" key={tool}>
+        <div className="relative" key={tool}>
           <button
-            className="canvas-toolbar-button"
+            className="toolbar-button"
             aria-pressed={tool === activeTool}
             onClick={() => onToolClick(tool)}
           >
@@ -127,11 +137,11 @@ export function CanvasToolbar({
         </div>
       ))}
 
-      <div className="canvas-toolbar-item">
+      <div className="relative">
         <button
-          className="canvas-toolbar-button icon-button"
+          className="toolbar-button toolbar-icon-button"
           aria-label="Color"
-          style={{ backgroundColor: pencilColor }}
+          style={{ backgroundColor: `var(${pencilColor})` }}
           onClick={() => togglePopover("color")}
         >
           <span
@@ -141,14 +151,14 @@ export function CanvasToolbar({
         </button>
         {openPopover === "color" && (
           <Popover>
-            <div className="color-swatch">
+            <div className="grid grid-cols-[repeat(5,40px)] gap-10">
               {COLORS.map((color) => (
                 <button
                   className="color-option"
                   key={color}
-                  aria-label={color}
+                  aria-label={getColorName(color)}
                   aria-pressed={color === pencilColor}
-                  style={{ backgroundColor: color }}
+                  style={{ backgroundColor: `var(${color})` }}
                   onClick={() => onColorClick(color)}
                 >
                   {color === pencilColor && (

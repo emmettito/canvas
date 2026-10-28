@@ -1,5 +1,5 @@
 import { JSX, ReactNode } from "react";
-import "./popover.scss";
+import "./popover.css";
 
 interface PopoverProps {
   children: ReactNode;

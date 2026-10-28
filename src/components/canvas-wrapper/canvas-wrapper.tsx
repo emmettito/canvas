@@ -8,7 +8,7 @@ import { useDebouncedCallback } from "../../utilities/use-debounced-callback";
 import { useDrawingHistory } from "../../utilities/use-drawing-history";
 import { CanvasToolbar } from "../canvas-toolbar/canvas-toolbar";
 import { Canvas } from "../canvas/canvas";
-import "./canvas-wrapper.scss";
+import "./canvas-wrapper.css";
 
 export function CanvasWrapper(): JSX.Element {
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
@@ -66,7 +66,10 @@ export function CanvasWrapper(): JSX.Element {
 
   return (
     <>
-      <div className="canvas-wrapper" ref={canvasWrapperRef}>
+      <div
+        className="canvas-wrapper w-full max-w-1000 flex-1"
+        ref={canvasWrapperRef}
+      >
         <Canvas
           height={canvasState.height}
           width={canvasState.width}

@@ -1,0 +1,10 @@
+@layer components {
+  .canvas-cursor {
+    visibility: hidden;
+    position: absolute;
+    border-radius: 50%;
+    background-color: var(--color-cursor);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+}

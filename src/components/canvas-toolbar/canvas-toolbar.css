@@ -1,0 +1,84 @@
+@layer components {
+  .toolbar-button {
+    position: relative;
+    height: 30px;
+    min-width: 30px;
+    padding: 0 14px;
+    border-radius: 15px;
+    background-color: var(--color-control);
+    box-shadow: var(--shadow-control);
+    color: var(--color-control-text);
+    font-size: 13px;
+    cursor: pointer;
+
+    &[aria-pressed="true"] {
+      background-color: var(--color-control-text);
+      color: var(--color-control-active-text);
+    }
+
+    &:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+  }
+
+  .toolbar-icon-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    padding: 0;
+  }
+
+  .color-option {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+  }
+
+  /* Border color is set inline to contrast with the color underneath. */
+  .color-ring {
+    position: absolute;
+    inset: 3px;
+    border: 2px solid;
+    border-radius: 50%;
+
+    .color-option & {
+      border-width: 3px;
+    }
+  }
+
+  .tool-size-slider {
+    appearance: none;
+    width: 200px;
+    height: 10px;
+    margin: 5px;
+    border-radius: 5px;
+    background: var(--color-control);
+    outline: none;
+    cursor: pointer;
+
+    /* Separate rules: browsers drop a whole rule with a selector they don't recognize. */
+    &::-webkit-slider-thumb {
+      appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--color-control-thumb);
+      box-shadow: var(--shadow-control);
+      cursor: grab;
+    }
+
+    &::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border: none;
+      border-radius: 50%;
+      background: var(--color-control-thumb);
+      box-shadow: var(--shadow-control);
+      cursor: grab;
+    }
+  }
+}
