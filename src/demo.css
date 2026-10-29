@@ -314,6 +314,57 @@ body {
   }
 }
 
+/* A text setting, with its label above it and a hint below. */
+.demo-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+
+  input {
+    height: 36px;
+    padding: 0 10px;
+    border: 1px solid var(--demo-color-border);
+    border-radius: 8px;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-weight: 400;
+
+    &::placeholder {
+      color: var(--demo-color-text-muted);
+    }
+
+    &:hover {
+      border-color: var(--demo-color-text-muted);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--demo-color-accent);
+      outline-offset: -1px;
+      border-color: transparent;
+    }
+  }
+}
+
+/* An on-or-off setting, with its label beside it. */
+.demo-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+
+  input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--demo-color-accent);
+    cursor: inherit;
+  }
+}
+
 /* The canvas is the whole window, like an app. */
 #root {
   flex: 1;

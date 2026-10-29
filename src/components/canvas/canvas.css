@@ -312,6 +312,42 @@
   overflow: hidden;
 }
 
+/* A signed note's text stops above its byline, as exported notes' does. */
+[data-signed] > .canvas-note-text {
+  padding-bottom: calc(
+    var(--canvas-note-padding) + var(--canvas-note-byline-height)
+  );
+}
+
+/* Hidden, a signed note looks like any other. */
+[data-authors-hidden] {
+  & [data-signed] > .canvas-note-text {
+    padding-bottom: var(--canvas-note-padding);
+  }
+
+  & .canvas-note-byline {
+    display: none;
+  }
+}
+
+/* Who signed the note, on one line along its bottom, inside its padding.
+ * Exports draw it the same way, cut short with an ellipsis. */
+.canvas-note-byline {
+  position: absolute;
+  right: var(--canvas-note-padding);
+  bottom: var(--canvas-note-padding);
+  left: var(--canvas-note-padding);
+  overflow: hidden;
+  height: var(--canvas-note-byline-height);
+  font-size: var(--canvas-note-byline-size);
+  white-space: pre;
+  text-overflow: ellipsis;
+  opacity: var(--canvas-note-byline-opacity);
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 /* The text sizes the box: as wide as its longest line, until its width is
  * set, and at least as tall as the text. */
 .canvas-text {

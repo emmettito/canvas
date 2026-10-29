@@ -332,6 +332,24 @@ describe("CanvasStorage export options", () => {
     ]);
   });
 
+  it("keeps who signed a note, and leaves out an author that isn't one", () => {
+    localStorage.setItem(
+      "test:canvas:a:notes",
+      JSON.stringify([
+        { ...NOTES[0], author: "Ada" },
+        { ...NOTES[0], id: "b", author: "" },
+        { ...NOTES[0], id: "c", author: 7 },
+      ])
+    );
+    const storage = new CanvasStorage("test");
+
+    expect(storage.loadItems("a", "notes")).toEqual([
+      { ...NOTES[0], author: "Ada" },
+      { ...NOTES[0], id: "b" },
+      { ...NOTES[0], id: "c" },
+    ]);
+  });
+
   it("ignores formatting it doesn't know", () => {
     localStorage.setItem(
       "test:canvas:a:notes",

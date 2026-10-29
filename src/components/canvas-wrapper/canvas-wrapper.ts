@@ -127,6 +127,18 @@ export interface MountedCanvas {
    * it isn't one, e.g. "transparent".
    */
   setBackground: (color: string) => void;
+  /**
+   * Changes who new notes are signed by, and who exports say made them, e.g.
+   * once they've set their name. Notes already placed keep theirs. Empty for
+   * nobody.
+   */
+  setAuthor: (name: string) => void;
+  /**
+   * Shows or hides who signed each note, on the canvas and in exports, e.g.
+   * for a tidier canvas. Notes stay signed, so showing them again brings
+   * their names back.
+   */
+  setShowAuthors: (show: boolean) => void;
   /** Removes the canvas and stops listening for events. */
   unmount: () => void;
 }
@@ -176,6 +188,17 @@ export interface MountCanvasOptions {
    * to format them, or an editor of your own.
    */
   textEditor?: TextEditorFactory;
+  /**
+   * The name of whoever's drawing. New notes are signed with it, along their
+   * bottom, and PNG and SVG exports keep it as their author. Change it with
+   * `setAuthor`. Without one, nothing's signed.
+   */
+  author?: string;
+  /**
+   * Whether signed notes show who signed them, on the canvas and in exports.
+   * Change it with `setShowAuthors`. Shown by default.
+   */
+  showAuthors?: boolean;
 }
 
 /**
@@ -194,6 +217,8 @@ export function mountCanvas(
     onNameChange,
     onBackgroundChange,
     textEditor = plainTextEditor,
+    author: initialAuthor = "",
+    showAuthors = true,
   }: MountCanvasOptions = {}
 ): MountedCanvas {
   // Two canvases would each try to fill the container.
@@ -217,6 +242,7 @@ export function mountCanvas(
   const storage = new CanvasStorage(storageKey);
   const imageStore = new ImageStore(storageKey);
   const saved = storage.loadToolSettings();
+  let author = initialAuthor.trim();
   let exportOptions = storage.loadExportOptions() ?? DEFAULT_EXPORT_OPTIONS;
   let activeTool: Tool = saved?.activeTool ?? "pencil";
   let noteColor: ToolColor = saved?.noteColor ?? DEFAULT_NOTE_COLOR;
@@ -326,6 +352,7 @@ export function mountCanvas(
     },
   });
   canvas.setViewport(storedViewport);
+  canvas.setShowAuthors(showAuthors);
   showDrawing();
   const toolbarActions: CanvasToolbarActions = {
     onUndo: () => {
@@ -406,7 +433,7 @@ export function mountCanvas(
       exportOptions = options;
       storage.saveExportOptions(options);
       updateToolbars();
-      const blob = await canvas.export(options);
+      const blob = await canvas.export(options, author);
       if (blob) {
         downloadBlob(
           blob,
@@ -799,7 +826,7 @@ export function mountCanvas(
   // Text is in the pencil's color.
   function getPlacing(): Placing | null {
     if (activeTool === "note") {
-      return { kind: "notes", color: noteColor };
+      return { kind: "notes", color: noteColor, author };
     }
     if (activeTool === "text") {
       return {
@@ -962,6 +989,11 @@ export function mountCanvas(
       }
       setBackground(color);
     },
+    setAuthor: (name) => {
+      author = name.trim();
+      canvas.setPlacing(getPlacing());
+    },
+    setShowAuthors: (show) => canvas.setShowAuthors(show),
     unmount: () => {
       // A view changed just before isn't lost.
       clearTimeout(viewportTimer);

@@ -9,6 +9,7 @@ import { proseMirrorEditor } from "./prosemirror";
 // with its own import of the styles.
 import "./styles.css";
 import { setUpBackgroundPicker } from "./background-picker";
+import { setUpNameField, setUpShowAuthorsField } from "./profile";
 import { setUpSettings } from "./settings";
 import { setUpThemePicker } from "./theme";
 
@@ -21,6 +22,17 @@ const settings = document.querySelector<HTMLDialogElement>(".demo-settings")!;
 settings.querySelector(".demo-settings-close")!.append(createPageIcon("close"));
 const openSettings = setUpSettings(settings);
 setUpThemePicker(settings.querySelector(".demo-theme-picker")!);
+// Set up first, so the canvas starts with the saved name. Typing it in only
+// happens once the canvas is there.
+const name = setUpNameField(
+  settings.querySelector(".demo-name-field")!,
+  (value) => canvas.setAuthor(value)
+);
+const showAuthors = setUpShowAuthorsField(
+  settings.querySelector(".demo-show-authors")!,
+  (show) => canvas.setShowAuthors(show)
+);
+// Set up first, since the canvas shows its background as it mounts. It's only
 // picked from once the canvas is there.
 const showBackground = setUpBackgroundPicker(
   settings.querySelector(".demo-background-picker")!,
@@ -29,6 +41,8 @@ const showBackground = setUpBackgroundPicker(
 const canvas = mountCanvas(document.getElementById("root")!, {
   storageKey: "canvas",
   textEditor: proseMirrorEditor,
+  author: name,
+  showAuthors,
   // The tab shows which canvas is open.
   onNameChange: (name) => {
     document.title = `${name || "Untitled"} – Canvas Demo`;

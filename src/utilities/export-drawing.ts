@@ -17,6 +17,7 @@ import { TEXT_LAYOUT } from "../constants/text-layout.const";
 import { drawFills, getFillSteps } from "./draw-fills";
 import { drawStroke } from "./draw-stroke";
 import { resolveLayers } from "./layers";
+import { addPngText } from "./png-text";
 import {
   layOutRichText,
   type PlacedSpan,
@@ -110,12 +111,73 @@ function layOutNote(
     { fontSize, fontFamily, color: noteColor, lineHeight },
     measurer
   );
-  const room = note.height - padding * 2;
+  const room = note.height - padding * 2 - getBylineHeight(note);
   return moveSpans(
     lines.filter(({ bottom }) => bottom <= room).flatMap(({ spans }) => spans),
     note.x + padding,
     note.y + padding
   );
+}
+
+// How much room a note's byline takes from its text.
+function getBylineHeight(note: Note): number {
+  const { bylineSize, lineHeight } = NOTE_LAYOUT;
+  return note.author ? bylineSize * lineHeight : 0;
+}
+
+// `text`, cut short with an ellipsis if it's wider than `room`, as CSS's
+// `text-overflow: ellipsis` does.
+function fitText(
+  text: string,
+  room: number,
+  style: ResolvedStyle,
+  measurer: TextMeasurer
+): string {
+  if (measurer.width(text, style) <= room) {
+    return text;
+  }
+  const characters = [...text];
+  while (
+    characters.length > 0 &&
+    measurer.width(`${characters.join("")}…`, style) > room
+  ) {
+    characters.pop();
+  }
+  return `${characters.join("")}…`;
+}
+
+// A signed note's author, on one line along its bottom, inside its padding.
+// Null if nobody signed it.
+function layOutByline(
+  note: Note,
+  { noteColor, fontFamily }: TextStyle,
+  measurer: TextMeasurer
+): PlacedSpan | null {
+  if (!note.author) {
+    return null;
+  }
+  const { padding, bylineSize } = NOTE_LAYOUT;
+  const style: ResolvedStyle = {
+    size: bylineSize,
+    family: fontFamily,
+    bold: false,
+    italic: false,
+    underline: false,
+    strike: false,
+    color: noteColor,
+  };
+  const text = fitText(note.author, note.width - padding * 2, style, measurer);
+  const { ascent, descent } = measurer.metrics(style);
+  // Centered in its line box, the way CSS places a line's text.
+  const lineBox = getBylineHeight(note);
+  const top = note.y + note.height - padding - lineBox;
+  return {
+    text,
+    style,
+    x: note.x + padding,
+    width: measurer.width(text, style),
+    baseline: top + (lineBox + ascent - descent) / 2,
+  };
 }
 
 // A text box's text, wrapped at its width if it has one.
@@ -175,7 +237,8 @@ export async function exportDrawing(
   { format, scale, transparent }: ExportOptions,
   background: string,
   textStyle: TextStyle,
-  images: Map<string, Blob>
+  images: Map<string, Blob>,
+  author = ""
 ): Promise<Blob | null> {
   // JPEG has no transparency.
   const fill = transparent && format !== "jpeg" ? null : background;
@@ -184,7 +247,7 @@ export async function exportDrawing(
     for (const [id, blob] of images) {
       urls.set(id, await readDataUrl(blob));
     }
-    const svg = createSvg(drawing, area, scale, fill, textStyle, urls);
+    const svg = createSvg(drawing, area, scale, fill, textStyle, urls, author);
     return new Blob([svg], { type: "image/svg+xml" });
   }
   const image = await renderDrawing(
@@ -195,12 +258,16 @@ export async function exportDrawing(
     textStyle,
     images
   );
-  return (
-    image &&
-    new Promise((resolve) =>
-      image.toBlob(resolve, `image/${format}`, JPEG_QUALITY)
-    )
+  if (!image) {
+    return null;
+  }
+  const blob = await new Promise<Blob | null>((resolve) =>
+    image.toBlob(resolve, `image/${format}`, JPEG_QUALITY)
   );
+  // JPEG keeps who made it in EXIF, which is more than it's worth here.
+  return blob && author && format === "png"
+    ? addPngText(blob, "Author", author)
+    : blob;
 }
 
 // The file as a `data:` URL, so the SVG holds it, byte for byte.
@@ -337,6 +404,13 @@ function drawNote(
   drawFillLayer(context, note.fills, note.strokes);
   context.restore();
   drawSpans(context, layOutNote(note, textStyle, measurer));
+  const byline = layOutByline(note, textStyle, measurer);
+  if (byline) {
+    context.save();
+    context.globalAlpha = NOTE_LAYOUT.bylineOpacity;
+    drawSpans(context, [byline]);
+    context.restore();
+  }
   context.save();
   context.clip(shape);
   context.translate(note.x, note.y);
@@ -547,7 +621,12 @@ function createNote(
 ): string {
   const shape = `width="${round(note.width)}" height="${round(note.height)}" rx="${NOTE_LAYOUT.cornerRadius}"`;
   const rect = `<rect x="${round(note.x)}" y="${round(note.y)}" ${shape} fill="${escapeAttribute(note.color)}"/>`;
-  const text = createText(layOutNote(note, textStyle, measurer));
+  const byline = layOutByline(note, textStyle, measurer);
+  const text =
+    createText(layOutNote(note, textStyle, measurer)) +
+    (byline
+      ? `<g fill-opacity="${NOTE_LAYOUT.bylineOpacity}">${createText([byline])}</g>`
+      : "");
   // Its strokes and fills are from its top left corner, like the note's own.
   const name = (stroke: number) => `note-${index}-erase-${stroke}`;
   const ink = createStrokes(
@@ -574,7 +653,7 @@ function createNote(
  * units, so it opens at the chosen size and stays sharp at any other. The
  * eraser only erases strokes drawn before it, so each eraser stroke masks
  * them, but nothing placed. `imageUrls` are the images' files as `data:`
- * URLs, by id.
+ * URLs, by id. `author`, if there is one, is kept as the file's creator.
  */
 export function createSvg(
   drawing: Drawing,
@@ -582,7 +661,8 @@ export function createSvg(
   scale: ExportScale,
   fill: string | null,
   textStyle: TextStyle,
-  imageUrls: Map<string, string>
+  imageUrls: Map<string, string>,
+  author = ""
 ): string {
   const x = round(area.x);
   const y = round(area.y);
@@ -632,5 +712,9 @@ export function createSvg(
     ? `<rect ${bounds} fill="${escapeAttribute(fill)}"/>`
     : "";
   const defs = masks.length > 0 ? `<defs>${masks.join("")}</defs>` : "";
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${pixels.width}" height="${pixels.height}" viewBox="${x} ${y} ${width} ${height}">${defs}${background}${content}</svg>`;
+  // Dublin Core's creator, which is how SVG editors record an author.
+  const metadata = author
+    ? `<metadata><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/elements/1.1/"><rdf:Description><dc:creator>${escapeAttribute(author)}</dc:creator></rdf:Description></rdf:RDF></metadata>`
+    : "";
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${pixels.width}" height="${pixels.height}" viewBox="${x} ${y} ${width} ${height}">${metadata}${defs}${background}${content}</svg>`;
 }

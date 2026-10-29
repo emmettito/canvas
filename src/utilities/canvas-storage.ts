@@ -147,7 +147,7 @@ function readNote(value: unknown): Note | null {
     return null;
   }
   const { id, x, y, width, height } = value;
-  return {
+  const note: Note = {
     id,
     x,
     y,
@@ -158,6 +158,11 @@ function readNote(value: unknown): Note | null {
     strokes,
     fills,
   };
+  // Notes saved before they could be signed have no author.
+  if (typeof saved.author === "string" && saved.author !== "") {
+    note.author = saved.author;
+  }
+  return note;
 }
 
 function isLayer(value: unknown): value is Layer {

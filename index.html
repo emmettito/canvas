@@ -48,6 +48,27 @@
           </form>
         </div>
         <section class="demo-settings-section">
+          <h3>Profile</h3>
+          <!-- New notes are signed with it, and exports keep it as their
+               author. The script wires it up. -->
+          <label class="demo-field">
+            Name
+            <input
+              class="demo-name-field"
+              type="text"
+              autocomplete="name"
+              maxlength="80"
+              placeholder="Your name"
+            />
+          </label>
+          <!-- Notes stay signed while names are hidden. The script wires it
+               up. -->
+          <label class="demo-checkbox">
+            <input class="demo-show-authors" type="checkbox" checked />
+            Show names on sticky notes
+          </label>
+        </section>
+        <section class="demo-settings-section">
           <h3>Appearance</h3>
           <fieldset class="demo-theme-picker">
             <legend>Theme</legend>

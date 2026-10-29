@@ -20,4 +20,7 @@ export interface Note {
   // Filled with the paint bucket, below its text and strokes, from its top
   // left corner like them.
   fills: Fill[];
+  // Who wrote it, shown along its bottom. Left out of notes nobody signed,
+  // e.g. ones placed before a name was set.
+  author?: string;
 }

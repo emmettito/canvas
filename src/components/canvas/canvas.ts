@@ -97,7 +97,7 @@ export interface CanvasOptions {
 
 /** What pressing the canvas places, instead of drawing. */
 export type Placing =
-  | { kind: "notes"; color: ToolColor }
+  | { kind: "notes"; color: ToolColor; author: string }
   | { kind: "texts"; color: ToolColor; fontSize: number };
 
 // A note or text box, which is typed in.
@@ -122,6 +122,8 @@ interface Inked {
 // on canvases of their own once it has some: its fills below its text, and
 // its strokes above.
 interface NoteView extends TypedView<Note> {
+  // Who signed it, along its bottom, if anyone did.
+  byline: HTMLElement | null;
   ink: HTMLCanvasElement | null;
   inked: Inked | null;
   fillCanvas: HTMLCanvasElement | null;
@@ -312,6 +314,9 @@ export class Canvas {
   #drawn: Drawn | null = null;
   #viewport: Viewport = DEFAULT_VIEWPORT;
   #background = "#ffffff";
+  // Whether signed notes show who signed them, on the canvas and as it's
+  // drawn, e.g. exported.
+  #showAuthors = true;
   // Whether pressing the drawing picks a color from it, with the dropper.
   #picking = false;
   // Dragging the drawing around, with the middle button or Space held.
@@ -347,12 +352,22 @@ export class Canvas {
       texts: this.#createTextLayer(),
       notes: this.#createNoteLayer(),
     };
-    const { fontSize, lineHeight, padding, cornerRadius } = NOTE_LAYOUT;
+    const { fontSize, lineHeight, padding, cornerRadius, bylineSize } =
+      NOTE_LAYOUT;
     const notes = this.#layers.notes.element.style;
     notes.fontSize = px(fontSize);
     notes.lineHeight = String(lineHeight);
     notes.setProperty("--canvas-note-padding", px(padding));
     notes.setProperty("--canvas-note-radius", px(cornerRadius));
+    notes.setProperty("--canvas-note-byline-size", px(bylineSize));
+    notes.setProperty(
+      "--canvas-note-byline-height",
+      px(bylineSize * lineHeight)
+    );
+    notes.setProperty(
+      "--canvas-note-byline-opacity",
+      String(NOTE_LAYOUT.bylineOpacity)
+    );
     this.#layers.texts.element.style.lineHeight = String(
       TEXT_LAYOUT.lineHeight
     );
@@ -417,6 +432,15 @@ export class Canvas {
     this.#background = color;
     this.#surface.style.backgroundColor = color;
     this.#surface.toggleAttribute("data-dark", isDarkColor(color));
+  }
+
+  /**
+   * Whether signed notes show who signed them. Hidden, they're drawn and
+   * exported without it, and their text gets its room back. They stay signed.
+   */
+  setShowAuthors(show: boolean): void {
+    this.#showAuthors = show;
+    this.#surface.toggleAttribute("data-authors-hidden", !show);
   }
 
   /** Whether pressing the drawing picks a color from it, with the dropper. */
@@ -567,9 +591,10 @@ export class Canvas {
 
   /**
    * The drawing as a file, drawn again at the chosen scale rather than copied
-   * from the screen, so its size doesn't depend on the screen's.
+   * from the screen, so its size doesn't depend on the screen's. `author`,
+   * if there is one, is kept in the file, except a JPEG.
    */
-  async export(options: ExportOptions): Promise<Blob | null> {
+  async export(options: ExportOptions, author = ""): Promise<Blob | null> {
     const { drawing, textStyle, files } = await this.#getRendering();
     return exportDrawing(
       drawing,
@@ -577,7 +602,8 @@ export class Canvas {
       options,
       this.#background,
       textStyle,
-      files
+      files,
+      author
     );
   }
 
@@ -604,13 +630,17 @@ export class Canvas {
 
   // The drawing, as it's shown.
   #getDrawing(): Drawing {
+    const notes = this.#layers.notes.items;
     return {
       background: this.#background,
       strokes: this.#strokes,
       fills: this.#fills,
       images: this.#layers.images.items,
       texts: this.#layers.texts.items,
-      notes: this.#layers.notes.items,
+      // Drawn as they're shown, without who signed them while that's hidden.
+      notes: this.#showAuthors
+        ? notes
+        : notes.map(({ author: _, ...note }) => note),
       order: this.#order,
     };
   }
@@ -892,7 +922,8 @@ export class Canvas {
     };
     if (!view.ink && item.strokes.length > 0) {
       view.ink = createElement("canvas", "canvas-note-ink");
-      editor.element.after(view.ink);
+      // Above its byline too, as exports draw it.
+      (view.byline ?? editor.element).after(view.ink);
     }
     if (view.ink) {
       const before = view.inked;
@@ -1591,10 +1622,10 @@ export class Canvas {
   }
 
   // A note that isn't in the drawing yet, above everything, as it will be once
-  // it's added.
+  // it's added. It's signed by the author, if there is one.
   #addNoteDraft(
     box: Box,
-    { color: toolColor }: Extract<Placing, { kind: "notes" }>
+    { color: toolColor, author }: Extract<Placing, { kind: "notes" }>
   ): NoteView {
     const color = resolveColor(this.#interfaceLayer, toolColor);
     const view = this.#layers.notes.addDraft({
@@ -1604,6 +1635,7 @@ export class Canvas {
       content: [{ runs: [] }],
       strokes: [],
       fills: [],
+      ...(author && { author }),
     });
     view.element.style.zIndex = String(this.#order.length + 1);
     return view;
@@ -1965,10 +1997,19 @@ export class Canvas {
       createView: (note, element) => {
         const editor = this.#createEditor("notes", note, "Sticky note");
         element.append(editor.element);
+        // A note's author never changes, so it's only shown once.
+        let byline: HTMLElement | null = null;
+        if (note.author) {
+          byline = createElement("div", "canvas-note-byline");
+          byline.textContent = note.author;
+          element.toggleAttribute("data-signed", true);
+          element.append(byline);
+        }
         return {
           element,
           item: note,
           editor,
+          byline,
           ink: null,
           inked: null,
           fillCanvas: null,

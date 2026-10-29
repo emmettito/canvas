@@ -266,6 +266,27 @@ canvases dark. When a canvas opens or its background
 changes, a black pencil turns white on a dark background, and white black on a
 light one, so it shows.
 
+### Signing notes
+
+Pass `author`, e.g. the name someone set, and each new note is signed with it
+in small, quieter type along its bottom, inside its padding, so its text has a
+line less room. Exports draw the byline the same way, cut short with an
+ellipsis if it's too long. PNG and SVG exports also keep the name as their
+author: an `Author` iTXt chunk in a PNG, and Dublin Core's `dc:creator` in an
+SVG's metadata. JPEGs don't. Call `setAuthor` on the mounted canvas when the
+name changes. Notes already placed keep the name they were signed with, and
+without one, nothing's signed. Pass `showAuthors: false`, or call
+`setShowAuthors(false)`, to hide every note's byline, on the canvas and in
+exports, and give its text that line back. Notes stay signed, so showing
+bylines again brings their names back.
+
+```ts
+const canvas = mountCanvas(document.getElementById("drawing")!, {
+  author: "Ada",
+});
+nameField.addEventListener("input", () => canvas.setAuthor(nameField.value));
+```
+
 ### Formatting text
 
 To format notes' and text's text, install [ProseMirror](https://prosemirror.net)
@@ -430,9 +451,11 @@ System, Light, or Dark, which is true black, for the page and its toolbars.
 New canvases start on the theme's background. System
 follows the system's light or dark mode, and is the default. The page
 remembers your choice. Below it, Canvas background picks the open canvas's
-background from a few swatches or any color, through `setBackground`. The
-dialog has a section per group of settings, so more can be added beside
-Appearance.
+background from a few swatches or any color, through `setBackground`. Above
+them, Profile's Name field signs new notes and exports, through `author` and
+`setAuthor`. The page remembers it. Unchecking Show names on sticky notes hides bylines, through
+`setShowAuthors`, and the page remembers that too. The dialog has a section
+per group of settings, so more can be added beside Profile and Appearance.
 
 The demo's toolbar icons are [Phosphor](https://phosphoricons.com)'s regular
 weight, under the MIT license, which the demo page ships in

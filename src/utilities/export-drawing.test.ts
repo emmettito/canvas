@@ -195,6 +195,63 @@ describe("createSvg with notes", () => {
   });
 });
 
+describe("createSvg with signed notes", () => {
+  it("shows the author along the note's bottom, quieter than its text", () => {
+    const svg = toSvg({ notes: [{ ...NOTE, author: "Ada" }] });
+
+    expect(svg).toMatch(
+      /<g fill-opacity="0.6"><text xml:space="preserve"><tspan x="32" [^>]*font-size="11"[^>]*>Ada<\/tspan><\/text><\/g>/
+    );
+  });
+
+  it("gives the note's text less room above the author", () => {
+    // Without the author, 72 units less the padding fits two lines.
+    const small = {
+      ...NOTE,
+      height: 72,
+      content: fromPlainText("one\ntwo"),
+    };
+
+    expect(toSvg({ notes: [small] })).toContain(">two<");
+    const svg = toSvg({ notes: [{ ...small, author: "Ada" }] });
+    expect(svg).toContain(">one<");
+    expect(svg).not.toContain(">two<");
+  });
+
+  it("cuts a long author short with an ellipsis", () => {
+    const svg = toSvg({
+      notes: [{ ...NOTE, width: 60, author: "Bartholomew Montgomery" }],
+    });
+
+    expect(svg).toMatch(/>[^<>]+…<\/tspan>/);
+    expect(svg).not.toContain("Montgomery");
+  });
+
+  it("leaves unsigned notes without one", () => {
+    expect(toSvg({ notes: [NOTE] })).not.toContain("fill-opacity");
+  });
+});
+
+describe("createSvg's author", () => {
+  it("keeps the author as the file's creator, escaped", () => {
+    const svg = createSvg(
+      createDrawing({}),
+      SIZE,
+      1,
+      null,
+      TEXT_STYLE,
+      new Map(),
+      "Ada & <Co>"
+    );
+
+    expect(svg).toContain("<dc:creator>Ada &amp; &lt;Co></dc:creator>");
+  });
+
+  it("leaves out the metadata without one", () => {
+    expect(toSvg({})).not.toContain("<metadata>");
+  });
+});
+
 describe("createSvg with text", () => {
   it("draws each line in the text's color and size", () => {
     const svg = toSvg({ texts: [TEXT] });
