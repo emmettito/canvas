@@ -5,6 +5,8 @@ import { DEFAULT_TOOL_SIZE } from "../../constants/default-tool-size.const";
 import { IMAGE_LAYOUT } from "../../constants/image-layout.const";
 import { ITEM_KINDS } from "../../constants/item-kinds.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
+import { TOOL_SHORTCUTS } from "../../constants/tool-shortcuts.const";
+import { TOOLS } from "../../constants/tools.const";
 import { type CanvasEntry } from "../../models/canvas-entry.model";
 import { type CustomColor, type ToolColor } from "../../models/color.model";
 import { type Drawing } from "../../models/drawing.model";
@@ -36,6 +38,7 @@ import { getFileName } from "../../utilities/get-file-name";
 import { getImageSize } from "../../utilities/get-image-size";
 import { ImageStore } from "../../utilities/image-store";
 import { isField } from "../../utilities/is-field";
+import { getDefaultOrder, isOrderOf } from "../../utilities/layers";
 import { DEFAULT_VIEWPORT } from "../../utilities/viewport";
 import {
   CanvasToolbar,
@@ -170,7 +173,11 @@ export function mountCanvas(
   validateToolbar(allControls);
   // Without the history, there's only ever the open canvas, so starting a new
   // one deletes it.
-  const hasHistory = getToolbarActions(allControls).includes("history");
+  const offered = getToolbarActions(allControls);
+  const hasHistory = offered.includes("history");
+  // Only tools on a toolbar have a shortcut, or are picked for you, so a
+  // host can leave one out.
+  const shortcutTools = TOOLS.filter((tool) => offered.includes(tool));
   // In the page from the start, so its CSS can be read, e.g. the background
   // new canvases start with.
   const root = createElement("div", "canvas-root");
@@ -254,6 +261,10 @@ export function mountCanvas(
     },
     onItemRemove: (kind, id) => {
       history.removeItem(kind, id);
+      update();
+    },
+    onItemRestack: (kind, id, to) => {
+      history.restackItem(kind, id, to);
       update();
     },
     getImage: (id) => imageStore.get(open.id, id),
@@ -464,17 +475,24 @@ export function mountCanvas(
   }
 
   function onKeyDown(event: KeyboardEvent) {
-    // Zooming takes the browser's own shortcuts, so only while the canvas is
-    // in use: with the pointer over it, or focus in it or nowhere else.
+    // Zooming takes the browser's own shortcuts, and tools' keys type, so
+    // they're only used while the canvas is: with the pointer over it, or
+    // focus in it or nowhere else.
     const zoomAction = getZoomShortcut(event);
     const active = document.activeElement;
-    if (
-      zoomAction &&
+    const inUse =
       !isField(event.target) &&
-      (pointer !== null || root.contains(active) || active === document.body)
-    ) {
+      (pointer !== null || root.contains(active) || active === document.body);
+    if (zoomAction && inUse) {
       event.preventDefault();
       zoom(zoomAction);
+      return;
+    }
+    // Tools' keys are letters, which type while text is typed in.
+    const tool = getToolShortcut(event);
+    if (tool && inUse && !canvas.isTyping) {
+      event.preventDefault();
+      toolbarActions.onSelectTool(tool);
       return;
     }
     if (!isToggleShortcut(event)) {
@@ -491,22 +509,42 @@ export function mountCanvas(
   }
   document.addEventListener("keydown", onKeyDown);
 
+  // A tool's key on its own picks it, e.g. V for the move tool.
+  function getToolShortcut(event: KeyboardEvent): Tool | null {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) {
+      return null;
+    }
+    return (
+      shortcutTools.find(
+        (tool) => TOOL_SHORTCUTS[tool] === event.key.toUpperCase()
+      ) ?? null
+    );
+  }
+
   // A canvas's drawing. A blank canvas has nothing saved, so it starts empty.
   // Images' files that the drawing no longer has, e.g. ones deleted from it,
   // can't be brought back by undoing once it's opened again, so they're
   // removed.
   function loadDrawing(id: string): Drawing {
     const isSaved = canvases.some((canvas) => canvas.id === id);
+    const parts = {
+      strokes: storage.loadStrokes(id) ?? [],
+      images: storage.loadItems(id, "images") ?? [],
+      texts: storage.loadItems(id, "texts") ?? [],
+      notes: storage.loadItems(id, "notes") ?? [],
+    };
+    // A canvas saved before it had a stacking order, or whose order doesn't
+    // match, e.g. as part of it couldn't be saved, is stacked the way it used
+    // to be.
+    const order = storage.loadOrder(id);
     const drawing: Drawing = {
+      ...parts,
       // A canvas saved before canvases had their own background was drawn on
       // white. A new one starts with the theme's.
       background:
         storage.loadBackground(id) ??
         (isSaved ? LEGACY_BACKGROUND : getDefaultBackground()),
-      strokes: storage.loadStrokes(id) ?? [],
-      images: storage.loadItems(id, "images") ?? [],
-      texts: storage.loadItems(id, "texts") ?? [],
-      notes: storage.loadItems(id, "notes") ?? [],
+      order: order && isOrderOf(order, parts) ? order : getDefaultOrder(parts),
     };
     void imageStore.prune(
       id,
@@ -541,22 +579,34 @@ export function mountCanvas(
   }
 
   // Inserts images one after another, from `at` or the middle of what the
-  // canvas shows, each a little further down and right.
+  // canvas shows, each a little further down and right. The move tool is
+  // picked, if there is one, with the last image, to move or resize it.
   async function insertImages(files: File[], at?: Point) {
     const { x, y, width, height } = canvas.visibleArea;
     const start = at ?? { x: x + width / 2, y: y + height / 2 };
+    let last: string | null = null;
     for (const [index, file] of files.entries()) {
       const offset = index * IMAGE_LAYOUT.offset;
-      await insertImage(file, { x: start.x + offset, y: start.y + offset });
+      last =
+        (await insertImage(file, {
+          x: start.x + offset,
+          y: start.y + offset,
+        })) ?? last;
+    }
+    if (last !== null && shortcutTools.includes("move")) {
+      activeTool = "move";
+      update();
+      canvas.select("images", last);
     }
   }
 
   // Places an image centered on `center`, scaled down to fit the canvas. Its
-  // file is kept as it is, so nothing is lost.
+  // file is kept as it is, so nothing is lost. Its id, or null if it isn't
+  // an image a browser can show.
   async function insertImage(file: Blob, center: Point) {
     const size = await getImageSize(file);
     if (!size) {
-      return;
+      return null;
     }
     const id = createId();
     // The store has it as soon as it's asked, so the canvas can show it while
@@ -585,6 +635,7 @@ export function mountCanvas(
       imagesSaved = false;
       save();
     }
+    return id;
   }
 
   // A blank canvas isn't in the history until it's changed.
@@ -625,7 +676,12 @@ export function mountCanvas(
   // What's stored of `drawing`, so a background that isn't stored yet, e.g. a
   // new canvas's, is saved once the canvas is.
   function withStoredBackground(drawing: Drawing, id: string): Drawing {
-    return { ...drawing, background: storage.loadBackground(id) ?? "" };
+    return {
+      ...drawing,
+      background: storage.loadBackground(id) ?? "",
+      // The same for an order that's made up rather than loaded.
+      order: storage.loadOrder(id) ?? [],
+    };
   }
 
   // The pencil stays visible on a new background: black becomes white on a
@@ -714,14 +770,15 @@ export function mountCanvas(
   // Shows the drawing and the tool on the canvas.
   function showDrawing() {
     const { drawing } = history;
-    canvas.setStrokes(drawing.strokes);
     for (const kind of ITEM_KINDS) {
       canvas.setItems(kind, drawing[kind]);
     }
+    canvas.setLayers(drawing.strokes, drawing.order);
     canvas.setBackground(drawing.background);
     canvas.setToolState(getStrokeToolState());
     canvas.setPlacing(getPlacing());
     canvas.setPicking(activeTool === "dropper");
+    canvas.setMoving(activeTool === "move");
     canvas.setRecentColors(recentColors);
   }
 
@@ -774,6 +831,13 @@ export function mountCanvas(
       if (drawing.strokes !== stored.strokes) {
         if (storage.saveStrokes(open.id, drawing.strokes)) {
           stored = { ...stored, strokes: drawing.strokes };
+        } else {
+          saved = false;
+        }
+      }
+      if (drawing.order !== stored.order) {
+        if (storage.saveOrder(open.id, drawing.order)) {
+          stored = { ...stored, order: drawing.order };
         } else {
           saved = false;
         }

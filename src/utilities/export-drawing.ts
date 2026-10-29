@@ -14,6 +14,7 @@ import { MAX_EXPORT_PIXELS } from "../constants/max-export-pixels.const";
 import { NOTE_LAYOUT } from "../constants/note-layout.const";
 import { TEXT_LAYOUT } from "../constants/text-layout.const";
 import { drawStroke } from "./draw-stroke";
+import { resolveLayers } from "./layers";
 import {
   layOutRichText,
   type PlacedSpan,
@@ -253,23 +254,65 @@ function drawSpans(context: CanvasRenderingContext2D, spans: PlacedSpan[]) {
   }
 }
 
+// A canvas as big as `context`'s, drawn on through the same transform, so
+// strokes on it can be erased without erasing what's under them.
+function createLayer(
+  context: CanvasRenderingContext2D
+): CanvasRenderingContext2D | null {
+  const layer = document.createElement("canvas");
+  layer.width = context.canvas.width;
+  layer.height = context.canvas.height;
+  const layerContext = layer.getContext("2d");
+  layerContext?.setTransform(context.getTransform());
+  return layerContext;
+}
+
+// Draws strokes on their own layer, then onto `context`, so erasers only
+// erase them. `erasers` are drawn after them, e.g. ones drawn above them.
+function drawStrokes(
+  context: CanvasRenderingContext2D,
+  strokes: Stroke[],
+  erasers: Stroke[] = []
+): void {
+  if (!strokes.some((stroke) => stroke.color !== undefined)) {
+    return;
+  }
+  const layer = createLayer(context);
+  if (!layer) {
+    return;
+  }
+  for (const stroke of [...strokes, ...erasers]) {
+    drawStroke(layer, stroke);
+  }
+  context.save();
+  context.resetTransform();
+  context.drawImage(layer.canvas, 0, 0);
+  context.restore();
+}
+
+// The note, its text, and the strokes drawn on it, which only show inside it.
 function drawNote(
   context: CanvasRenderingContext2D,
   note: Note,
   textStyle: TextStyle,
   measurer: TextMeasurer
 ): void {
-  context.fillStyle = note.color;
-  context.beginPath();
-  context.roundRect(
+  const shape = new Path2D();
+  shape.roundRect(
     note.x,
     note.y,
     note.width,
     note.height,
     NOTE_LAYOUT.cornerRadius
   );
-  context.fill();
+  context.fillStyle = note.color;
+  context.fill(shape);
   drawSpans(context, layOutNote(note, textStyle, measurer));
+  context.save();
+  context.clip(shape);
+  context.translate(note.x, note.y);
+  drawStrokes(context, note.strokes);
+  context.restore();
 }
 
 /**
@@ -278,7 +321,7 @@ function drawNote(
  * the background, or null for none. Null if the browser can't draw it.
  */
 export async function renderDrawing(
-  { strokes, images, texts, notes }: Drawing,
+  drawing: Drawing,
   area: Box,
   scale: number,
   fill: string | null,
@@ -286,47 +329,47 @@ export async function renderDrawing(
   files: Map<string, Blob>
 ): Promise<HTMLCanvasElement | null> {
   const { width, height } = getExportSize(area, scale);
-  // Strokes go on their own layer, so the eraser can't erase the background.
-  const layer = document.createElement("canvas");
-  layer.width = width;
-  layer.height = height;
-  const layerContext = layer.getContext("2d");
   const image = document.createElement("canvas");
   image.width = width;
   image.height = height;
   const context = image.getContext("2d");
-  if (!layerContext || !context) {
+  if (!context) {
     return null;
-  }
-  // The area's top left corner is the image's.
-  layerContext.scale(scale, scale);
-  layerContext.translate(-area.x, -area.y);
-  for (const stroke of strokes) {
-    drawStroke(layerContext, stroke);
   }
   if (fill) {
     context.fillStyle = fill;
     context.fillRect(0, 0, width, height);
   }
-  context.drawImage(layer, 0, 0);
-
-  // Images, text and notes go on top of everything, the way the canvas
-  // shows them.
+  // The area's top left corner is the image's.
   context.scale(scale, scale);
   context.translate(-area.x, -area.y);
-  for (const item of images) {
-    const file = files.get(item.id);
-    const element = file && (await loadImage(file));
-    if (element) {
-      context.drawImage(element, item.x, item.y, item.width, item.height);
-    }
-  }
   const measurer = createMeasurer();
-  for (const box of texts) {
-    drawSpans(context, layOutTextBox(box, textStyle, measurer));
-  }
-  for (const note of notes) {
-    drawNote(context, note, textStyle, measurer);
+  // Bottom to top, the way the canvas shows them.
+  for (const layer of resolveLayers(drawing)) {
+    switch (layer.kind) {
+      case "strokes":
+        drawStrokes(
+          context,
+          layer.strokes,
+          layer.erasedBy.map((index) => drawing.strokes[index])
+        );
+        break;
+      case "images": {
+        const { item } = layer;
+        const file = files.get(item.id);
+        const element = file && (await loadImage(file));
+        if (element) {
+          context.drawImage(element, item.x, item.y, item.width, item.height);
+        }
+        break;
+      }
+      case "texts":
+        drawSpans(context, layOutTextBox(layer.item, textStyle, measurer));
+        break;
+      case "notes":
+        drawNote(context, layer.item, textStyle, measurer);
+        break;
+    }
   }
   return image;
 }
@@ -393,25 +436,81 @@ function createImageElement(
   return `<image href="${escapeAttribute(url)}" x="${round(x)}" y="${round(y)}" width="${round(width)}" height="${round(height)}" preserveAspectRatio="none"/>`;
 }
 
-// The note as an SVG rectangle, with its text.
+// Strokes as SVG, each eraser masking the strokes before it. `masks` gets
+// each eraser's mask, named by `name` with the stroke's index. Erasers in
+// `erasedBy` are drawn above them, and their masks are made elsewhere.
+function createStrokes(
+  strokes: Stroke[],
+  bounds: string,
+  name: (index: number) => string,
+  masks: string[],
+  erasedBy: number[] = [],
+  start = 0
+): string {
+  let content = "";
+  strokes.forEach((stroke, offset) => {
+    if (stroke.points.length === 0) {
+      return;
+    }
+    if (stroke.color !== undefined) {
+      content += createShape(stroke, stroke.color);
+      return;
+    }
+    // White keeps what's under the mask, and the eraser's black hides it.
+    const id = name(start + offset);
+    masks.push(
+      `<mask id="${id}" maskUnits="userSpaceOnUse" ${bounds}><rect ${bounds} fill="#fff"/>${createShape(stroke, "#000")}</mask>`
+    );
+    if (content) {
+      content = `<g mask="url(#${id})">${content}</g>`;
+    }
+  });
+  if (!content) {
+    return "";
+  }
+  for (const index of erasedBy) {
+    content = `<g mask="url(#${name(index)})">${content}</g>`;
+  }
+  return content;
+}
+
+// The note as an SVG rectangle, with its text and the strokes drawn on it,
+// clipped to it. `index` keeps its masks' and clip's names apart from other
+// notes'.
 function createNote(
   note: Note,
+  index: number,
   textStyle: TextStyle,
-  measurer: TextMeasurer
+  measurer: TextMeasurer,
+  masks: string[]
 ): string {
-  const rect = `<rect x="${round(note.x)}" y="${round(note.y)}" width="${round(note.width)}" height="${round(note.height)}" rx="${NOTE_LAYOUT.cornerRadius}" fill="${escapeAttribute(note.color)}"/>`;
-  return rect + createText(layOutNote(note, textStyle, measurer));
+  const shape = `width="${round(note.width)}" height="${round(note.height)}" rx="${NOTE_LAYOUT.cornerRadius}"`;
+  const rect = `<rect x="${round(note.x)}" y="${round(note.y)}" ${shape} fill="${escapeAttribute(note.color)}"/>`;
+  const text = createText(layOutNote(note, textStyle, measurer));
+  // Its strokes are from its top left corner, like the note's own.
+  const ink = createStrokes(
+    note.strokes,
+    `x="0" y="0" width="${round(note.width)}" height="${round(note.height)}"`,
+    (stroke) => `note-${index}-erase-${stroke}`,
+    masks
+  );
+  if (!ink) {
+    return rect + text;
+  }
+  const clip = `note-${index}-clip`;
+  masks.push(`<clipPath id="${clip}"><rect ${shape}/></clipPath>`);
+  return `${rect}${text}<g transform="translate(${round(note.x)} ${round(note.y)})" clip-path="url(#${clip})">${ink}</g>`;
 }
 
 /**
  * The part of the drawing in `area` as SVG, `scale` times its size in drawing
- * units, so it opens at the chosen size and stays sharp at any other. The eraser only erases what
- * was drawn before it, so each eraser stroke masks everything before it.
- * Images, text and notes are above every stroke, so no eraser masks them.
- * `imageUrls` are the images' files as `data:` URLs, by id.
+ * units, so it opens at the chosen size and stays sharp at any other. The
+ * eraser only erases strokes drawn before it, so each eraser stroke masks
+ * them, but nothing placed. `imageUrls` are the images' files as `data:`
+ * URLs, by id.
  */
 export function createSvg(
-  { strokes, images, texts, notes }: Drawing,
+  drawing: Drawing,
   area: Box,
   scale: ExportScale,
   fill: string | null,
@@ -425,39 +524,41 @@ export function createSvg(
   const pixels = getExportSize(area, scale);
   // The area, as SVG attributes.
   const bounds = `x="${x}" y="${y}" width="${width}" height="${height}"`;
-  let masks = "";
+  const masks: string[] = [];
+  const measurer = createMeasurer();
+  let notes = 0;
   let content = "";
-  strokes.forEach((stroke, index) => {
-    if (stroke.points.length === 0) {
-      return;
-    }
-    if (stroke.color !== undefined) {
-      content += createShape(stroke, stroke.color);
-      return;
-    }
-    // White keeps what's under the mask, and the eraser's black hides it.
-    const id = `erase-${index}`;
-    masks += `<mask id="${id}" maskUnits="userSpaceOnUse" ${bounds}><rect ${bounds} fill="#fff"/>${createShape(stroke, "#000")}</mask>`;
-    content = `<g mask="url(#${id})">${content}</g>`;
-  });
-  for (const item of images) {
-    const url = imageUrls.get(item.id);
-    if (url) {
-      content += createImageElement(item, url);
-    }
-  }
-  if (texts.length > 0 || notes.length > 0) {
-    const measurer = createMeasurer();
-    for (const box of texts) {
-      content += createText(layOutTextBox(box, textStyle, measurer));
-    }
-    for (const note of notes) {
-      content += createNote(note, textStyle, measurer);
+  // Bottom to top, the way the canvas shows them.
+  for (const layer of resolveLayers(drawing)) {
+    switch (layer.kind) {
+      case "strokes":
+        content += createStrokes(
+          layer.strokes,
+          bounds,
+          (index) => `erase-${index}`,
+          masks,
+          layer.erasedBy,
+          layer.start
+        );
+        break;
+      case "images": {
+        const url = imageUrls.get(layer.item.id);
+        if (url) {
+          content += createImageElement(layer.item, url);
+        }
+        break;
+      }
+      case "texts":
+        content += createText(layOutTextBox(layer.item, textStyle, measurer));
+        break;
+      case "notes":
+        content += createNote(layer.item, notes++, textStyle, measurer, masks);
+        break;
     }
   }
   const background = fill
     ? `<rect ${bounds} fill="${escapeAttribute(fill)}"/>`
     : "";
-  const defs = masks ? `<defs>${masks}</defs>` : "";
+  const defs = masks.length > 0 ? `<defs>${masks.join("")}</defs>` : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${pixels.width}" height="${pixels.height}" viewBox="${x} ${y} ${width} ${height}">${defs}${background}${content}</svg>`;
 }

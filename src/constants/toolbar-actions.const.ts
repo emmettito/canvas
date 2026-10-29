@@ -7,6 +7,7 @@ export const TOOLBAR_ACTIONS: ToolbarAction[] = [
   "new-canvas",
   "history",
   "export",
+  "move",
   "pencil",
   "eraser",
   "note",

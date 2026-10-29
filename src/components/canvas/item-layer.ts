@@ -9,6 +9,9 @@ const DRAG_THRESHOLD = 4;
 // How long, in milliseconds, a touch rests on an item to open its menu, like
 // a right-click.
 const LONG_PRESS = 500;
+// How soon, in milliseconds, a second press on an item counts as a double
+// press, e.g. to open a note for typing.
+const DOUBLE_PRESS = 400;
 
 // Something placed on the drawing, by its top left corner. Drawing units are
 // CSS pixels on the canvas.
@@ -56,8 +59,11 @@ export interface ItemLayerOptions<T extends PlacedItem, V extends ItemView<T>> {
   // Whether pressing `target` is left to the browser, e.g. to move the caret
   // in text being typed.
   isPressForBrowser?: (view: V, target: Element) => boolean;
-  // The item was pressed without being dragged, or Enter was pressed on it.
+  // The item was pressed without being dragged.
   onPress?: (view: V) => void;
+  // The item was pressed twice, or Enter was pressed on it, e.g. to type in
+  // it. Without this, Enter presses it.
+  onOpen?: (view: V) => void;
   // The item was right-clicked or long-pressed, at `point` on screen.
   onMenu: (view: V, point: Point) => void;
   // Its element is removed, e.g. to stop what's in it.
@@ -102,6 +108,8 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
   // Set once a long press opens a menu, so the browser's own long-press
   // `contextmenu` doesn't open it again.
   #openedByLongPress = false;
+  // The last press without a drag, to tell a double press.
+  #lastPress: { id: string; time: number } | null = null;
 
   constructor(layerClassName: string, options: ItemLayerOptions<T, V>) {
     this.#options = options;
@@ -136,6 +144,11 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
 
   getView(id: string): V | undefined {
     return this.#views.get(id);
+  }
+
+  /** Every item shown, including the draft. */
+  get views(): V[] {
+    return [...this.#views.values()];
   }
 
   /** How big the item is on screen, in drawing units. */
@@ -315,7 +328,7 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
     const { view } = gesture;
     if (!gesture.moved) {
       if (event.type === "pointerup") {
-        this.#options.onPress?.(view);
+        this.#press(view, event.timeStamp);
       }
       return;
     }
@@ -364,7 +377,24 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
       this.remove(view.item.id);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      this.#options.onPress?.(view);
+      (this.#options.onOpen ?? this.#options.onPress)?.(view);
     }
   };
+
+  // A second press soon after the first, on the same item, opens it.
+  #press(view: V, time: number): void {
+    const last = this.#lastPress;
+    const { onOpen, onPress } = this.#options;
+    if (
+      onOpen &&
+      last?.id === view.item.id &&
+      time - last.time < DOUBLE_PRESS
+    ) {
+      this.#lastPress = null;
+      onOpen(view);
+      return;
+    }
+    this.#lastPress = { id: view.item.id, time };
+    onPress?.(view);
+  }
 }

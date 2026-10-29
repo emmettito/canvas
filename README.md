@@ -2,7 +2,8 @@
 
 A simple art canvas. Draw with a pencil or eraser, pick
 from a color palette, adjust the size of each tool, add text, images and
-sticky notes, and undo or redo any of it. The canvas fills the space it's
+sticky notes, draw on the notes, move and stack it all, and undo or redo any
+of it. The canvas fills the space it's
 given, with its toolbars floating above it.
 
 **[Try the live demo](https://emmettito.github.io/canvas/)**
@@ -65,6 +66,7 @@ mountCanvas(document.getElementById("drawing")!, {
 | `new-canvas`       | Start a blank canvas                              |
 | `history`          | Open or delete canvases drawn earlier             |
 | `export`           | Export as PNG, JPEG or SVG (see below)            |
+| `move`             | Move, resize and pick what's placed (see below)   |
 | `pencil`, `eraser` | Pick the tool, or its size if already picked      |
 | `text`             | Add text, or pick its size if already picked      |
 | `note`             | Add sticky notes                                  |
@@ -137,20 +139,33 @@ control, one listed twice (on either toolbar or in the File menu) or a button
 without an icon, before anything is
 added to the page.
 
+Each tool has a key, shown in its button's tooltip, which picks it while the
+canvas is in use and nothing's being typed: V for `move`, P for `pencil`, E
+for `eraser`, N for `note`, T for `text` and I for `dropper`. Only tools on a
+toolbar have one.
+
 ### Text, images and sticky notes
 
-These sit above the strokes, so the eraser doesn't erase them: images at the
-bottom, then text, then notes on top. Like strokes, they're saved with the
-canvas, can be undone and cleared, and are included in exports. Whichever
-tool is picked:
+Like strokes, these are saved with the canvas, can be undone and cleared, and
+are included in exports. Strokes and what's placed are stacked in one order,
+each new one on top, so a stroke drawn after a note is drawn over it, and one
+drawn before is hidden under it. The eraser only erases strokes, never what's
+placed, and the pencil and eraser draw over items rather than moving them.
 
-- Drag one to move it.
+With `move` picked:
+
+- Drag one to move it. Dragging anywhere else pans.
 - Drag its edges to resize it. The pointer turns into a resize arrow over
   each side and corner, so there are no handles to see. The side or corner
   across from the one dragged stays where it is.
-- Right-click it, or press and hold on a touch screen, for a menu to delete
-  it.
-- Click it, or press Tab to reach it, then Delete or Backspace to delete it.
+- Click it to pick it, then Delete or Backspace to delete it. Pressing Tab
+  reaches it too, with any tool.
+- Double-click text or a note, or press Enter on it, to type in it.
+
+With `note` or `text` picked, notes or text can be moved and resized the same
+way, and clicking one types in it. Whichever tool is picked, right-click an
+item, or press and hold one on a touch screen with `move`, for a menu to bring
+it to the front, send it to the back, or delete it.
 
 **Text**: with `text` picked, clicking the canvas starts text there, in the
 pencil's color, at the size picked by clicking `text` again. Until it's typed
@@ -164,7 +179,15 @@ While `note` is picked, `color` picks the color of new notes, which are a light
 shade of it, so their text stays readable. Yellow is the default. Text that
 doesn't fit in a note is hidden, and left out of the export.
 
-**Typing**: clicking text or a note, or pressing Enter on one, types in it.
+A stroke started on a note, with the pencil or eraser, is drawn on it, over
+its text, unless an image is above the note there. It only shows inside the
+note and moves with it. Resizing the note doesn't stretch its strokes: they
+stay where they are, and any outside the note are hidden until it's made big
+enough again. The eraser started on a note only erases the note's strokes,
+and one started off it only erases the drawing's.
+
+**Typing**: with `move` picked, double-clicking text or a note, or pressing
+Enter on one, types in it. With `note` or `text` picked, clicking one does.
 Clicking away or pressing Escape finishes, and one left empty is removed. The
 text is plain unless the page adds a text editor that formats it (see
 [Formatting text](#formatting-text)).
@@ -172,7 +195,8 @@ text is plain unless the page adds a text editor that formats it (see
 **Images**: `image` opens a file picker. Images can also be pasted, where the
 pointer is over the canvas, or dropped onto it, where they're dropped. Each is
 scaled down to fit the canvas if it's bigger, and resizes from its corners,
-keeping its shape. Images are kept byte for byte, so nothing is lost, and SVG
+keeping its shape. Once they're in, `move` is picked, if a toolbar has it,
+with the last image picked, ready to move, resize or delete. Images are kept byte for byte, so nothing is lost, and SVG
 exports include them unchanged.
 
 ### Colors
@@ -243,7 +267,8 @@ Figma:
   scroll a mouse wheel sideways.
 - Hold Space and drag, or drag with the middle button, to pan.
 - Ctrl+scroll (Cmd on a Mac) or pinch a trackpad to zoom around the pointer.
-- On a touch screen, pinch and drag with two fingers. One finger draws.
+- On a touch screen, pinch and drag with two fingers. One finger draws, or
+  pans with `move` picked.
 - Ctrl+= and Ctrl+- zoom in and out, Ctrl+0 or Shift+0 goes back to 100%, and
   Shift+1 fits the whole drawing in the window. They work while the pointer is
   over the canvas, or nothing else on the page has focus.

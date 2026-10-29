@@ -135,15 +135,33 @@ test("the resize handles can't be seen, but the pointer shows them", async ({
   await expect(corner).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 });
 
-test("clicking a note opens it for typing", async ({ page }) => {
+test("with the note tool, clicking a note opens it for typing", async ({
+  page,
+}) => {
   await addNote(page, "Hello");
-  await page.getByRole("button", { name: "Pencil" }).click();
 
   await page.locator(".canvas-note").click();
   await page.keyboard.type(" there");
   await page.keyboard.press("Escape");
 
   await expect(getNotes(page)).toHaveText("Hello there");
+});
+
+test("with the move tool, clicking a note picks it, and double-clicking opens it", async ({
+  page,
+}) => {
+  await addNote(page, "Hello");
+  await page.getByRole("button", { name: "Move" }).click();
+  const note = page.locator(".canvas-note");
+
+  await note.dblclick();
+  await page.keyboard.type(" there");
+  await page.keyboard.press("Escape");
+  await expect(getNotes(page)).toHaveText("Hello there");
+
+  await note.click();
+  await expect(note).toBeFocused();
+  await expect(note).not.toHaveAttribute("data-editing");
 });
 
 test("emptying a note or deleting it from its menu removes it", async ({

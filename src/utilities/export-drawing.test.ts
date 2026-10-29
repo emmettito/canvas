@@ -11,6 +11,7 @@ import {
   exportDrawing,
   getExportSize,
 } from "./export-drawing";
+import { getDefaultOrder } from "./layers";
 import { fromPlainText } from "./rich-text";
 
 // The area exported, from the drawing's origin.
@@ -34,6 +35,7 @@ const NOTE: Note = {
   height: 160,
   color: "#fefe99",
   content: fromPlainText("Buy milk"),
+  strokes: [],
 };
 const TEXT: TextBox = {
   id: "t",
@@ -47,6 +49,20 @@ const TEXT: TextBox = {
 };
 const IMAGE: ImageItem = { id: "i", x: 5, y: 6, width: 100, height: 50 };
 const TEXT_STYLE = { noteColor: "#1f2023", fontFamily: "sans-serif" };
+
+// A drawing of only what's given, stacked the way drawings were before they
+// had an order, unless it's given one.
+function createDrawing(parts: Partial<Drawing>): Drawing {
+  const drawing = {
+    background: "#ffffff",
+    strokes: [],
+    images: [],
+    texts: [],
+    notes: [],
+    ...parts,
+  };
+  return { ...drawing, order: parts.order ?? getDefaultOrder(drawing) };
+}
 
 // The drawing as SVG, with only what's given in it.
 function toSvg(
@@ -62,14 +78,7 @@ function toSvg(
   } = {}
 ): string {
   return createSvg(
-    {
-      background: "#ffffff",
-      strokes: [],
-      images: [],
-      texts: [],
-      notes: [],
-      ...drawing,
-    },
+    createDrawing(drawing),
     SIZE,
     scale,
     fill,
@@ -112,13 +121,7 @@ describe("createSvg", () => {
 
   it("exports the area it's given, wherever it is on the drawing", () => {
     const svg = createSvg(
-      {
-        background: "#ffffff",
-        strokes: [DOT],
-        images: [],
-        texts: [],
-        notes: [],
-      },
+      createDrawing({ strokes: [DOT] }),
       { x: -50, y: 20, width: 100, height: 80 },
       1,
       "#ffffff",
@@ -264,7 +267,7 @@ describe("createSvg with images", () => {
     expect(toSvg({ images: [IMAGE] })).not.toContain("<image");
   });
 
-  it("puts images, then text, then notes above the strokes and the eraser", () => {
+  it("stacks a drawing from before there was an order the way it was", () => {
     const svg = toSvg(
       {
         strokes: [DOT, ERASER],
@@ -279,18 +282,72 @@ describe("createSvg with images", () => {
       /<\/g><image [^>]*\/><text [^>]*>.*<\/text><rect x="20"/
     );
   });
+
+  it("stacks strokes and items in the drawing's order", () => {
+    const svg = toSvg(
+      {
+        strokes: [DOT, LINE],
+        images: [IMAGE],
+        order: [
+          { kind: "strokes", count: 1 },
+          { kind: "images", id: "i" },
+          { kind: "strokes", count: 1 },
+        ],
+      },
+      { imageUrls: new Map([["i", "data:,"]]) }
+    );
+
+    expect(svg).toMatch(/<circle[^>]*\/><image [^>]*\/><path/);
+  });
+
+  it("erases strokes below an image with an eraser above it, not the image", () => {
+    const svg = toSvg(
+      {
+        strokes: [DOT, ERASER],
+        images: [IMAGE],
+        order: [
+          { kind: "strokes", count: 1 },
+          { kind: "images", id: "i" },
+          { kind: "strokes", count: 1 },
+        ],
+      },
+      { imageUrls: new Map([["i", "data:,"]]) }
+    );
+
+    expect(svg).toMatch(
+      /<g mask="url\(#erase-1\)"><circle[^>]*\/><\/g><image [^>]*\/><\/svg>$/
+    );
+  });
+});
+
+describe("createSvg with strokes on notes", () => {
+  it("draws them from the note's corner, clipped to it", () => {
+    const svg = toSvg({ notes: [{ ...NOTE, strokes: [DOT] }] });
+
+    expect(svg).toContain(
+      '<clipPath id="note-0-clip"><rect width="160" height="160" rx="4"/></clipPath>'
+    );
+    expect(svg).toMatch(
+      /<g transform="translate\(20 30\)" clip-path="url\(#note-0-clip\)"><circle cx="10" cy="20"/
+    );
+  });
+
+  it("erases them with the note's own erasers, not the note", () => {
+    const svg = toSvg({ notes: [{ ...NOTE, strokes: [DOT, ERASER] }] });
+
+    expect(svg).toContain(
+      '<mask id="note-0-erase-1" maskUnits="userSpaceOnUse" x="0" y="0" width="160" height="160">'
+    );
+    expect(svg).toMatch(
+      /<rect x="20"[^>]*\/>.*<g mask="url\(#note-0-erase-1\)"><circle/
+    );
+  });
 });
 
 describe("exportDrawing", () => {
   it("makes an SVG file with the images' files in it", async () => {
     const blob = await exportDrawing(
-      {
-        background: "#ffffff",
-        strokes: [DOT],
-        images: [IMAGE],
-        texts: [],
-        notes: [],
-      },
+      createDrawing({ strokes: [DOT], images: [IMAGE] }),
       SIZE,
       { format: "svg", scale: 1, transparent: false },
       "#ffffff",

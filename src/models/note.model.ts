@@ -1,4 +1,5 @@
 import { type RichText } from "./rich-text.model";
+import { type Stroke } from "./stroke.model";
 
 // A sticky note on the drawing, in drawing units.
 export interface Note {
@@ -12,4 +13,7 @@ export interface Note {
   // theme changes.
   color: string;
   content: RichText;
+  // Drawn on the note, from its top left corner, so they move with it. They
+  // don't stretch when it's resized, and only show inside it.
+  strokes: Stroke[];
 }

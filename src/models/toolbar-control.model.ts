@@ -6,6 +6,7 @@ export type ToolbarAction =
   | "new-canvas"
   | "history"
   | "export"
+  | "move"
   | "pencil"
   | "eraser"
   | "note"

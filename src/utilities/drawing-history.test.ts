@@ -18,11 +18,20 @@ function createNote(id: string, text = "Note"): Note {
     height: 100,
     color: "#ffff99",
     content: fromPlainText(text),
+    strokes: [],
   };
 }
 
 function createDrawing(strokes: Stroke[] = []): Drawing {
-  return { background: "#ffffff", strokes, images: [], texts: [], notes: [] };
+  return {
+    background: "#ffffff",
+    strokes,
+    images: [],
+    texts: [],
+    notes: [],
+    order:
+      strokes.length > 0 ? [{ kind: "strokes", count: strokes.length }] : [],
+  };
 }
 
 function createHistory(strokes: Stroke[] = []): DrawingHistory {
@@ -217,5 +226,58 @@ describe("DrawingHistory", () => {
     history.clear();
 
     expect(history.drawing.background).toBe("#000000");
+  });
+
+  it("stacks strokes and items in the order they're added", () => {
+    const history = createHistory([createStroke(1)]);
+
+    history.addItem("notes", createNote("a"));
+    history.addStroke(createStroke(2));
+    history.addStroke(createStroke(3));
+
+    expect(history.drawing.order).toEqual([
+      { kind: "strokes", count: 1 },
+      { kind: "notes", id: "a" },
+      { kind: "strokes", count: 2 },
+    ]);
+  });
+
+  it("joins the strokes either side of a removed item", () => {
+    const history = createHistory([createStroke(1)]);
+    history.addItem("notes", createNote("a"));
+    history.addStroke(createStroke(2));
+
+    history.removeItem("notes", "a");
+
+    expect(history.drawing.order).toEqual([{ kind: "strokes", count: 2 }]);
+    history.undo();
+    expect(history.drawing.order).toHaveLength(3);
+  });
+
+  it("brings items to the front and sends them to the back", () => {
+    const history = createHistory([createStroke(1)]);
+    history.addItem("notes", createNote("a"));
+    history.addItem("notes", createNote("b"));
+
+    history.restackItem("notes", "b", "back");
+    expect(history.drawing.order).toEqual([
+      { kind: "notes", id: "b" },
+      { kind: "strokes", count: 1 },
+      { kind: "notes", id: "a" },
+    ]);
+
+    // Already there, so there's nothing new to undo.
+    history.restackItem("notes", "b", "back");
+    history.undo();
+    expect(history.drawing.order.at(-1)).toEqual({ kind: "notes", id: "b" });
+  });
+
+  it("clears the order with everything else", () => {
+    const history = createHistory([createStroke(1)]);
+    history.addItem("notes", createNote("a"));
+
+    history.clear();
+
+    expect(history.drawing.order).toEqual([]);
   });
 });

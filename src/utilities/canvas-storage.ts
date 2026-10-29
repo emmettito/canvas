@@ -15,6 +15,7 @@ import {
   type ExportScale,
 } from "../models/export-options.model";
 import { type ImageItem } from "../models/image-item.model";
+import { type Layer } from "../models/layer.model";
 import { type Note } from "../models/note.model";
 import { type RichText } from "../models/rich-text.model";
 import { type Stroke } from "../models/stroke.model";
@@ -115,11 +116,30 @@ function readNote(value: unknown): Note | null {
   }
   const saved = value as unknown as Record<string, unknown>;
   const content = readContent(saved);
-  if (!content || typeof saved.color !== "string") {
+  // Notes saved before they could be drawn on have no strokes.
+  const strokes = saved.strokes ?? [];
+  if (
+    !content ||
+    typeof saved.color !== "string" ||
+    !Array.isArray(strokes) ||
+    !strokes.every(isStroke)
+  ) {
     return null;
   }
   const { id, x, y, width, height } = value;
-  return { id, x, y, width, height, color: saved.color, content };
+  return { id, x, y, width, height, color: saved.color, content, strokes };
+}
+
+function isLayer(value: unknown): value is Layer {
+  if (!isObject(value)) {
+    return false;
+  }
+  if (value.kind === "strokes") {
+    return Number.isInteger(value.count) && isPositive(value.count);
+  }
+  return (
+    ITEM_KINDS.includes(value.kind as ItemKind) && typeof value.id === "string"
+  );
 }
 
 // Each kind's items as they're used, or null if one isn't valid.
@@ -366,6 +386,25 @@ export class CanvasStorage {
   }
 
   /**
+   * A canvas's stacking order. Null if it has none, e.g. it was saved before
+   * there was one. The caller checks it matches the drawing.
+   */
+  loadOrder(id: string): Layer[] | null {
+    const order = this.#store.read(this.#canvasKey(id, "order"));
+    return Array.isArray(order) && order.every(isLayer)
+      ? order.map((layer: Layer) =>
+          layer.kind === "strokes"
+            ? { kind: layer.kind, count: layer.count }
+            : { kind: layer.kind, id: layer.id }
+        )
+      : null;
+  }
+
+  saveOrder(id: string, order: Layer[]): boolean {
+    return this.#store.write(this.#canvasKey(id, "order"), order);
+  }
+
+  /**
    * A canvas's background. Null if it has none, e.g. it was saved before
    * canvases had their own.
    */
@@ -397,6 +436,7 @@ export class CanvasStorage {
       "strokes",
       "background",
       "viewport",
+      "order",
       ...ITEM_KINDS,
     ] as const) {
       this.#store.remove(this.#canvasKey(id, part));
@@ -405,7 +445,7 @@ export class CanvasStorage {
 
   #canvasKey(
     id: string,
-    part: "strokes" | "background" | "viewport" | ItemKind
+    part: "strokes" | "background" | "viewport" | "order" | ItemKind
   ): string {
     return `${this.#key}:canvas:${id}:${part}`;
   }

@@ -497,6 +497,12 @@
   }
 }
 
+/* A tool's key, after its name. */
+.canvas-tooltip-hint {
+  margin-left: 4px;
+  opacity: 0.6;
+}
+
 /* Below a toolbar at the top, so they drop down into place. */
 .canvas-toolbar[data-position="top"] .canvas-tooltip {
   --canvas-tooltip-rise: -2px;

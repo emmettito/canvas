@@ -503,12 +503,13 @@ test("hovering a button shows its name after a moment", async ({ page }) => {
   await pencil.hover();
   // It waits, rather than flashing up as the pointer passes.
   await expect(tooltip).toBeHidden();
-  await expect(tooltip).toHaveText("Pencil");
+  // With its key, after its name.
+  await expect(tooltip).toHaveText("Pencil P");
   await expect(tooltip).toBeVisible();
 
   // The next one shows straight away.
   await eraser.hover();
-  await expect(tooltip).toHaveText("Eraser", { timeout: 200 });
+  await expect(tooltip).toHaveText("Eraser E", { timeout: 200 });
 
   // Leaving the toolbar hides it.
   await page.mouse.move(5, 5);
@@ -535,7 +536,7 @@ test("tabbing to a button shows its name", async ({ page, browserName }) => {
 
   await expect(eraser).toBeFocused();
   const tooltip = page.locator(".canvas-tooltip:visible");
-  await expect(tooltip).toHaveText("Eraser");
+  await expect(tooltip).toHaveText("Eraser E");
 });
 
 test("the file menu opens below its button, lined up with it", async ({

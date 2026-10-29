@@ -12,6 +12,7 @@ import {
 } from "../../models/drawing.model";
 import { type ExportOptions } from "../../models/export-options.model";
 import { type ImageItem } from "../../models/image-item.model";
+import { type Layer } from "../../models/layer.model";
 import { type Note } from "../../models/note.model";
 import { type Point } from "../../models/point.model";
 import { type RichText } from "../../models/rich-text.model";
@@ -33,6 +34,7 @@ import { getCssVariable } from "../../utilities/get-css-variable";
 import { getNoteColor } from "../../utilities/lighten-color";
 import { resizeBox, resizeBoxKeepingShape } from "../../utilities/resize-box";
 import { isField } from "../../utilities/is-field";
+import { isAtEdge, type Restack, resolveLayers } from "../../utilities/layers";
 import { isBlank } from "../../utilities/rich-text";
 import {
   DEFAULT_VIEWPORT,
@@ -56,6 +58,8 @@ export interface CanvasOptions {
   // An item was moved, resized or retyped.
   onItemChange: <K extends ItemKind>(kind: K, item: DrawingItem<K>) => void;
   onItemRemove: (kind: ItemKind, id: string) => void;
+  // An item was brought to the front, or sent to the back.
+  onItemRestack: (kind: ItemKind, id: string, to: Restack) => void;
   // An image's file, or null if it's missing.
   getImage: (id: string) => Promise<Blob | null>;
   // Makes the editor notes and text are shown and typed in with.
@@ -83,22 +87,53 @@ interface TypedView<T extends TypedItem> extends ItemView<T> {
 // Which items are typed in.
 type TypedKind = "notes" | "texts";
 
+// A note, with the strokes drawn on it, which are only drawn on a canvas of
+// its own once it has some.
+interface NoteView extends TypedView<Note> {
+  ink: HTMLCanvasElement | null;
+  inked: { strokes: Stroke[]; width: number; height: number } | null;
+}
+
 // An action in an item's menu.
 interface MenuAction {
   label: string;
   onSelect: () => void;
+  // Shown, but it would do nothing.
+  disabled?: boolean;
 }
 
 interface ImageView extends ItemView<ImageItem> {
   image: HTMLImageElement;
 }
 
-// What is currently drawn on the canvas.
+// What's drawn on a run of strokes' canvas: its strokes, and erasers drawn
+// above them, through the viewport, over `area`.
 interface Painted {
-  height: number;
-  width: number;
+  // In whole screen pixels from the canvas's top left.
+  area: Box;
+  pixelRatio: number;
   viewport: Viewport;
   strokes: Stroke[];
+  erasers: Stroke[];
+}
+
+// A canvas for strokes drawn one after another, with nothing placed between
+// them, between the items below and above it. The one strokes are added to
+// covers what the canvas shows, and the others only their strokes, so many
+// runs don't take too much memory.
+interface Run {
+  canvas: HTMLCanvasElement;
+  painted: Painted | null;
+}
+
+// A stroke being drawn: on the drawing, as part of a run of strokes, or on a
+// note.
+interface Drawn {
+  stroke: Stroke;
+  // The run it'll be part of, which may be new. Null for the eraser, which
+  // erases every run.
+  run: number | null;
+  note: NoteView | null;
 }
 
 // Safari's pinch on a trackpad, which isn't a wheel event as elsewhere.
@@ -108,12 +143,39 @@ interface GestureEvent extends UIEvent {
   clientY: number;
 }
 
+// Each stroke's box, once it's measured, since every run's is measured
+// whenever the drawing is panned.
+const strokeBoxes = new WeakMap<Stroke, Box | null>();
+
+function getCachedStrokeBox(stroke: Stroke): Box | null {
+  let box = strokeBoxes.get(stroke);
+  if (box === undefined) {
+    box = getStrokeBox(stroke);
+    strokeBoxes.set(stroke, box);
+  }
+  return box;
+}
+
+function isSameBox(a: Box, b: Box): boolean {
+  return (
+    a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+  );
+}
+
+function isSame(a: Stroke[], b: Stroke[]): boolean {
+  return a.length === b.length && startsWith(a, b);
+}
+
 function startsWith(strokes: Stroke[], prefix: Stroke[]): boolean {
   return (
     prefix.length <= strokes.length &&
     prefix.every((stroke, index) => stroke === strokes[index])
   );
 }
+
+// The most pixels a note's strokes are drawn with, so a big note zoomed in
+// stays within what browsers can draw on one canvas.
+const MAX_INK_PIXELS = 16_000_000;
 
 function px(value: number): string {
   return `${value}px`;
@@ -127,9 +189,14 @@ export class Canvas {
   // The interface layer sits above the canvas and handles all pointer input
   // that isn't on an item.
   #interfaceLayer = createElement("div", "canvas-input-layer");
-  #canvas = createElement("canvas", "canvas-drawing");
+  // The first run of strokes is always on this canvas, even before there
+  // are strokes, and later runs on their own.
+  #runs: Run[] = [
+    { canvas: createElement("canvas", "canvas-drawing"), painted: null },
+  ];
   #cursor = createElement("div", "canvas-cursor");
-  // Above the input layer, so items get pointer input themselves.
+  // The drawing's strokes and items, stacked in its order, above the input
+  // layer, so items can take pointer input themselves.
   #items = createElement("div", "canvas-items");
   // The drawing as it's shown: its background, strokes and items, and the
   // input on them. A theme can filter it, e.g. to show it dark.
@@ -139,10 +206,11 @@ export class Canvas {
   #height = 0;
   #width = 0;
   #strokes: Stroke[] = [];
+  #order: Layer[] = [];
   #layers: {
     images: ItemLayer<ImageItem, ImageView>;
     texts: ItemLayer<TextBox, TypedView<TextBox>>;
-    notes: ItemLayer<Note, TypedView<Note>>;
+    notes: ItemLayer<Note, NoteView>;
   };
   // Images' files as object URLs, by id, once they're loaded.
   #imageUrls = new Map<string, Promise<string | null>>();
@@ -161,9 +229,11 @@ export class Canvas {
   #menu: HTMLElement | null = null;
   #toolState: ToolState;
   #placing: Placing | null = null;
+  // Whether pressing items moves them, with the move tool, rather than
+  // drawing over them.
+  #moving = false;
   #options: CanvasOptions;
-  #stroke: Stroke | null = null;
-  #painted: Painted | null = null;
+  #drawn: Drawn | null = null;
   #viewport: Viewport = DEFAULT_VIEWPORT;
   #background = "#ffffff";
   // Whether pressing the drawing picks a color from it, with the dropper.
@@ -215,11 +285,13 @@ export class Canvas {
       this.#onEditingFocusOut
     );
     this.#items.append(
+      this.#runs[0].canvas,
       this.#layers.images.element,
       this.#layers.texts.element,
       this.#layers.notes.element
     );
-    this.#surface.append(layer, this.#canvas, this.#items, this.#cursor);
+    layer.addEventListener("contextmenu", this.#onLayerContextMenu);
+    this.#surface.append(layer, this.#items, this.#cursor);
     this.#overlay.append(this.#formatBar.element);
     container.append(this.#surface, this.#overlay);
 
@@ -277,6 +349,15 @@ export class Canvas {
     this.#surface.toggleAttribute("data-picking", picking);
   }
 
+  /**
+   * Whether pressing items moves them, with the move tool, and dragging
+   * anywhere else pans. Otherwise, the tool draws over them.
+   */
+  setMoving(moving: boolean): void {
+    this.#moving = moving;
+    this.#surface.toggleAttribute("data-moving", moving);
+  }
+
   /** Custom colors picked before, which the format bar offers again. */
   setRecentColors(colors: CustomColor[]): void {
     this.#formatBar.setRecentColors(colors);
@@ -327,12 +408,17 @@ export class Canvas {
     this.#paint();
   }
 
-  setStrokes(strokes: Stroke[]): void {
+  /**
+   * The drawing's strokes, and the order its strokes and items are stacked
+   * in, once its items are set.
+   */
+  setLayers(strokes: Stroke[], order: Layer[]): void {
     // Called on every toolbar change, so skip the paint if nothing changed.
-    if (strokes === this.#strokes) {
+    if (strokes === this.#strokes && order === this.#order) {
       return;
     }
     this.#strokes = strokes;
+    this.#order = order;
     this.#paint();
   }
 
@@ -352,12 +438,17 @@ export class Canvas {
   /** What pressing the canvas places, or null to draw with the tool. */
   setPlacing(placing: Placing | null): void {
     this.#placing = placing;
-    const layer = this.#interfaceLayer;
+    const surface = this.#surface;
     if (placing) {
-      layer.dataset.placing = placing.kind;
+      surface.dataset.placing = placing.kind;
     } else {
-      delete layer.dataset.placing;
+      delete surface.dataset.placing;
     }
+  }
+
+  /** Picks an item, e.g. one just added, to move it or delete it. */
+  select(kind: ItemKind, id: string): void {
+    this.#layers[kind].getView(id)?.element.focus();
   }
 
   /** Where a point on screen is on the drawing. */
@@ -408,13 +499,7 @@ export class Canvas {
       ),
       fontFamily: getComputedStyle(this.#items).fontFamily,
     };
-    const drawing: Drawing = {
-      background: this.#background,
-      strokes: this.#strokes,
-      images: this.#layers.images.items,
-      texts: this.#layers.texts.items,
-      notes: this.#layers.notes.items,
-    };
+    const drawing = this.#getDrawing();
     const files = new Map<string, Blob>();
     for (const { id } of drawing.images) {
       const file = await this.#options.getImage(id);
@@ -423,6 +508,18 @@ export class Canvas {
       }
     }
     return { drawing, textStyle, files };
+  }
+
+  // The drawing, as it's shown.
+  #getDrawing(): Drawing {
+    return {
+      background: this.#background,
+      strokes: this.#strokes,
+      images: this.#layers.images.items,
+      texts: this.#layers.texts.items,
+      notes: this.#layers.notes.items,
+      order: this.#order,
+    };
   }
 
   // The color of the drawing at `point`, as it's drawn, including images,
@@ -468,26 +565,94 @@ export class Canvas {
     });
   };
 
+  // Stacks the strokes and items in the drawing's order, and draws each run
+  // of strokes on its canvas.
   #paint(): void {
-    const canvas = this.#canvas;
+    const layers = resolveLayers(this.#getDrawing());
+    const drawn = this.#drawn;
+    // The runs a stroke can be added to: the one on top of everything, and
+    // the one being drawn on, which may be new.
+    const count = layers.filter(({ kind }) => kind === "strokes").length;
+    const onTop = layers.at(-1)?.kind === "strokes" ? count - 1 : count;
+    const isOpen = (run: number) => run === onTop || run === drawn?.run;
+    let runs = 0;
+    layers.forEach((layer, index) => {
+      // Above the input layer, whatever the item.
+      const zIndex = String(index + 1);
+      if (layer.kind === "strokes") {
+        this.#paintRun(
+          runs,
+          layer.strokes,
+          layer.erasedBy.map((stroke) => this.#strokes[stroke]),
+          zIndex,
+          isOpen(runs)
+        );
+        runs++;
+      } else {
+        const view = this.#layers[layer.kind].getView(layer.item.id);
+        if (view) {
+          view.element.style.zIndex = zIndex;
+        }
+      }
+    });
+    // A stroke on top of everything, being drawn, starts a run of its own.
+    if (drawn?.run !== null && drawn?.run === runs) {
+      this.#paintRun(runs++, [], [], String(layers.length + 1), true);
+    }
+    // The first canvas stays, even with no strokes, ready for some.
+    if (runs === 0) {
+      this.#paintRun(runs++, [], [], "1", true);
+    }
+    for (const run of this.#runs.splice(runs)) {
+      run.canvas.remove();
+    }
+    // Keep a stroke in progress, e.g. if the window resizes mid-stroke.
+    if (drawn && !drawn.note) {
+      for (const context of this.#getDrawnContexts(drawn)) {
+        drawStroke(context, drawn.stroke);
+      }
+    }
+  }
+
+  // Draws a run of strokes on its canvas, and the erasers above them. Strokes
+  // that were only added, e.g. by redo, are drawn on top. An open run, which
+  // strokes can be added to, covers what the canvas shows.
+  #paintRun(
+    index: number,
+    strokes: Stroke[],
+    erasers: Stroke[],
+    zIndex: string,
+    open: boolean
+  ): void {
+    let run = this.#runs[index];
+    if (!run) {
+      run = {
+        canvas: createElement("canvas", "canvas-drawing"),
+        painted: null,
+      };
+      this.#runs[index] = run;
+      this.#items.append(run.canvas);
+    }
+    const { canvas } = run;
+    canvas.style.zIndex = zIndex;
     const context = canvas.getContext("2d");
     if (!context) {
       return;
     }
-    const height = this.#height;
-    const width = this.#width;
+    const area = this.#getRunArea(strokes, open);
+    const pixelRatio = window.devicePixelRatio || 1;
     const viewport = this.#viewport;
-    const strokes = this.#strokes;
-    const painted = this.#painted;
-    this.#painted = { height, width, viewport, strokes };
-
-    // Strokes that were only added, e.g. by redo, can be drawn on top.
+    const painted = run.painted;
+    run.painted = { area, pixelRatio, viewport, strokes, erasers };
     if (
       painted &&
-      painted.height === height &&
-      painted.width === width &&
+      isSameBox(painted.area, area) &&
+      painted.pixelRatio === pixelRatio &&
       painted.viewport === viewport &&
-      startsWith(strokes, painted.strokes)
+      isSame(painted.erasers, erasers) &&
+      startsWith(strokes, painted.strokes) &&
+      // A stroke added below an eraser would be drawn over it.
+      (erasers.length === 0 || strokes.length === painted.strokes.length)
     ) {
       for (const stroke of strokes.slice(painted.strokes.length)) {
         drawStroke(context, stroke);
@@ -496,39 +661,125 @@ export class Canvas {
     }
 
     // Everything is drawn again, at the screen's resolution, through the
-    // viewport. Resizing clears the canvas, and otherwise it's cleared.
-    const pixelRatio = window.devicePixelRatio || 1;
-    const pixelWidth = Math.round(width * pixelRatio);
-    const pixelHeight = Math.round(height * pixelRatio);
+    // viewport. It's placed among the items, which are in drawing units, on
+    // whole screen pixels. Resizing clears it, and otherwise it's cleared.
+    const { zoom } = viewport;
+    canvas.style.left = px(viewport.x + area.x / zoom);
+    canvas.style.top = px(viewport.y + area.y / zoom);
+    canvas.style.width = px(area.width / zoom);
+    canvas.style.height = px(area.height / zoom);
+    const pixelWidth = Math.round(area.width * pixelRatio);
+    const pixelHeight = Math.round(area.height * pixelRatio);
     if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
       canvas.width = pixelWidth;
       canvas.height = pixelHeight;
-      canvas.style.width = px(width);
-      canvas.style.height = px(height);
     } else {
       context.setTransform(1, 0, 0, 1, 0, 0);
       context.clearRect(0, 0, pixelWidth, pixelHeight);
     }
-    const scale = pixelRatio * viewport.zoom;
+    if (pixelWidth === 0 || pixelHeight === 0) {
+      return;
+    }
+    const scale = pixelRatio * zoom;
     context.setTransform(
       scale,
       0,
       0,
       scale,
-      -viewport.x * scale,
-      -viewport.y * scale
+      -(viewport.x * zoom + area.x) * pixelRatio,
+      -(viewport.y * zoom + area.y) * pixelRatio
     );
-    for (const stroke of strokes) {
+    for (const stroke of [...strokes, ...erasers]) {
       drawStroke(context, stroke);
-    }
-    // Keep a stroke in progress, e.g. if the window resizes mid-stroke.
-    if (this.#stroke) {
-      drawStroke(context, this.#stroke);
     }
   }
 
-  #getContext(): CanvasRenderingContext2D | null {
-    return this.#canvas.getContext("2d");
+  // Where a run's canvas goes, in whole screen pixels from the canvas's top
+  // left: over everything the canvas shows if it's open, or else around its
+  // strokes, within that. Erasers only take away, so they don't count.
+  #getRunArea(strokes: Stroke[], open: boolean): Box {
+    const width = this.#width;
+    const height = this.#height;
+    if (open) {
+      return { x: 0, y: 0, width, height };
+    }
+    const box = unionBoxes(
+      strokes.flatMap((stroke) =>
+        stroke.color === undefined ? [] : (getCachedStrokeBox(stroke) ?? [])
+      )
+    );
+    if (!box) {
+      return { x: 0, y: 0, width: 0, height: 0 };
+    }
+    const { x, y, zoom } = this.#viewport;
+    const clamp = (value: number, max: number) =>
+      Math.min(max, Math.max(0, value));
+    const left = clamp(Math.floor((box.x - x) * zoom), width);
+    const top = clamp(Math.floor((box.y - y) * zoom), height);
+    const right = clamp(Math.ceil((box.x + box.width - x) * zoom), width);
+    const bottom = clamp(Math.ceil((box.y + box.height - y) * zoom), height);
+    return { x: left, y: top, width: right - left, height: bottom - top };
+  }
+
+  // Draws a note's strokes on its own canvas, once it has some, clipped to
+  // it. As few pixels as look sharp at the zoom, within what a browser can
+  // draw.
+  #paintInk(view: NoteView): void {
+    const { item } = view;
+    if (!view.ink) {
+      if (item.strokes.length === 0) {
+        return;
+      }
+      view.ink = createElement("canvas", "canvas-note-ink");
+      view.editor.element.after(view.ink);
+    }
+    const ink = view.ink;
+    const context = ink.getContext("2d");
+    if (!context) {
+      return;
+    }
+    const scale = Math.min(
+      this.#viewport.zoom * (window.devicePixelRatio || 1),
+      Math.sqrt(MAX_INK_PIXELS / (item.width * item.height))
+    );
+    const width = Math.max(1, Math.round(item.width * scale));
+    const height = Math.max(1, Math.round(item.height * scale));
+    const inked = view.inked;
+    view.inked = { strokes: item.strokes, width, height };
+    if (
+      inked &&
+      inked.width === width &&
+      inked.height === height &&
+      startsWith(item.strokes, inked.strokes)
+    ) {
+      for (const stroke of item.strokes.slice(inked.strokes.length)) {
+        drawStroke(context, stroke);
+      }
+      return;
+    }
+    if (ink.width !== width || ink.height !== height) {
+      ink.width = width;
+      ink.height = height;
+    } else {
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.clearRect(0, 0, width, height);
+    }
+    // Its strokes are from its top left corner.
+    context.setTransform(width / item.width, 0, 0, height / item.height, 0, 0);
+    for (const stroke of item.strokes) {
+      drawStroke(context, stroke);
+    }
+  }
+
+  // Where the stroke being drawn shows as it's drawn: its note, the run it's
+  // part of, or every run for the eraser.
+  #getDrawnContexts({ run, note }: Drawn): CanvasRenderingContext2D[] {
+    const canvases = note?.ink
+      ? [note.ink]
+      : run === null
+        ? this.#runs.map(({ canvas }) => canvas)
+        : [this.#runs[run]?.canvas].filter((canvas) => canvas !== undefined);
+    return canvases.flatMap((canvas) => canvas.getContext("2d") ?? []);
   }
 
   #getPoint(event: PointerEvent): Point {
@@ -538,8 +789,8 @@ export class Canvas {
   #moveCursor(event: PointerEvent): void {
     const cursor = this.#cursor;
     // Touch and pen have no hover position, so the cursor only follows a
-    // mouse. Placing items has no size to show.
-    if (event.pointerType !== "mouse" || this.#placing) {
+    // mouse. Placing and moving items have no size to show.
+    if (event.pointerType !== "mouse" || this.#placing || this.#moving) {
       cursor.style.visibility = "hidden";
       return;
     }
@@ -554,8 +805,7 @@ export class Canvas {
   }
 
   #onPointerDown = (event: PointerEvent): void => {
-    const context = this.#getContext();
-    if (!context || !event.isPrimary || event.button !== 0) {
+    if (!event.isPrimary || event.button !== 0) {
       return;
     }
     // An item is placed on release instead, since focusing it now would be
@@ -567,17 +817,41 @@ export class Canvas {
       return;
     }
     const { color, size } = this.#toolState;
-    // Capture keeps the stroke going if the pointer leaves the canvas.
-    this.#interfaceLayer.setPointerCapture(event.pointerId);
-    this.#stroke = {
+    const point = this.#getPoint(event);
+    // A stroke started on a note is drawn on it, from its top left corner.
+    const note = this.#getNoteAt(event.clientX, event.clientY);
+    const origin = note?.item ?? { x: 0, y: 0 };
+    const stroke: Stroke = {
       color:
         color === undefined
           ? undefined
           : resolveColor(this.#interfaceLayer, color),
-      points: [this.#getPoint(event)],
+      points: [{ x: point.x - origin.x, y: point.y - origin.y }],
       size,
     };
-    drawStroke(context, this.#stroke);
+    // A stroke on the drawing is part of the run of strokes on top, or
+    // starts one above everything.
+    const runs = this.#order.filter(({ kind }) => kind === "strokes").length;
+    const onTop = this.#order.at(-1)?.kind === "strokes";
+    const drawn: Drawn = {
+      stroke,
+      run: note || stroke.color === undefined ? null : onTop ? runs - 1 : runs,
+      note,
+    };
+    this.#drawn = drawn;
+    if (note && !note.ink) {
+      // Its first stroke, which needs a canvas.
+      note.ink = createElement("canvas", "canvas-note-ink");
+      note.editor.element.after(note.ink);
+      this.#paintInk(note);
+    } else if (!note && drawn.run === runs) {
+      this.#paint();
+    }
+    // Capture keeps the stroke going if the pointer leaves the canvas.
+    this.#interfaceLayer.setPointerCapture(event.pointerId);
+    for (const context of this.#getDrawnContexts(drawn)) {
+      drawStroke(context, stroke);
+    }
   };
 
   #onPointerMove = (event: PointerEvent): void => {
@@ -585,13 +859,17 @@ export class Canvas {
       return;
     }
     this.#moveCursor(event);
-    const stroke = this.#stroke;
-    const context = this.#getContext();
-    if (!stroke || !context) {
+    const drawn = this.#drawn;
+    if (!drawn) {
       return;
     }
-    stroke.points.push(this.#getPoint(event));
-    drawStroke(context, stroke, stroke.points.length - 2);
+    const { stroke, note } = drawn;
+    const point = this.#getPoint(event);
+    const origin = note?.item ?? { x: 0, y: 0 };
+    stroke.points.push({ x: point.x - origin.x, y: point.y - origin.y });
+    for (const context of this.#getDrawnContexts(drawn)) {
+      drawStroke(context, stroke, stroke.points.length - 2);
+    }
   };
 
   #onPointerUp = (event: PointerEvent): void => {
@@ -602,21 +880,63 @@ export class Canvas {
       }
       return;
     }
-    const stroke = this.#stroke;
-    if (!event.isPrimary || !stroke) {
+    const drawn = this.#drawn;
+    if (!event.isPrimary || !drawn) {
       return;
     }
-    this.#stroke = null;
-    // The stroke is already drawn, so it shouldn't be drawn again once added.
-    const painted = this.#painted;
+    this.#drawn = null;
+    const { stroke, run, note } = drawn;
+    if (note) {
+      const strokes = [...note.item.strokes, stroke];
+      // It's already drawn, so it isn't drawn again once it's added.
+      if (note.inked) {
+        note.inked = { ...note.inked, strokes };
+      }
+      this.#options.onItemChange("notes", { ...note.item, strokes });
+      return;
+    }
+    const painted = run === null ? null : this.#runs[run]?.painted;
     if (painted) {
-      this.#painted = {
-        ...painted,
-        strokes: [...painted.strokes, stroke],
-      };
+      painted.strokes = [...painted.strokes, stroke];
     }
     this.#options.onStrokeComplete(stroke);
   };
+
+  // The note a stroke started at a point on screen is drawn on: the top one
+  // there, unless an image is above it. Text is see-through, so it's
+  // skipped.
+  #getNoteAt(clientX: number, clientY: number): NoteView | null {
+    const item = this.#getItemAt(clientX, clientY, ["images", "notes"]);
+    return item?.kind === "notes"
+      ? (this.#layers.notes.getView(item.view.item.id) ?? null)
+      : null;
+  }
+
+  // The top item of `kinds` at a point on screen, if any.
+  #getItemAt(
+    clientX: number,
+    clientY: number,
+    kinds: ItemKind[] = ["images", "texts", "notes"]
+  ): { kind: ItemKind; view: ItemView<PlacedItem> } | null {
+    for (const layer of [...this.#order].reverse()) {
+      if (layer.kind === "strokes" || !kinds.includes(layer.kind)) {
+        continue;
+      }
+      const view = this.#layers[layer.kind].getView(layer.id);
+      const box = view?.element.getBoundingClientRect();
+      if (
+        view &&
+        box &&
+        clientX >= box.left &&
+        clientX <= box.right &&
+        clientY >= box.top &&
+        clientY <= box.bottom
+      ) {
+        return { kind: layer.kind, view };
+      }
+    }
+    return null;
+  }
 
   #onPointerLeave = (): void => {
     this.#cursor.style.visibility = "hidden";
@@ -636,6 +956,9 @@ export class Canvas {
     // Lets items keep their handles the same size on screen.
     this.#items.style.setProperty("--canvas-zoom", String(zoom));
     this.#paint();
+    for (const note of this.#layers.notes.views) {
+      this.#paintInk(note);
+    }
     this.#placeFormatBar();
   }
 
@@ -734,11 +1057,20 @@ export class Canvas {
 
   // Stops the stroke being drawn, e.g. once a second finger touches.
   #cancelStroke(): void {
-    if (this.#stroke) {
-      this.#stroke = null;
-      this.#painted = null;
-      this.#paint();
+    const drawn = this.#drawn;
+    if (!drawn) {
+      return;
     }
+    this.#drawn = null;
+    if (drawn.note) {
+      drawn.note.inked = null;
+      this.#paintInk(drawn.note);
+      return;
+    }
+    for (const run of this.#runs) {
+      run.painted = null;
+    }
+    this.#paint();
   }
 
   // Two fingers' middle, and how far apart they are.
@@ -760,6 +1092,7 @@ export class Canvas {
       });
       if (this.#touches.size === 2) {
         this.#cancelStroke();
+        this.#pan = null;
         this.#placesOnRelease = false;
         for (const layer of Object.values(this.#layers)) {
           layer.cancelGesture();
@@ -769,9 +1102,14 @@ export class Canvas {
       if (this.#pinch) {
         event.stopPropagation();
       }
-      return;
+      if (this.#pinch || !this.#isMovePan(event)) {
+        return;
+      }
     }
-    if (event.button === 1 || (event.button === 0 && this.#spaceHeld)) {
+    if (
+      event.button === 1 ||
+      (event.button === 0 && (this.#spaceHeld || this.#isMovePan(event)))
+    ) {
       event.preventDefault();
       event.stopPropagation();
       this.#surface.setPointerCapture(event.pointerId);
@@ -782,6 +1120,19 @@ export class Canvas {
       this.#surface.toggleAttribute("data-panning", true);
     }
   };
+
+  // With the move tool, dragging anywhere but an item pans, and leaves the
+  // item that was picked.
+  #isMovePan(event: PointerEvent): boolean {
+    if (!this.#moving || event.target !== this.#interfaceLayer) {
+      return false;
+    }
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && this.#items.contains(active)) {
+      active.blur();
+    }
+    return true;
+  }
 
   #onSurfaceMove = (event: PointerEvent): void => {
     if (this.#touches.has(event.pointerId)) {
@@ -843,6 +1194,8 @@ export class Canvas {
   // ready to type in.
   #placeDraft(point: Point, placing: Placing): void {
     const color = resolveColor(this.#interfaceLayer, placing.color);
+    // Above everything, as it will be once it's added.
+    const zIndex = String(this.#order.length + 1);
     if (placing.kind === "notes") {
       const { size } = NOTE_LAYOUT;
       const view = this.#layers.notes.addDraft({
@@ -853,7 +1206,9 @@ export class Canvas {
         height: size,
         color: getNoteColor(color),
         content: [{ runs: [] }],
+        strokes: [],
       });
+      view.element.style.zIndex = zIndex;
       this.#startEditing("notes", view);
       return;
     }
@@ -869,6 +1224,7 @@ export class Canvas {
       color,
       content: [{ runs: [] }],
     });
+    view.element.style.zIndex = zIndex;
     this.#startEditing("texts", view);
   }
 
@@ -1042,20 +1398,62 @@ export class Canvas {
     return editor;
   }
 
-  // Pressing text while it's being typed in moves the cursor, and opens it
-  // for typing otherwise.
+  // Pressing text while it's being typed in moves the cursor. With the move
+  // tool, pressing it picks it, and pressing it twice opens it for typing.
+  // With the note or text tool, pressing it opens it.
   #typingOptions<T extends TypedItem>(kind: TypedKind) {
     return {
       isPressForBrowser: (view: TypedView<T>, target: Element) =>
         view.editor.isEditable && view.editor.element.contains(target),
-      onPress: (view: TypedView<T>) => this.#startEditing(kind, view),
+      onPress: (view: TypedView<T>) => {
+        if (this.#moving) {
+          view.element.focus();
+        } else {
+          this.#startEditing(kind, view);
+        }
+      },
+      onOpen: (view: TypedView<T>) => this.#startEditing(kind, view),
       onMenu: (view: TypedView<T>, point: Point) =>
-        this.#openMenu(point, [
-          { label: "Delete", onSelect: () => this.#delete(kind, view) },
-        ]),
+        this.#openItemMenu(kind, view, point),
       destroyView: (view: TypedView<T>) => view.editor.destroy(),
     };
   }
+
+  // An item's menu: to move it to the front or back of everything, or
+  // delete it. One being added has no place in the order yet.
+  #openItemMenu(
+    kind: ItemKind,
+    view: ItemView<PlacedItem>,
+    point: Point
+  ): void {
+    const { id } = view.item;
+    const placed = this.#order.some(
+      (layer) => layer.kind === kind && layer.id === id
+    );
+    const restack = (to: Restack, label: string): MenuAction => ({
+      label,
+      disabled: !placed || isAtEdge(this.#order, kind, id, to),
+      onSelect: () => this.#options.onItemRestack(kind, id, to),
+    });
+    this.#openMenu(point, [
+      restack("front", "Bring to front"),
+      restack("back", "Send to back"),
+      { label: "Delete", onSelect: () => this.#delete(kind, view) },
+    ]);
+  }
+
+  // Items only take pointer input with the tools that move or open them, so
+  // a right-click over one otherwise reaches the drawing, and opens the top
+  // item's menu.
+  #onLayerContextMenu = (event: MouseEvent): void => {
+    const found = this.#getItemAt(event.clientX, event.clientY);
+    if (found) {
+      this.#openItemMenu(found.kind, found.view, {
+        x: event.clientX,
+        y: event.clientY,
+      });
+    }
+  };
 
   // Deleting what's being typed in throws the typing away.
   #delete(kind: ItemKind, view: ItemView<PlacedItem>): void {
@@ -1076,11 +1474,12 @@ export class Canvas {
     this.#closeMenu();
     const menu = createElement("div", "canvas-menu canvas-context-menu");
     menu.setAttribute("role", "menu");
-    for (const { label, onSelect } of actions) {
+    for (const { label, onSelect, disabled = false } of actions) {
       const item = createElement("button", "canvas-menu-item");
       item.type = "button";
       item.setAttribute("role", "menuitem");
       item.textContent = label;
+      item.disabled = disabled;
       item.addEventListener("click", () => {
         this.#closeMenu();
         onSelect();
@@ -1114,7 +1513,7 @@ export class Canvas {
     );
     menu.style.left = px(Math.max(8, left));
     menu.style.top = px(Math.max(8, top));
-    menu.querySelector("button")?.focus();
+    menu.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
     document.addEventListener("pointerdown", this.#onDocumentPointerDown, true);
   }
 
@@ -1140,28 +1539,47 @@ export class Canvas {
     }
   };
 
-  #createNoteLayer(): ItemLayer<Note, TypedView<Note>> {
-    return new ItemLayer<Note, TypedView<Note>>("canvas-notes", {
+  // Strokes drawn on a note stay where they are on the drawing as it's
+  // resized, rather than stretching, and only show inside it.
+  #createNoteLayer(): ItemLayer<Note, NoteView> {
+    return new ItemLayer<Note, NoteView>("canvas-notes", {
       className: "canvas-note",
       getZoom: () => this.#viewport.zoom,
       handles: RESIZE_HANDLES,
       createView: (note, element) => {
         const editor = this.#createEditor("notes", note, "Sticky note");
         element.append(editor.element);
-        return { element, item: note, editor };
+        return { element, item: note, editor, ink: null, inked: null };
       },
-      render: ({ element, item, editor }) => {
+      render: (view) => {
+        const { element, item, editor } = view;
         element.style.left = px(item.x);
         element.style.top = px(item.y);
         element.style.width = px(item.width);
         element.style.height = px(item.height);
         element.style.backgroundColor = item.color;
         editor.setContent(item.content);
+        this.#paintInk(view);
       },
-      resize: (note, _size, handle, dx, dy, min) => ({
-        ...note,
-        ...resizeBox(note, handle, dx, dy, min),
-      }),
+      resize: (note, _size, handle, dx, dy, min) => {
+        const box = resizeBox(note, handle, dx, dy, min);
+        const shiftX = note.x - box.x;
+        const shiftY = note.y - box.y;
+        return {
+          ...note,
+          ...box,
+          strokes:
+            shiftX === 0 && shiftY === 0
+              ? note.strokes
+              : note.strokes.map((stroke) => ({
+                  ...stroke,
+                  points: stroke.points.map(({ x, y }) => ({
+                    x: x + shiftX,
+                    y: y + shiftY,
+                  })),
+                })),
+        };
+      },
       getMinSize: () => ({
         width: NOTE_LAYOUT.minSize,
         height: NOTE_LAYOUT.minSize,
@@ -1256,10 +1674,7 @@ export class Canvas {
         height: IMAGE_LAYOUT.minSize,
       }),
       onPress: ({ element }) => element.focus(),
-      onMenu: (view, point) =>
-        this.#openMenu(point, [
-          { label: "Delete", onSelect: () => this.#delete("images", view) },
-        ]),
+      onMenu: (view, point) => this.#openItemMenu("images", view, point),
       onChange: (item) => this.#options.onItemChange("images", item),
       onRemove: (id) => this.#options.onItemRemove("images", id),
     });

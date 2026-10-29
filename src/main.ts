@@ -40,6 +40,7 @@ mountCanvas(document.getElementById("root")!, {
   toolbar: [
     [button("undo"), button("redo"), button("clear")],
     [
+      button("move"),
       button("pencil"),
       button("eraser"),
       button("note"),

@@ -4,6 +4,13 @@ import {
   type ItemKind,
 } from "../models/drawing.model";
 import { type Stroke } from "../models/stroke.model";
+import {
+  addItemLayer,
+  addStrokeLayer,
+  removeItemLayer,
+  type Restack,
+  restackItemLayer,
+} from "./layers";
 
 /**
  * The current drawing, and the earlier and undone versions of it. Each change
@@ -49,13 +56,22 @@ export class DrawingHistory {
     );
   }
 
+  /** Draws a stroke on top of everything. */
   addStroke(stroke: Stroke): void {
-    this.change({ ...this.#drawing, strokes: [...this.strokes, stroke] });
+    this.change({
+      ...this.#drawing,
+      strokes: [...this.strokes, stroke],
+      order: addStrokeLayer(this.#drawing.order),
+    });
   }
 
-  /** Places an item above the others of its kind. */
+  /** Places an item on top of everything. */
   addItem<K extends ItemKind>(kind: K, item: DrawingItem<K>): void {
-    this.#changeItems(kind, [...this.#getItems(kind), item]);
+    this.#changeItems(
+      kind,
+      [...this.#getItems(kind), item],
+      addItemLayer(this.#drawing.order, kind, item.id)
+    );
   }
 
   /** Replaces the item with the same id, e.g. once it's moved. */
@@ -69,8 +85,20 @@ export class DrawingHistory {
   removeItem(kind: ItemKind, id: string): void {
     this.#changeItems(
       kind,
-      this.#getItems(kind).filter((item) => item.id !== id)
+      this.#getItems(kind).filter((item) => item.id !== id),
+      removeItemLayer(this.#drawing.order, kind, id)
     );
+  }
+
+  /**
+   * Moves an item to the front, above everything, or the back. Nothing
+   * changes, so there's nothing to undo, if it's already there.
+   */
+  restackItem(kind: ItemKind, id: string, to: Restack): void {
+    const order = restackItemLayer(this.#drawing.order, kind, id, to);
+    if (order !== this.#drawing.order) {
+      this.change({ ...this.#drawing, order });
+    }
   }
 
   /** Removes everything. Like adding a stroke, it can be undone. */
@@ -85,6 +113,7 @@ export class DrawingHistory {
       images: [],
       texts: [],
       notes: [],
+      order: [],
     });
   }
 
@@ -127,7 +156,11 @@ export class DrawingHistory {
     return this.#drawing[kind] as DrawingItem<K>[];
   }
 
-  #changeItems<K extends ItemKind>(kind: K, items: DrawingItem<K>[]): void {
-    this.change({ ...this.#drawing, [kind]: items });
+  #changeItems<K extends ItemKind>(
+    kind: K,
+    items: DrawingItem<K>[],
+    order = this.#drawing.order
+  ): void {
+    this.change({ ...this.#drawing, [kind]: items, order });
   }
 }

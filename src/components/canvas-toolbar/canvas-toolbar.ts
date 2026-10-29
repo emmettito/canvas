@@ -6,6 +6,7 @@ import { MAX_TOOL_SIZE } from "../../constants/max-tool-size.const";
 import { MIN_TOOL_SIZE } from "../../constants/min-tool-size.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
 import { TOOLBAR_ACTIONS } from "../../constants/toolbar-actions.const";
+import { TOOL_SHORTCUTS } from "../../constants/tool-shortcuts.const";
 import { TOOLS } from "../../constants/tools.const";
 import { UNTITLED_NAME } from "../../constants/untitled-name.const";
 import { type CanvasEntry } from "../../models/canvas-entry.model";
@@ -63,6 +64,7 @@ const ACTION_LABELS: Record<ToolbarAction, string> = {
   "new-canvas": "New canvas",
   history: "History",
   export: "Export",
+  move: "Move",
   pencil: "Pencil",
   eraser: "Eraser",
   note: "Sticky note",
@@ -86,7 +88,7 @@ const EXPORT_FORMAT_LABELS: Record<ExportFormat, string> = {
 };
 
 // The tools with a size, which clicking them again picks.
-type SizedTool = Exclude<Tool, "note" | "dropper">;
+type SizedTool = Exclude<Tool, "move" | "note" | "dropper">;
 
 // Backgrounds offered for the canvas. Any other can be picked too.
 const BACKGROUNDS = [
@@ -281,6 +283,12 @@ function createIconButton(action: ToolbarAction, icon: Element) {
   const label = ACTION_LABELS[action];
   button.setAttribute("aria-label", label);
   button.dataset.tooltip = label;
+  // A tool's key is shown after its name.
+  const shortcut = TOOL_SHORTCUTS[action as Tool] as string | undefined;
+  if (shortcut) {
+    button.dataset.shortcut = shortcut;
+    button.setAttribute("aria-keyshortcuts", shortcut);
+  }
   const copy = icon.cloneNode(true) as Element;
   copy.setAttribute("aria-hidden", "true");
   copy.classList.add("canvas-icon");
@@ -552,6 +560,12 @@ export class CanvasToolbar {
     }
     const tooltip = this.#tooltip;
     tooltip.textContent = button.dataset.tooltip ?? "";
+    const { shortcut } = button.dataset;
+    if (shortcut) {
+      const hint = createElement("span", "canvas-tooltip-hint");
+      hint.textContent = shortcut;
+      tooltip.append(" ", hint);
+    }
     tooltip.toggleAttribute("data-animate", animate);
     tooltip.hidden = false;
 
@@ -640,6 +654,7 @@ export class CanvasToolbar {
       redo: () => actions.onRedo(),
       clear: () => actions.onClear(),
       ...fileActions,
+      move: () => this.#onToolClick("move"),
       pencil: () => this.#onToolClick("pencil"),
       eraser: () => this.#onToolClick("eraser"),
       note: () => this.#onToolClick("note"),
@@ -769,13 +784,13 @@ export class CanvasToolbar {
     }
   }
 
-  // Clicking the active tool again opens its size slider. Notes have no
-  // size, and the dropper goes back to the tool before it.
+  // Clicking the active tool again opens its size slider. The move tool and
+  // notes have no size, and the dropper goes back to the tool before it.
   #onToolClick(tool: Tool): void {
     if (tool === this.#state.activeTool) {
       if (tool === "dropper") {
         this.#actions.onSelectTool(tool);
-      } else if (tool !== "note") {
+      } else if (tool !== "note" && tool !== "move") {
         this.#togglePopover(tool);
       }
     } else {

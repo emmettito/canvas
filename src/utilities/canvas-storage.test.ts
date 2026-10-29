@@ -33,6 +33,7 @@ const NOTES: Note[] = [
     height: 120,
     color: "#fefe99",
     content: [{ runs: [{ text: "Hello", bold: true }] }],
+    strokes: [{ color: "#0000ff", points: [{ x: 4, y: 5 }], size: 2 }],
   },
 ];
 
@@ -133,6 +134,33 @@ describe("CanvasStorage", () => {
     expect(storage.loadItems("a", "notes")).toBeNull();
     expect(storage.loadItems("a", "texts")).toBeNull();
     expect(storage.loadItems("a", "images")).toBeNull();
+  });
+
+  it("restores each canvas's stacking order, and deletes it", () => {
+    const storage = new CanvasStorage("test");
+    const order = [
+      { kind: "strokes", count: 2 },
+      { kind: "notes", id: "n" },
+    ] as const;
+
+    storage.saveOrder("a", [...order]);
+    expect(new CanvasStorage("test").loadOrder("a")).toEqual(order);
+
+    storage.deleteCanvas("a");
+    expect(storage.loadOrder("a")).toBeNull();
+  });
+
+  it("ignores an order that isn't one", () => {
+    const storage = new CanvasStorage("test");
+    for (const order of [
+      [{ kind: "strokes", count: 0 }],
+      [{ kind: "strokes", count: 1.5 }],
+      [{ kind: "shapes", id: "s" }],
+      { kind: "strokes", count: 1 },
+    ]) {
+      localStorage.setItem("test:canvas:a:order", JSON.stringify(order));
+      expect(storage.loadOrder("a")).toBeNull();
+    }
   });
 
   it("keeps storage keys apart", () => {
@@ -248,7 +276,8 @@ describe("CanvasStorage export options", () => {
   });
 
   it("turns plain text saved before formatting into paragraphs", () => {
-    const { content: _, ...note } = NOTES[0];
+    // Saved before notes could be drawn on, too.
+    const { content: _, strokes: ____, ...note } = NOTES[0];
     const { content: __, height: ___, ...text } = TEXTS[0];
     localStorage.setItem(
       "test:canvas:a:notes",
@@ -264,6 +293,7 @@ describe("CanvasStorage export options", () => {
       {
         ...note,
         content: [{ runs: [{ text: "one" }] }, { runs: [{ text: "two" }] }],
+        strokes: [],
       },
     ]);
     // Text saved before it could be resized fits its text.

@@ -5,15 +5,18 @@
   z-index: 1;
 }
 
+/* A run of strokes, over what the canvas shows, in drawing units. */
 .canvas-drawing {
   position: absolute;
   top: 0;
   left: 0;
 }
 
+/* Above the drawing, like the pointer. */
 .canvas-cursor {
   visibility: hidden;
   position: absolute;
+  z-index: 2;
   border-radius: 50%;
   background-color: var(--canvas-color-cursor);
   transform: translate(-50%, -50%);
@@ -21,12 +24,17 @@
 }
 
 /* Placing items has no size to preview, so the pointer shows what's placed. */
-.canvas-input-layer[data-placing="notes"] {
+[data-placing="notes"] > .canvas-input-layer {
   cursor: crosshair;
 }
 
-.canvas-input-layer[data-placing="texts"] {
+[data-placing="texts"] > .canvas-input-layer {
   cursor: text;
+}
+
+/* With the move tool, dragging the drawing pans it. */
+[data-moving] > .canvas-input-layer {
+  cursor: default;
 }
 
 /* The drawing, on its own background, which the canvas sets. */
@@ -71,8 +79,9 @@
   pointer-events: none;
 }
 
-/* Above the drawing, images below text below notes. Only the items
- * themselves take pointer input. */
+/* The drawing's strokes and items, in its order, which each one's z-index
+ * gives. The layers don't stack themselves, so their items can go between
+ * runs of strokes and each other. */
 .canvas-items,
 .canvas-images,
 .canvas-texts,
@@ -86,20 +95,34 @@
   z-index: 2;
 }
 
+/*
+ * The pencil and eraser draw over items, so items only take pointer input
+ * with the move tool, which moves them, or the tool that places their kind,
+ * which opens them. One being typed in always does.
+ */
 .canvas-note,
 .canvas-text,
 .canvas-image {
   position: absolute;
-  pointer-events: auto;
+  pointer-events: none;
   cursor: grab;
 
   &:active {
     cursor: grabbing;
   }
+
+  [data-moving] &,
+  [data-placing="notes"] &.canvas-note,
+  [data-placing="texts"] &.canvas-text,
+  &[data-editing] {
+    pointer-events: auto;
+  }
 }
 
-/* Focused from the keyboard, so Delete removes it or Enter opens it. */
-:is(.canvas-note, .canvas-text, .canvas-image):focus-visible {
+/* Focused from the keyboard, or picked with the move tool, so Delete
+ * removes it or Enter opens it. */
+:is(.canvas-note, .canvas-text, .canvas-image):focus-visible,
+[data-moving] :is(.canvas-note, .canvas-text, .canvas-image):focus {
   outline: 2px solid var(--canvas-color-accent);
   outline-offset: 2px;
 }
@@ -254,6 +277,16 @@
   &[data-editing] {
     outline: 2px solid var(--canvas-color-accent);
   }
+}
+
+/* Strokes drawn on the note, over its text, and only inside it. */
+.canvas-note-ink {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  pointer-events: none;
 }
 
 /* The padding matches the exported note's, so the text wraps the same way.

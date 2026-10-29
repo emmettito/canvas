@@ -367,4 +367,38 @@ describe("mountCanvas", () => {
     const status = container.querySelector<HTMLElement>(".canvas-status")!;
     expect(status.hasAttribute("data-shown")).toBe(false);
   });
+
+  it("stacks a canvas saved before it had an order as it was, and saves one", () => {
+    const set = (part: string, value: unknown) =>
+      localStorage.setItem(`old:canvas:a:${part}`, JSON.stringify(value));
+    localStorage.setItem(
+      "old:canvases",
+      JSON.stringify([{ id: "a", name: "", updatedAt: 1 }])
+    );
+    localStorage.setItem("old:open", JSON.stringify("a"));
+    set("strokes", [{ color: "#000000", points: [{ x: 1, y: 1 }], size: 2 }]);
+    set("notes", [
+      {
+        id: "n",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        color: "#fefe99",
+        text: "Old",
+      },
+    ]);
+    const container = document.createElement("div");
+
+    mountCanvas(container, { storageKey: "old" });
+
+    const zIndex = (selector: string) =>
+      Number(container.querySelector<HTMLElement>(selector)!.style.zIndex);
+    expect(zIndex(".canvas-note")).toBeGreaterThan(zIndex(".canvas-drawing"));
+    expect(JSON.parse(localStorage.getItem("old:canvas:a:order")!)).toEqual([
+      { kind: "strokes", count: 1 },
+      { kind: "notes", id: "n" },
+    ]);
+    localStorage.clear();
+  });
 });

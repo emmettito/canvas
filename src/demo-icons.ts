@@ -9,6 +9,7 @@ import clear from "@phosphor-icons/core/regular/trash.svg?raw";
 import newCanvas from "@phosphor-icons/core/regular/file-plus.svg?raw";
 import history from "@phosphor-icons/core/regular/clock-counter-clockwise.svg?raw";
 import exportIcon from "@phosphor-icons/core/regular/download-simple.svg?raw";
+import move from "@phosphor-icons/core/regular/cursor.svg?raw";
 import pencil from "@phosphor-icons/core/regular/pencil-simple.svg?raw";
 import eraser from "@phosphor-icons/core/regular/eraser.svg?raw";
 import note from "@phosphor-icons/core/regular/note.svg?raw";
@@ -27,6 +28,7 @@ const ICONS: Record<ToolbarAction, string> = {
   "new-canvas": newCanvas,
   history,
   export: exportIcon,
+  move,
   pencil,
   eraser,
   note,
