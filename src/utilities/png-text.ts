@@ -28,7 +28,10 @@ export function crc32(bytes: Uint8Array): number {
  * PNG's own. iTXt rather than tEXt, since its text is UTF-8, so any name
  * fits.
  */
-export function createTextChunk(keyword: string, text: string): Uint8Array {
+export function createTextChunk(
+  keyword: string,
+  text: string
+): Uint8Array<ArrayBuffer> {
   const encoder = new TextEncoder();
   // The keyword, then no compression and no language or translated keyword.
   const data = new Uint8Array([

@@ -229,17 +229,13 @@ test("keyboard shortcuts format what's typed next", async ({ page }) => {
   await expect(getTexts(page).locator("strong")).toHaveText("bold");
 });
 
-test("the color palette opens above text near the bottom", async ({
-  page,
-}) => {
+test("the color palette opens above text near the bottom", async ({ page }) => {
   await addText(page, "Low", 0.1, 0.92);
   await page.keyboard.press("Enter");
   const bar = getFormatBar(page);
   await bar.getByRole("button", { name: "Text color" }).click();
 
-  const palette = (await page
-    .locator(".canvas-format-colors")
-    .boundingBox())!;
+  const palette = (await page.locator(".canvas-format-colors").boundingBox())!;
   const canvas = (await page.locator("canvas").boundingBox())!;
   expect(palette.y).toBeGreaterThanOrEqual(canvas.y);
   expect(palette.y + palette.height).toBeLessThanOrEqual(

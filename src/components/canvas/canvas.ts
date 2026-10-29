@@ -738,7 +738,11 @@ export class Canvas {
       // Drawn as they're shown, without who signed them while that's hidden.
       notes: this.#showAuthors
         ? notes
-        : notes.map(({ author: _, ...note }) => note),
+        : notes.map((note) => {
+            const unsigned = { ...note };
+            delete unsigned.author;
+            return unsigned;
+          }),
       order: this.#order,
     };
   }
