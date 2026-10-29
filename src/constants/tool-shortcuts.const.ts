@@ -5,6 +5,8 @@ export const TOOL_SHORTCUTS: Record<Tool, string> = {
   move: "V",
   pencil: "P",
   eraser: "E",
+  // Like Photoshop's.
+  bucket: "G",
   note: "N",
   text: "T",
   dropper: "I",

@@ -17,6 +17,7 @@ function createDrawing(parts: Partial<Drawing>): Drawing {
   return {
     background: "#ffffff",
     strokes: [],
+    fills: [],
     images: [],
     texts: [],
     notes: [],

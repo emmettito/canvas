@@ -19,6 +19,7 @@ function createNote(id: string, text = "Note"): Note {
     color: "#ffff99",
     content: fromPlainText(text),
     strokes: [],
+    fills: [],
   };
 }
 
@@ -26,6 +27,7 @@ function createDrawing(strokes: Stroke[] = []): Drawing {
   return {
     background: "#ffffff",
     strokes,
+    fills: [],
     images: [],
     texts: [],
     notes: [],
@@ -279,5 +281,21 @@ describe("DrawingHistory", () => {
     history.clear();
 
     expect(history.drawing.order).toEqual([]);
+  });
+
+  it("fills areas, which can be undone and cleared", () => {
+    const history = createHistory();
+    const fill = { color: "#ff0000", rings: [], after: 0 };
+
+    history.addFill(fill);
+    expect(history.drawing.fills).toEqual([fill]);
+    expect(history.canClear).toBe(true);
+
+    history.clear();
+    expect(history.drawing.fills).toEqual([]);
+    history.undo();
+    history.undo();
+    expect(history.drawing.fills).toEqual([]);
+    expect(history.canUndo).toBe(false);
   });
 });

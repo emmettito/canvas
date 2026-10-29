@@ -263,6 +263,11 @@ export function mountCanvas(
       history.removeItem(kind, id);
       update();
     },
+    onFill: (fill) => {
+      history.addFill(fill);
+      update();
+    },
+    onFillBackground: (color) => setBackground(color),
     onItemRestack: (kind, id, to) => {
       history.restackItem(kind, id, to);
       update();
@@ -354,11 +359,7 @@ export function mountCanvas(
       if (custom && isCustomColor(color)) {
         recentColors = addRecentColor(recentColors, color);
       }
-      if (color !== history.drawing.background) {
-        history.change({ ...history.drawing, background: color });
-        fitPencilToBackground();
-      }
-      update();
+      setBackground(color);
     },
     onUpdateTextSize: (size) => {
       textSize = size;
@@ -529,6 +530,7 @@ export function mountCanvas(
     const isSaved = canvases.some((canvas) => canvas.id === id);
     const parts = {
       strokes: storage.loadStrokes(id) ?? [],
+      fills: storage.loadFills(id) ?? [],
       images: storage.loadItems(id, "images") ?? [],
       texts: storage.loadItems(id, "texts") ?? [],
       notes: storage.loadItems(id, "notes") ?? [],
@@ -684,6 +686,15 @@ export function mountCanvas(
     };
   }
 
+  // Changes the canvas's background, so it can be undone.
+  function setBackground(color: string) {
+    if (color !== history.drawing.background) {
+      history.change({ ...history.drawing, background: color });
+      fitPencilToBackground();
+    }
+    update();
+  }
+
   // The pencil stays visible on a new background: black becomes white on a
   // dark one, and white black on a light one. Other colors are left as
   // they're picked.
@@ -773,12 +784,13 @@ export function mountCanvas(
     for (const kind of ITEM_KINDS) {
       canvas.setItems(kind, drawing[kind]);
     }
-    canvas.setLayers(drawing.strokes, drawing.order);
+    canvas.setLayers(drawing.strokes, drawing.order, drawing.fills);
     canvas.setBackground(drawing.background);
     canvas.setToolState(getStrokeToolState());
     canvas.setPlacing(getPlacing());
     canvas.setPicking(activeTool === "dropper");
     canvas.setMoving(activeTool === "move");
+    canvas.setFilling(activeTool === "bucket");
     canvas.setRecentColors(recentColors);
   }
 
@@ -831,6 +843,13 @@ export function mountCanvas(
       if (drawing.strokes !== stored.strokes) {
         if (storage.saveStrokes(open.id, drawing.strokes)) {
           stored = { ...stored, strokes: drawing.strokes };
+        } else {
+          saved = false;
+        }
+      }
+      if (drawing.fills !== stored.fills) {
+        if (storage.saveFills(open.id, drawing.fills)) {
+          stored = { ...stored, fills: drawing.fills };
         } else {
           saved = false;
         }

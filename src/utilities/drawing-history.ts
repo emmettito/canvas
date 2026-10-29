@@ -3,6 +3,7 @@ import {
   type DrawingItem,
   type ItemKind,
 } from "../models/drawing.model";
+import { type Fill } from "../models/fill.model";
 import { type Stroke } from "../models/stroke.model";
 import {
   addItemLayer,
@@ -47,9 +48,10 @@ export class DrawingHistory {
 
   /** Whether anything is drawn or placed. */
   get canClear(): boolean {
-    const { strokes, images, texts, notes } = this.#drawing;
+    const { strokes, fills, images, texts, notes } = this.#drawing;
     return (
       strokes.length > 0 ||
+      fills.length > 0 ||
       images.length > 0 ||
       texts.length > 0 ||
       notes.length > 0
@@ -63,6 +65,11 @@ export class DrawingHistory {
       strokes: [...this.strokes, stroke],
       order: addStrokeLayer(this.#drawing.order),
     });
+  }
+
+  /** Fills an area, below everything but older fills. */
+  addFill(fill: Fill): void {
+    this.change({ ...this.#drawing, fills: [...this.#drawing.fills, fill] });
   }
 
   /** Places an item on top of everything. */
@@ -110,6 +117,7 @@ export class DrawingHistory {
     this.change({
       ...this.#drawing,
       strokes: [],
+      fills: [],
       images: [],
       texts: [],
       notes: [],

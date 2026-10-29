@@ -1,3 +1,4 @@
+import { type Fill } from "./fill.model";
 import { type RichText } from "./rich-text.model";
 import { type Stroke } from "./stroke.model";
 
@@ -16,4 +17,7 @@ export interface Note {
   // Drawn on the note, from its top left corner, so they move with it. They
   // don't stretch when it's resized, and only show inside it.
   strokes: Stroke[];
+  // Filled with the paint bucket, below its text and strokes, from its top
+  // left corner like them.
+  fills: Fill[];
 }

@@ -36,6 +36,7 @@ const NOTE: Note = {
   color: "#fefe99",
   content: fromPlainText("Buy milk"),
   strokes: [],
+  fills: [],
 };
 const TEXT: TextBox = {
   id: "t",
@@ -56,6 +57,7 @@ function createDrawing(parts: Partial<Drawing>): Drawing {
   const drawing = {
     background: "#ffffff",
     strokes: [],
+    fills: [],
     images: [],
     texts: [],
     notes: [],
@@ -316,6 +318,47 @@ describe("createSvg with images", () => {
 
     expect(svg).toMatch(
       /<g mask="url\(#erase-1\)"><circle[^>]*\/><\/g><image [^>]*\/><\/svg>$/
+    );
+  });
+});
+
+describe("createSvg with fills", () => {
+  const FILL = {
+    color: "#00ff00",
+    rings: [
+      [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 10, y: 10 },
+      ],
+    ],
+    after: 1,
+  };
+
+  it("puts fills below the strokes, filled every other crossing", () => {
+    const svg = toSvg({ strokes: [DOT], fills: [FILL] });
+
+    expect(svg).toContain(
+      '<path d="M0 0L10 0L10 10Z" fill="#00ff00" fill-rule="evenodd"/><circle'
+    );
+  });
+
+  it("erases them with the eraser drawn after them only", () => {
+    const svg = toSvg({
+      strokes: [ERASER, DOT, ERASER],
+      fills: [FILL],
+      order: [{ kind: "strokes", count: 3 }],
+    });
+
+    expect(svg).toMatch(/^.*<\/defs><g mask="url\(#erase-2\)"><path d="M0 0/);
+    expect(svg).not.toContain('url(#erase-0)"><path d="M0 0');
+  });
+
+  it("puts a note's fills under its text, clipped to it", () => {
+    const svg = toSvg({ notes: [{ ...NOTE, fills: [{ ...FILL, after: 0 }] }] });
+
+    expect(svg).toMatch(
+      /<rect x="20"[^>]*\/><g transform="translate\(20 30\)" clip-path="url\(#note-0-clip\)"><path d="M0 0L10 0L10 10Z"[^>]*\/><\/g><text/
     );
   });
 });

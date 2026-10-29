@@ -5,11 +5,18 @@
   z-index: 1;
 }
 
-/* A run of strokes, over what the canvas shows, in drawing units. */
-.canvas-drawing {
+/* A run of strokes, or the fills below everything else, on screen, which
+ * the canvas moves into place. */
+.canvas-drawing,
+.canvas-fills {
   position: absolute;
   top: 0;
   left: 0;
+  transform-origin: 0 0;
+}
+
+.canvas-fills {
+  z-index: 0;
 }
 
 /* Above the drawing, like the pointer. */
@@ -30,6 +37,11 @@
 
 [data-placing="texts"] > .canvas-input-layer {
   cursor: text;
+}
+
+/* The paint bucket fills where it's pressed. */
+[data-filling] > .canvas-input-layer {
+  cursor: crosshair;
 }
 
 /* With the move tool, dragging the drawing pans it. */
@@ -279,8 +291,10 @@
   }
 }
 
-/* Strokes drawn on the note, over its text, and only inside it. */
-.canvas-note-ink {
+/* Strokes drawn on the note, over its text, and its fills, below it, only
+ * inside it. */
+.canvas-note-ink,
+.canvas-note-fills {
   position: absolute;
   inset: 0;
   width: 100%;

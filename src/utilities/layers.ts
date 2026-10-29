@@ -54,7 +54,7 @@ function mergeRuns(order: Layer[]): Layer[] {
  * text and notes, each in the order they were added.
  */
 export function getDefaultOrder(
-  drawing: Omit<Drawing, "order" | "background">
+  drawing: Pick<Drawing, "strokes" | ItemKind>
 ): Layer[] {
   return mergeRuns([
     { kind: "strokes", count: drawing.strokes.length },
@@ -70,7 +70,7 @@ export function getDefaultOrder(
  */
 export function isOrderOf(
   order: Layer[],
-  drawing: Omit<Drawing, "order" | "background">
+  drawing: Pick<Drawing, "strokes" | ItemKind>
 ): boolean {
   let strokes = 0;
   const seen = new Set<string>();

@@ -1,5 +1,6 @@
 import { type Box } from "../models/box.model";
 import { type Drawing } from "../models/drawing.model";
+import { type Fill } from "../models/fill.model";
 import { type ImageItem } from "../models/image-item.model";
 import { type Note } from "../models/note.model";
 import { type Size } from "../models/size.model";
@@ -13,6 +14,7 @@ import {
 import { MAX_EXPORT_PIXELS } from "../constants/max-export-pixels.const";
 import { NOTE_LAYOUT } from "../constants/note-layout.const";
 import { TEXT_LAYOUT } from "../constants/text-layout.const";
+import { drawFills, getFillSteps } from "./draw-fills";
 import { drawStroke } from "./draw-stroke";
 import { resolveLayers } from "./layers";
 import {
@@ -290,7 +292,29 @@ function drawStrokes(
   context.restore();
 }
 
-// The note, its text, and the strokes drawn on it, which only show inside it.
+// Draws fills on their own layer, then onto `context`, so erasers only erase
+// them. `strokes` are the strokes they count from.
+function drawFillLayer(
+  context: CanvasRenderingContext2D,
+  fills: Fill[],
+  strokes: Stroke[]
+): void {
+  if (fills.length === 0) {
+    return;
+  }
+  const layer = createLayer(context);
+  if (!layer) {
+    return;
+  }
+  drawFills(layer, fills, strokes);
+  context.save();
+  context.resetTransform();
+  context.drawImage(layer.canvas, 0, 0);
+  context.restore();
+}
+
+// The note, its fills, its text, and the strokes drawn on it. Its fills and
+// strokes only show inside it.
 function drawNote(
   context: CanvasRenderingContext2D,
   note: Note,
@@ -307,6 +331,11 @@ function drawNote(
   );
   context.fillStyle = note.color;
   context.fill(shape);
+  context.save();
+  context.clip(shape);
+  context.translate(note.x, note.y);
+  drawFillLayer(context, note.fills, note.strokes);
+  context.restore();
   drawSpans(context, layOutNote(note, textStyle, measurer));
   context.save();
   context.clip(shape);
@@ -344,6 +373,8 @@ export async function renderDrawing(
   context.scale(scale, scale);
   context.translate(-area.x, -area.y);
   const measurer = createMeasurer();
+  // Fills are below everything else.
+  drawFillLayer(context, drawing.fills, drawing.strokes);
   // Bottom to top, the way the canvas shows them.
   for (const layer of resolveLayers(drawing)) {
     switch (layer.kind) {
@@ -474,8 +505,38 @@ function createStrokes(
   return content;
 }
 
-// The note as an SVG rectangle, with its text and the strokes drawn on it,
-// clipped to it. `index` keeps its masks' and clip's names apart from other
+// Fills as SVG, each eraser after them masking them. Its masks are made with
+// the strokes', named by `name`.
+function createFills(
+  fills: Fill[],
+  strokes: Stroke[],
+  name: (index: number) => string
+): string {
+  let content = "";
+  for (const step of getFillSteps(fills, strokes)) {
+    if ("eraser" in step) {
+      content = `<g mask="url(#${name(step.index)})">${content}</g>`;
+      continue;
+    }
+    const path = step.fill.rings
+      .filter((ring) => ring.length > 0)
+      .map(
+        (ring) =>
+          ring
+            .map(
+              ({ x, y }, index) =>
+                `${index === 0 ? "M" : "L"}${round(x)} ${round(y)}`
+            )
+            .join("") + "Z"
+      )
+      .join("");
+    content += `<path d="${path}" fill="${escapeAttribute(step.fill.color)}" fill-rule="evenodd"/>`;
+  }
+  return content;
+}
+
+// The note as an SVG rectangle, with its fills, its text and the strokes
+// drawn on it, clipped to it. `index` keeps its masks' and clip's names apart from other
 // notes'.
 function createNote(
   note: Note,
@@ -487,19 +548,25 @@ function createNote(
   const shape = `width="${round(note.width)}" height="${round(note.height)}" rx="${NOTE_LAYOUT.cornerRadius}"`;
   const rect = `<rect x="${round(note.x)}" y="${round(note.y)}" ${shape} fill="${escapeAttribute(note.color)}"/>`;
   const text = createText(layOutNote(note, textStyle, measurer));
-  // Its strokes are from its top left corner, like the note's own.
+  // Its strokes and fills are from its top left corner, like the note's own.
+  const name = (stroke: number) => `note-${index}-erase-${stroke}`;
   const ink = createStrokes(
     note.strokes,
     `x="0" y="0" width="${round(note.width)}" height="${round(note.height)}"`,
-    (stroke) => `note-${index}-erase-${stroke}`,
+    name,
     masks
   );
-  if (!ink) {
+  const fills = createFills(note.fills, note.strokes, name);
+  if (!ink && !fills) {
     return rect + text;
   }
   const clip = `note-${index}-clip`;
   masks.push(`<clipPath id="${clip}"><rect ${shape}/></clipPath>`);
-  return `${rect}${text}<g transform="translate(${round(note.x)} ${round(note.y)})" clip-path="url(#${clip})">${ink}</g>`;
+  const inside = (content: string) =>
+    content
+      ? `<g transform="translate(${round(note.x)} ${round(note.y)})" clip-path="url(#${clip})">${content}</g>`
+      : "";
+  return `${rect}${inside(fills)}${text}${inside(ink)}`;
 }
 
 /**
@@ -527,7 +594,12 @@ export function createSvg(
   const masks: string[] = [];
   const measurer = createMeasurer();
   let notes = 0;
-  let content = "";
+  // Fills are below everything else.
+  let content = createFills(
+    drawing.fills,
+    drawing.strokes,
+    (index) => `erase-${index}`
+  );
   // Bottom to top, the way the canvas shows them.
   for (const layer of resolveLayers(drawing)) {
     switch (layer.kind) {

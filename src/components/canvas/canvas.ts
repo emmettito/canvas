@@ -1,3 +1,4 @@
+import { FILL_LAYOUT } from "../../constants/fill-layout.const";
 import { IMAGE_LAYOUT } from "../../constants/image-layout.const";
 import { NOTE_LAYOUT } from "../../constants/note-layout.const";
 import { RESIZE_HANDLES } from "../../constants/resize-handles.const";
@@ -11,6 +12,7 @@ import {
   type ItemKind,
 } from "../../models/drawing.model";
 import { type ExportOptions } from "../../models/export-options.model";
+import { type Fill } from "../../models/fill.model";
 import { type ImageItem } from "../../models/image-item.model";
 import { type Layer } from "../../models/layer.model";
 import { type Note } from "../../models/note.model";
@@ -27,10 +29,23 @@ import { type ToolState } from "../../models/tool-state.model";
 import { type Viewport } from "../../models/viewport.model";
 import { createElement } from "../../utilities/create-element";
 import { createId } from "../../utilities/create-id";
+import { drawFills } from "../../utilities/draw-fills";
 import { drawStroke } from "../../utilities/draw-stroke";
-import { isDarkColor, resolveColor, toHex } from "../../utilities/colors";
+import {
+  isDarkColor,
+  parseColor,
+  resolveColor,
+  toHex,
+} from "../../utilities/colors";
 import { exportDrawing, renderDrawing } from "../../utilities/export-drawing";
 import { getCssVariable } from "../../utilities/get-css-variable";
+import {
+  floodFill,
+  growMask,
+  simplifyRing,
+  touchesEdge,
+  traceMask,
+} from "../../utilities/flood-fill";
 import { getNoteColor } from "../../utilities/lighten-color";
 import { resizeBox, resizeBoxKeepingShape } from "../../utilities/resize-box";
 import { isField } from "../../utilities/is-field";
@@ -39,8 +54,10 @@ import { isBlank } from "../../utilities/rich-text";
 import {
   DEFAULT_VIEWPORT,
   fitViewport,
+  getFillBox,
   getStrokeBox,
   getVisibleArea,
+  intersectBoxes,
   panBy,
   stepZoom,
   toDrawingPoint,
@@ -66,6 +83,10 @@ export interface CanvasOptions {
   createTextEditor: TextEditorFactory;
   // The canvas was zoomed or panned, e.g. by scrolling.
   onViewportChange: (viewport: Viewport) => void;
+  // The paint bucket filled an area of the drawing.
+  onFill: (fill: Fill) => void;
+  // The paint bucket filled around everything, which is the background.
+  onFillBackground: (color: string) => void;
   // The dropper picked a color from the drawing.
   onPickColor: (color: CustomColor) => void;
   // A custom color was picked in the format bar, to pick again.
@@ -87,11 +108,22 @@ interface TypedView<T extends TypedItem> extends ItemView<T> {
 // Which items are typed in.
 type TypedKind = "notes" | "texts";
 
-// A note, with the strokes drawn on it, which are only drawn on a canvas of
-// its own once it has some.
+// What's drawn on a note's own canvas, at its size in pixels.
+interface Inked {
+  strokes: Stroke[];
+  fills: Fill[];
+  width: number;
+  height: number;
+}
+
+// A note, with the strokes drawn on it and its fills, which are only drawn
+// on canvases of their own once it has some: its fills below its text, and
+// its strokes above.
 interface NoteView extends TypedView<Note> {
   ink: HTMLCanvasElement | null;
-  inked: { strokes: Stroke[]; width: number; height: number } | null;
+  inked: Inked | null;
+  fillCanvas: HTMLCanvasElement | null;
+  filled: Inked | null;
 }
 
 // An action in an item's menu.
@@ -124,6 +156,17 @@ interface Painted {
 interface Run {
   canvas: HTMLCanvasElement;
   painted: Painted | null;
+}
+
+// What's drawn on the fills' canvas: the fills, and the erasers after them,
+// through the viewport, at the canvas's size.
+interface PaintedFills {
+  fills: Fill[];
+  erasers: Stroke[];
+  width: number;
+  height: number;
+  pixelRatio: number;
+  viewport: Viewport;
 }
 
 // A stroke being drawn: on the drawing, as part of a run of strokes, or on a
@@ -177,6 +220,23 @@ function startsWith(strokes: Stroke[], prefix: Stroke[]): boolean {
 // stays within what browsers can draw on one canvas.
 const MAX_INK_PIXELS = 16_000_000;
 
+/**
+ * Puts a canvas among the items, which are zoomed and panned, over `area` of
+ * the screen, in pixels from the canvas's top left. It's laid out at the
+ * items' origin, in screen pixels, and moved there with a transform that
+ * undoes theirs: browsers round where a canvas is laid out before zooming
+ * it, which would put it pixels out at a high zoom.
+ */
+function placeOnScreen(
+  canvas: HTMLCanvasElement,
+  { x, y, zoom }: Viewport,
+  area: Box
+): void {
+  canvas.style.width = px(area.width);
+  canvas.style.height = px(area.height);
+  canvas.style.transform = `translate(${x}px, ${y}px) scale(${1 / zoom}) translate(${area.x}px, ${area.y}px)`;
+}
+
 function px(value: number): string {
   return `${value}px`;
 }
@@ -207,6 +267,14 @@ export class Canvas {
   #width = 0;
   #strokes: Stroke[] = [];
   #order: Layer[] = [];
+  #fills: Fill[] = [];
+  // Below everything, once there are fills.
+  #fillCanvas: HTMLCanvasElement | null = null;
+  #paintedFills: PaintedFills | null = null;
+  // Whether pressing the drawing fills an area, with the paint bucket, and
+  // whether one is being found, which takes a moment.
+  #filling = false;
+  #findingFill = false;
   #layers: {
     images: ItemLayer<ImageItem, ImageView>;
     texts: ItemLayer<TextBox, TypedView<TextBox>>;
@@ -349,6 +417,12 @@ export class Canvas {
     this.#surface.toggleAttribute("data-picking", picking);
   }
 
+  /** Whether pressing the drawing fills an area, with the paint bucket. */
+  setFilling(filling: boolean): void {
+    this.#filling = filling;
+    this.#surface.toggleAttribute("data-filling", filling);
+  }
+
   /**
    * Whether pressing items moves them, with the move tool, and dragging
    * anywhere else pans. Otherwise, the tool draws over them.
@@ -385,6 +459,7 @@ export class Canvas {
   zoomToFit(): void {
     const boxes: Box[] = [
       ...this.#strokes.flatMap((stroke) => getStrokeBox(stroke) ?? []),
+      ...this.#fills.flatMap((fill) => getFillBox(fill) ?? []),
       ...this.#layers.images.items,
       ...this.#layers.notes.items,
       // Text's size is its text's, so it's measured.
@@ -409,16 +484,21 @@ export class Canvas {
   }
 
   /**
-   * The drawing's strokes, and the order its strokes and items are stacked
-   * in, once its items are set.
+   * The drawing's strokes, the order its strokes and items are stacked in,
+   * once its items are set, and its fills.
    */
-  setLayers(strokes: Stroke[], order: Layer[]): void {
+  setLayers(strokes: Stroke[], order: Layer[], fills: Fill[]): void {
     // Called on every toolbar change, so skip the paint if nothing changed.
-    if (strokes === this.#strokes && order === this.#order) {
+    if (
+      strokes === this.#strokes &&
+      order === this.#order &&
+      fills === this.#fills
+    ) {
       return;
     }
     this.#strokes = strokes;
     this.#order = order;
+    this.#fills = fills;
     this.#paint();
   }
 
@@ -515,6 +595,7 @@ export class Canvas {
     return {
       background: this.#background,
       strokes: this.#strokes,
+      fills: this.#fills,
       images: this.#layers.images.items,
       texts: this.#layers.texts.items,
       notes: this.#layers.notes.items,
@@ -568,6 +649,7 @@ export class Canvas {
   // Stacks the strokes and items in the drawing's order, and draws each run
   // of strokes on its canvas.
   #paint(): void {
+    this.#paintFills();
     const layers = resolveLayers(this.#getDrawing());
     const drawn = this.#drawn;
     // The runs a stroke can be added to: the one on top of everything, and
@@ -612,6 +694,68 @@ export class Canvas {
         drawStroke(context, drawn.stroke);
       }
     }
+  }
+
+  // Draws the fills on their canvas, below everything, over what the canvas
+  // shows, with the erasers after them.
+  #paintFills(): void {
+    const fills = this.#fills;
+    if (fills.length === 0) {
+      this.#fillCanvas?.remove();
+      this.#fillCanvas = null;
+      this.#paintedFills = null;
+      return;
+    }
+    let canvas = this.#fillCanvas;
+    if (!canvas) {
+      canvas = createElement("canvas", "canvas-fills");
+      this.#items.prepend(canvas);
+      this.#fillCanvas = canvas;
+    }
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return;
+    }
+    const width = this.#width;
+    const height = this.#height;
+    const pixelRatio = window.devicePixelRatio || 1;
+    const viewport = this.#viewport;
+    // Only erasers change how fills look.
+    const erasers = this.#strokes.filter(({ color }) => color === undefined);
+    const painted = this.#paintedFills;
+    this.#paintedFills = {
+      fills,
+      erasers,
+      width,
+      height,
+      pixelRatio,
+      viewport,
+    };
+    if (
+      painted &&
+      painted.fills === fills &&
+      isSame(painted.erasers, erasers) &&
+      painted.width === width &&
+      painted.height === height &&
+      painted.pixelRatio === pixelRatio &&
+      painted.viewport === viewport
+    ) {
+      return;
+    }
+    placeOnScreen(canvas, viewport, { x: 0, y: 0, width, height });
+    const { zoom } = viewport;
+    canvas.width = Math.round(width * pixelRatio);
+    canvas.height = Math.round(height * pixelRatio);
+    const scale = pixelRatio * zoom;
+    context.setTransform(
+      scale,
+      0,
+      0,
+      scale,
+      -viewport.x * scale,
+      -viewport.y * scale
+    );
+    drawFills(context, fills, this.#strokes);
   }
 
   // Draws a run of strokes on its canvas, and the erasers above them. Strokes
@@ -661,13 +805,9 @@ export class Canvas {
     }
 
     // Everything is drawn again, at the screen's resolution, through the
-    // viewport. It's placed among the items, which are in drawing units, on
-    // whole screen pixels. Resizing clears it, and otherwise it's cleared.
+    // viewport. Resizing clears it, and otherwise it's cleared.
     const { zoom } = viewport;
-    canvas.style.left = px(viewport.x + area.x / zoom);
-    canvas.style.top = px(viewport.y + area.y / zoom);
-    canvas.style.width = px(area.width / zoom);
-    canvas.style.height = px(area.height / zoom);
+    placeOnScreen(canvas, viewport, area);
     const pixelWidth = Math.round(area.width * pixelRatio);
     const pixelHeight = Math.round(area.height * pixelRatio);
     if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
@@ -721,65 +861,101 @@ export class Canvas {
     return { x: left, y: top, width: right - left, height: bottom - top };
   }
 
-  // Draws a note's strokes on its own canvas, once it has some, clipped to
-  // it. As few pixels as look sharp at the zoom, within what a browser can
-  // draw.
+  // Draws a note's strokes and fills on its own canvases, once it has
+  // some, clipped to it: its fills below its text, and its strokes above.
+  // As few pixels as look sharp at the zoom, within what a browser can draw.
   #paintInk(view: NoteView): void {
-    const { item } = view;
-    if (!view.ink) {
-      if (item.strokes.length === 0) {
-        return;
-      }
-      view.ink = createElement("canvas", "canvas-note-ink");
-      view.editor.element.after(view.ink);
-    }
-    const ink = view.ink;
-    const context = ink.getContext("2d");
-    if (!context) {
-      return;
-    }
+    const { item, editor } = view;
     const scale = Math.min(
       this.#viewport.zoom * (window.devicePixelRatio || 1),
       Math.sqrt(MAX_INK_PIXELS / (item.width * item.height))
     );
     const width = Math.max(1, Math.round(item.width * scale));
     const height = Math.max(1, Math.round(item.height * scale));
-    const inked = view.inked;
-    view.inked = { strokes: item.strokes, width, height };
+    const inked: Inked = {
+      strokes: item.strokes,
+      fills: item.fills,
+      width,
+      height,
+    };
+    if (!view.ink && item.strokes.length > 0) {
+      view.ink = createElement("canvas", "canvas-note-ink");
+      editor.element.after(view.ink);
+    }
+    if (view.ink) {
+      const before = view.inked;
+      view.inked = inked;
+      this.#paintNoteCanvas(view.ink, item, inked, before, "strokes");
+    }
+    if (!view.fillCanvas && item.fills.length > 0) {
+      view.fillCanvas = createElement("canvas", "canvas-note-fills");
+      editor.element.before(view.fillCanvas);
+    }
+    if (view.fillCanvas) {
+      const before = view.filled;
+      view.filled = inked;
+      this.#paintNoteCanvas(view.fillCanvas, item, inked, before, "fills");
+    }
+  }
+
+  // Draws a note's strokes, or its fills, on one of its canvases, from its
+  // top left corner, unless they're already drawn. Strokes added since,
+  // e.g. one just drawn, are drawn on top instead. Of those, only erasers
+  // change its fills, and they erase every fill before them.
+  #paintNoteCanvas(
+    canvas: HTMLCanvasElement,
+    note: Note,
+    inked: Inked,
+    before: Inked | null,
+    what: "strokes" | "fills"
+  ): void {
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return;
+    }
+    const { width, height, strokes, fills } = inked;
     if (
-      inked &&
-      inked.width === width &&
-      inked.height === height &&
-      startsWith(item.strokes, inked.strokes)
+      before &&
+      before.width === width &&
+      before.height === height &&
+      before.fills === fills &&
+      startsWith(strokes, before.strokes)
     ) {
-      for (const stroke of item.strokes.slice(inked.strokes.length)) {
-        drawStroke(context, stroke);
+      for (const stroke of strokes.slice(before.strokes.length)) {
+        if (what === "strokes" || stroke.color === undefined) {
+          drawStroke(context, stroke);
+        }
       }
       return;
     }
-    if (ink.width !== width || ink.height !== height) {
-      ink.width = width;
-      ink.height = height;
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
     } else {
       context.setTransform(1, 0, 0, 1, 0, 0);
       context.clearRect(0, 0, width, height);
     }
-    // Its strokes are from its top left corner.
-    context.setTransform(width / item.width, 0, 0, height / item.height, 0, 0);
-    for (const stroke of item.strokes) {
+    context.setTransform(width / note.width, 0, 0, height / note.height, 0, 0);
+    if (what === "fills") {
+      drawFills(context, fills, strokes);
+      return;
+    }
+    for (const stroke of strokes) {
       drawStroke(context, stroke);
     }
   }
 
   // Where the stroke being drawn shows as it's drawn: its note, the run it's
   // part of, or every run for the eraser.
-  #getDrawnContexts({ run, note }: Drawn): CanvasRenderingContext2D[] {
-    const canvases = note?.ink
-      ? [note.ink]
+  // The eraser erases fills too.
+  #getDrawnContexts({ stroke, run, note }: Drawn): CanvasRenderingContext2D[] {
+    const erasing = stroke.color === undefined;
+    const canvases = note
+      ? [note.ink, erasing ? note.fillCanvas : null]
       : run === null
-        ? this.#runs.map(({ canvas }) => canvas)
-        : [this.#runs[run]?.canvas].filter((canvas) => canvas !== undefined);
-    return canvases.flatMap((canvas) => canvas.getContext("2d") ?? []);
+        ? [...this.#runs.map(({ canvas }) => canvas), this.#fillCanvas]
+        : [this.#runs[run]?.canvas];
+    return canvases.flatMap((canvas) => canvas?.getContext("2d") ?? []);
   }
 
   #getPoint(event: PointerEvent): Point {
@@ -789,8 +965,13 @@ export class Canvas {
   #moveCursor(event: PointerEvent): void {
     const cursor = this.#cursor;
     // Touch and pen have no hover position, so the cursor only follows a
-    // mouse. Placing and moving items have no size to show.
-    if (event.pointerType !== "mouse" || this.#placing || this.#moving) {
+    // mouse. Placing, moving and filling have no size to show.
+    if (
+      event.pointerType !== "mouse" ||
+      this.#placing ||
+      this.#moving ||
+      this.#filling
+    ) {
       cursor.style.visibility = "hidden";
       return;
     }
@@ -814,6 +995,10 @@ export class Canvas {
       const active = document.activeElement;
       this.#placesOnRelease =
         !this.#items.contains(active) && !this.#overlay.contains(active);
+      return;
+    }
+    if (this.#filling) {
+      void this.#fillAt(event.clientX, event.clientY);
       return;
     }
     const { color, size } = this.#toolState;
@@ -901,6 +1086,111 @@ export class Canvas {
     }
     this.#options.onStrokeComplete(stroke);
   };
+
+  // Fills the area around a point on screen with the pencil's color: the
+  // pixels around it that look the same, as the drawing's drawn, up to the
+  // lines and edges around them. On a note, it's the note's. An area that
+  // goes past the canvas's edges, around everything, is the background, so
+  // it fills that instead. Images aren't filled.
+  async #fillAt(clientX: number, clientY: number): Promise<void> {
+    const target = this.#getItemAt(clientX, clientY, ["images", "notes"]);
+    const color = this.#toolState.color;
+    if (this.#findingFill || target?.kind === "images" || !color) {
+      return;
+    }
+    const note = target
+      ? (this.#layers.notes.getView(target.view.item.id) ?? null)
+      : null;
+    const point = this.getDrawingPoint(clientX, clientY);
+    // What's searched: a little more than what's shown, and only the note
+    // on one.
+    const visible = this.visibleArea;
+    const { margin, maxPixels, tolerance, grow, smoothing } = FILL_LAYOUT;
+    let area: Box = {
+      x: visible.x - visible.width * margin,
+      y: visible.y - visible.height * margin,
+      width: visible.width * (1 + margin * 2),
+      height: visible.height * (1 + margin * 2),
+    };
+    if (note) {
+      area = intersectBoxes(area, note.item) ?? area;
+    }
+    const scale = Math.min(
+      this.#viewport.zoom,
+      Math.sqrt(maxPixels / (area.width * area.height))
+    );
+    this.#findingFill = true;
+    try {
+      const { drawing, textStyle, files } = await this.#getRendering();
+      const image = await renderDrawing(
+        drawing,
+        area,
+        scale,
+        this.#background,
+        textStyle,
+        files
+      );
+      const context = image?.getContext("2d");
+      if (!image || !context) {
+        return;
+      }
+      const { width, height } = image;
+      const { data } = context.getImageData(0, 0, width, height);
+      const seed = {
+        x: Math.min(width - 1, Math.floor((point.x - area.x) * scale)),
+        y: Math.min(height - 1, Math.floor((point.y - area.y) * scale)),
+      };
+      const pressed = data.slice(
+        (seed.y * width + seed.x) * 4,
+        (seed.y * width + seed.x) * 4 + 3
+      );
+      const fillColor = resolveColor(this.#interfaceLayer, color);
+      const isNear = (channels: ArrayLike<number> | null) =>
+        channels !== null &&
+        [0, 1, 2].every(
+          (channel) =>
+            Math.abs(channels[channel] - pressed[channel]) <= tolerance
+        );
+      // It's that color already.
+      if (isNear(parseColor(fillColor))) {
+        return;
+      }
+      const mask = floodFill(data, width, height, seed, tolerance);
+      if (!note && touchesEdge(mask) && isNear(parseColor(this.#background))) {
+        this.#options.onFillBackground(fillColor);
+        return;
+      }
+      // From the note's top left corner, on one, like its strokes.
+      const origin = note?.item ?? { x: 0, y: 0 };
+      const toDrawing = (value: number, start: number, from: number) =>
+        Math.round((start + value / scale - from) * 100) / 100;
+      const rings = traceMask(growMask(mask, grow)).map((ring) =>
+        simplifyRing(ring, smoothing).map(({ x, y }) => ({
+          x: toDrawing(x, area.x, origin.x),
+          y: toDrawing(y, area.y, origin.y),
+        }))
+      );
+      if (note) {
+        const fill = {
+          color: fillColor,
+          rings,
+          after: note.item.strokes.length,
+        };
+        this.#options.onItemChange("notes", {
+          ...note.item,
+          fills: [...note.item.fills, fill],
+        });
+      } else {
+        this.#options.onFill({
+          color: fillColor,
+          rings,
+          after: this.#strokes.length,
+        });
+      }
+    } finally {
+      this.#findingFill = false;
+    }
+  }
 
   // The note a stroke started at a point on screen is drawn on: the top one
   // there, unless an image is above it. Text is see-through, so it's
@@ -1064,12 +1354,14 @@ export class Canvas {
     this.#drawn = null;
     if (drawn.note) {
       drawn.note.inked = null;
+      drawn.note.filled = null;
       this.#paintInk(drawn.note);
       return;
     }
     for (const run of this.#runs) {
       run.painted = null;
     }
+    this.#paintedFills = null;
     this.#paint();
   }
 
@@ -1207,6 +1499,7 @@ export class Canvas {
         color: getNoteColor(color),
         content: [{ runs: [] }],
         strokes: [],
+        fills: [],
       });
       view.element.style.zIndex = zIndex;
       this.#startEditing("notes", view);
@@ -1539,8 +1832,9 @@ export class Canvas {
     }
   };
 
-  // Strokes drawn on a note stay where they are on the drawing as it's
-  // resized, rather than stretching, and only show inside it.
+  // Strokes drawn on a note, and its fills, stay where they are on the
+  // drawing as it's resized, rather than stretching, and only show inside
+  // it.
   #createNoteLayer(): ItemLayer<Note, NoteView> {
     return new ItemLayer<Note, NoteView>("canvas-notes", {
       className: "canvas-note",
@@ -1549,7 +1843,15 @@ export class Canvas {
       createView: (note, element) => {
         const editor = this.#createEditor("notes", note, "Sticky note");
         element.append(editor.element);
-        return { element, item: note, editor, ink: null, inked: null };
+        return {
+          element,
+          item: note,
+          editor,
+          ink: null,
+          inked: null,
+          fillCanvas: null,
+          filled: null,
+        };
       },
       render: (view) => {
         const { element, item, editor } = view;
@@ -1565,19 +1867,21 @@ export class Canvas {
         const box = resizeBox(note, handle, dx, dy, min);
         const shiftX = note.x - box.x;
         const shiftY = note.y - box.y;
+        if (shiftX === 0 && shiftY === 0) {
+          return { ...note, ...box };
+        }
+        const shift = ({ x, y }: Point) => ({ x: x + shiftX, y: y + shiftY });
         return {
           ...note,
           ...box,
-          strokes:
-            shiftX === 0 && shiftY === 0
-              ? note.strokes
-              : note.strokes.map((stroke) => ({
-                  ...stroke,
-                  points: stroke.points.map(({ x, y }) => ({
-                    x: x + shiftX,
-                    y: y + shiftY,
-                  })),
-                })),
+          strokes: note.strokes.map((stroke) => ({
+            ...stroke,
+            points: stroke.points.map(shift),
+          })),
+          fills: note.fills.map((fill) => ({
+            ...fill,
+            rings: fill.rings.map((ring) => ring.map(shift)),
+          })),
         };
       },
       getMinSize: () => ({

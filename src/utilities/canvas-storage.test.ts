@@ -34,6 +34,7 @@ const NOTES: Note[] = [
     color: "#fefe99",
     content: [{ runs: [{ text: "Hello", bold: true }] }],
     strokes: [{ color: "#0000ff", points: [{ x: 4, y: 5 }], size: 2 }],
+    fills: [{ color: "#00ff00", rings: [[{ x: 0, y: 0 }]], after: 1 }],
   },
 ];
 
@@ -163,6 +164,34 @@ describe("CanvasStorage", () => {
     }
   });
 
+  it("restores each canvas's fills, ignores ones that aren't, and deletes them", () => {
+    const storage = new CanvasStorage("test");
+    const fills = [
+      {
+        color: "#ff0000",
+        rings: [
+          [
+            { x: 1, y: 2 },
+            { x: 3, y: 4 },
+          ],
+        ],
+        after: 2,
+      },
+    ];
+
+    storage.saveFills("a", fills);
+    expect(new CanvasStorage("test").loadFills("a")).toEqual(fills);
+
+    localStorage.setItem(
+      "test:canvas:b:fills",
+      JSON.stringify([{ ...fills[0], after: -1 }])
+    );
+    expect(storage.loadFills("b")).toBeNull();
+
+    storage.deleteCanvas("a");
+    expect(storage.loadFills("a")).toBeNull();
+  });
+
   it("keeps storage keys apart", () => {
     new CanvasStorage("first").saveToolSettings(SETTINGS);
 
@@ -277,7 +306,7 @@ describe("CanvasStorage export options", () => {
 
   it("turns plain text saved before formatting into paragraphs", () => {
     // Saved before notes could be drawn on, too.
-    const { content: _, strokes: ____, ...note } = NOTES[0];
+    const { content: _, strokes: ____, fills: _____, ...note } = NOTES[0];
     const { content: __, height: ___, ...text } = TEXTS[0];
     localStorage.setItem(
       "test:canvas:a:notes",
@@ -294,6 +323,7 @@ describe("CanvasStorage export options", () => {
         ...note,
         content: [{ runs: [{ text: "one" }] }, { runs: [{ text: "two" }] }],
         strokes: [],
+        fills: [],
       },
     ]);
     // Text saved before it could be resized fits its text.

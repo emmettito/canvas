@@ -1,5 +1,6 @@
 import { ZOOM } from "../constants/zoom.const";
 import { type Box } from "../models/box.model";
+import { type Fill } from "../models/fill.model";
 import { type Point } from "../models/point.model";
 import { type Size } from "../models/size.model";
 import { type Stroke } from "../models/stroke.model";
@@ -86,6 +87,26 @@ export function getStrokeBox({ points, size }: Stroke): Box | null {
     width: Math.max(...xs) + size - left,
     height: Math.max(...ys) + size - top,
   };
+}
+
+/** Where two boxes overlap, or null if they don't. */
+export function intersectBoxes(a: Box, b: Box): Box | null {
+  const left = Math.max(a.x, b.x);
+  const top = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  return right > left && bottom > top
+    ? { x: left, y: top, width: right - left, height: bottom - top }
+    : null;
+}
+
+/** The box around a fill's outlines, or null if it has none. */
+export function getFillBox({ rings }: Fill): Box | null {
+  const points = rings.flat();
+  if (points.length === 0) {
+    return null;
+  }
+  return unionBoxes(points.map(({ x, y }) => ({ x, y, width: 0, height: 0 })));
 }
 
 /**

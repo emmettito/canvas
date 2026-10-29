@@ -1,3 +1,4 @@
+import { type Fill } from "./fill.model";
 import { type ImageItem } from "./image-item.model";
 import { type Layer } from "./layer.model";
 import { type Note } from "./note.model";
@@ -11,6 +12,8 @@ export interface Drawing {
   // the page's theme doesn't change it, and exports keep it.
   background: string;
   strokes: Stroke[];
+  // Filled with the paint bucket, oldest first, below everything else.
+  fills: Fill[];
   images: ImageItem[];
   texts: TextBox[];
   notes: Note[];

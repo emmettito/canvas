@@ -14,6 +14,7 @@ import {
   type ExportOptions,
   type ExportScale,
 } from "../models/export-options.model";
+import { type Fill } from "../models/fill.model";
 import { type ImageItem } from "../models/image-item.model";
 import { type Layer } from "../models/layer.model";
 import { type Note } from "../models/note.model";
@@ -50,6 +51,21 @@ function isStroke(value: unknown): value is Stroke {
     value.points.every(
       (point) => isObject(point) && isNumber(point.x) && isNumber(point.y)
     )
+  );
+}
+
+function isPoint(value: unknown): boolean {
+  return isObject(value) && isNumber(value.x) && isNumber(value.y);
+}
+
+function isFill(value: unknown): value is Fill {
+  return (
+    isObject(value) &&
+    typeof value.color === "string" &&
+    Number.isInteger(value.after) &&
+    (value.after as number) >= 0 &&
+    Array.isArray(value.rings) &&
+    value.rings.every((ring) => Array.isArray(ring) && ring.every(isPoint))
   );
 }
 
@@ -116,18 +132,32 @@ function readNote(value: unknown): Note | null {
   }
   const saved = value as unknown as Record<string, unknown>;
   const content = readContent(saved);
-  // Notes saved before they could be drawn on have no strokes.
+  // Notes saved before they could be drawn on or filled have no strokes or
+  // fills.
   const strokes = saved.strokes ?? [];
+  const fills = saved.fills ?? [];
   if (
     !content ||
     typeof saved.color !== "string" ||
     !Array.isArray(strokes) ||
-    !strokes.every(isStroke)
+    !strokes.every(isStroke) ||
+    !Array.isArray(fills) ||
+    !fills.every(isFill)
   ) {
     return null;
   }
   const { id, x, y, width, height } = value;
-  return { id, x, y, width, height, color: saved.color, content, strokes };
+  return {
+    id,
+    x,
+    y,
+    width,
+    height,
+    color: saved.color,
+    content,
+    strokes,
+    fills,
+  };
 }
 
 function isLayer(value: unknown): value is Layer {
@@ -367,6 +397,16 @@ export class CanvasStorage {
     return this.#store.write(this.#canvasKey(id, "strokes"), strokes);
   }
 
+  /** A canvas's fills. Null if it has none saved, e.g. from before them. */
+  loadFills(id: string): Fill[] | null {
+    const fills = this.#store.read(this.#canvasKey(id, "fills"));
+    return Array.isArray(fills) && fills.every(isFill) ? fills : null;
+  }
+
+  saveFills(id: string, fills: Fill[]): boolean {
+    return this.#store.write(this.#canvasKey(id, "fills"), fills);
+  }
+
   /** A canvas's images, text or notes, by `kind`. */
   loadItems<K extends ItemKind>(id: string, kind: K): DrawingItem<K>[] | null {
     const saved = this.#store.read(this.#canvasKey(id, kind));
@@ -434,6 +474,7 @@ export class CanvasStorage {
   deleteCanvas(id: string): void {
     for (const part of [
       "strokes",
+      "fills",
       "background",
       "viewport",
       "order",
@@ -445,7 +486,7 @@ export class CanvasStorage {
 
   #canvasKey(
     id: string,
-    part: "strokes" | "background" | "viewport" | "order" | ItemKind
+    part: "strokes" | "fills" | "background" | "viewport" | "order" | ItemKind
   ): string {
     return `${this.#key}:canvas:${id}:${part}`;
   }

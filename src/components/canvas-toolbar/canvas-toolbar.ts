@@ -67,6 +67,7 @@ const ACTION_LABELS: Record<ToolbarAction, string> = {
   move: "Move",
   pencil: "Pencil",
   eraser: "Eraser",
+  bucket: "Paint bucket",
   note: "Sticky note",
   dropper: "Dropper",
   text: "Text",
@@ -88,7 +89,7 @@ const EXPORT_FORMAT_LABELS: Record<ExportFormat, string> = {
 };
 
 // The tools with a size, which clicking them again picks.
-type SizedTool = Exclude<Tool, "move" | "note" | "dropper">;
+type SizedTool = Exclude<Tool, "move" | "bucket" | "note" | "dropper">;
 
 // Backgrounds offered for the canvas. Any other can be picked too.
 const BACKGROUNDS = [
@@ -657,6 +658,7 @@ export class CanvasToolbar {
       move: () => this.#onToolClick("move"),
       pencil: () => this.#onToolClick("pencil"),
       eraser: () => this.#onToolClick("eraser"),
+      bucket: () => this.#onToolClick("bucket"),
       note: () => this.#onToolClick("note"),
       text: () => this.#onToolClick("text"),
       dropper: () => this.#onToolClick("dropper"),
@@ -784,13 +786,13 @@ export class CanvasToolbar {
     }
   }
 
-  // Clicking the active tool again opens its size slider. The move tool and
-  // notes have no size, and the dropper goes back to the tool before it.
+  // Clicking the active tool again opens its size slider. The move tool, the
+  // bucket and notes have no size, and the dropper goes back to the tool before it.
   #onToolClick(tool: Tool): void {
     if (tool === this.#state.activeTool) {
       if (tool === "dropper") {
         this.#actions.onSelectTool(tool);
-      } else if (tool !== "note" && tool !== "move") {
+      } else if (tool !== "note" && tool !== "move" && tool !== "bucket") {
         this.#togglePopover(tool);
       }
     } else {

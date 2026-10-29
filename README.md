@@ -1,6 +1,7 @@
 # Canvas
 
-A simple art canvas. Draw with a pencil or eraser, pick
+A simple art canvas. Draw with a pencil or eraser, fill areas with a paint
+bucket, pick
 from a color palette, adjust the size of each tool, add text, images and
 sticky notes, draw on the notes, move and stack it all, and undo or redo any
 of it. The canvas fills the space it's
@@ -68,6 +69,7 @@ mountCanvas(document.getElementById("drawing")!, {
 | `export`           | Export as PNG, JPEG or SVG (see below)            |
 | `move`             | Move, resize and pick what's placed (see below)   |
 | `pencil`, `eraser` | Pick the tool, or its size if already picked      |
+| `bucket`           | Fill areas with the pencil's color (see below)    |
 | `text`             | Add text, or pick its size if already picked      |
 | `note`             | Add sticky notes                                  |
 | `image`            | Insert images from files                          |
@@ -141,8 +143,29 @@ added to the page.
 
 Each tool has a key, shown in its button's tooltip, which picks it while the
 canvas is in use and nothing's being typed: V for `move`, P for `pencil`, E
-for `eraser`, N for `note`, T for `text` and I for `dropper`. Only tools on a
+for `eraser`, G for `bucket`, N for `note`, T for `text` and I for `dropper`. Only tools on a
 toolbar have one.
+
+### Filling
+
+With `bucket` picked, clicking the canvas fills the area around the click, in
+the pencil's color: everything there that looks the same color, up to the
+lines and edges around it, as the drawing's drawn. Fills are kept as outlines,
+not pixels, so they stay sharp at any zoom and export to SVG as shapes.
+
+- Fills are below every stroke and item, so the lines around one are always
+  drawn over its edge. It reaches a little under them, so no gap shows at
+  their soft edges. A fill over a fill is above it.
+- An area that goes past the canvas's edges, around everything, is the
+  background, so clicking it changes the background instead.
+- On a note, it fills the note's area, below its text and strokes, and moves
+  and resizes with the note like its strokes.
+- The eraser erases fills made before it, like strokes. Clicking an image
+  does nothing.
+
+The area is found in what the canvas shows, and a little more on each side,
+so zoom out to fill something bigger than the window. A gap in a line lets
+the fill through, like any paint bucket's.
 
 ### Text, images and sticky notes
 
@@ -408,7 +431,6 @@ Source** to **GitHub Actions** in the repository.
 ## To-do list
 
 - [ ] Other canvas tools (eg. paint brushes & a ruler)
-- [ ] Paint bucket
 
 ## License
 

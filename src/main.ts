@@ -43,6 +43,7 @@ mountCanvas(document.getElementById("root")!, {
       button("move"),
       button("pencil"),
       button("eraser"),
+      button("bucket"),
       button("note"),
       button("text"),
       { action: "color" },
