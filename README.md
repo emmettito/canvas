@@ -145,6 +145,13 @@ canvas is in use and nothing's being typed: V for `move`, P for `pencil`, E
 for `eraser`, G for `bucket`, N for `note`, T for `text` and I for `dropper`. Only tools on a
 toolbar have one.
 
+Clicking `pencil` or `eraser` again shows its sizes, each as the dot it
+draws, at the size it draws it, with its width in pixels below. The pencil's
+are 2, 5, 10, 20 and 40 pixels wide, and the eraser's 10 to 80. [ and ]
+pick the next size down or up, like Photoshop's. A size is on screen, not on
+the drawing, so a stroke looks the size picked at any zoom: zoomed in, it's
+finer on the drawing, for detail.
+
 ### Filling
 
 With `bucket` picked, clicking the canvas fills the area around the click, in
@@ -414,7 +421,7 @@ isn't in a CSS layer:
 | `--canvas-color-text-muted`     | Icons, dates and placeholders            |
 | `--canvas-color-hover`          | Background of a control under the mouse  |
 | `--canvas-color-selected`       | Background of the chosen tool and color  |
-| `--canvas-color-accent`         | Focus rings and size slider              |
+| `--canvas-color-accent`         | Focus rings and the size picked          |
 | `--canvas-color-danger`         | Deleting, and changes that weren't saved |
 | `--canvas-color-tooltip`        | Tooltip background                       |
 | `--canvas-color-tooltip-text`   | Tooltip text                             |

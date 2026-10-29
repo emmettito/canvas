@@ -97,9 +97,7 @@ test("dragging with Space held pans, even over a note", async ({ page }) => {
   await page.keyboard.up("Space");
 
   // Space didn't press the Pencil button, which opens its size.
-  await expect(page.getByRole("slider", { name: "Pencil size" })).toHaveCount(
-    0
-  );
+  await expect(page.getByRole("group", { name: "Pencil size" })).toHaveCount(0);
   const after = await getNoteBox(page);
   expectNear(after.x, before.x + 100);
   expectNear(after.y, before.y + 50);

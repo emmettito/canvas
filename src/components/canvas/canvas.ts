@@ -1176,8 +1176,8 @@ export class Canvas {
       return;
     }
     const { x, y } = this.#toCanvasPoint(event.clientX, event.clientY);
-    // The tool's size is in drawing units, so it's shown at the zoom.
-    const size = this.#toolState.size * 2 * this.#viewport.zoom;
+    // The tool's size is on screen, whatever the zoom.
+    const size = this.#toolState.size * 2;
     cursor.style.visibility = "visible";
     cursor.style.left = px(x);
     cursor.style.top = px(y);
@@ -1220,7 +1220,9 @@ export class Canvas {
           ? undefined
           : resolveColor(this.#interfaceLayer, color),
       points: [{ x: point.x - origin.x, y: point.y - origin.y }],
-      size,
+      // The size picked is on screen, so the stroke looks it at any zoom,
+      // and is thinner on the drawing the further in it's zoomed.
+      size: size / this.#viewport.zoom,
     };
     // A stroke on the drawing is part of the run of strokes on top, or
     // starts one above everything.

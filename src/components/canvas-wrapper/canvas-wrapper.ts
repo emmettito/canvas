@@ -1,11 +1,12 @@
 import { COLORS } from "../../constants/colors.const";
 import { DEFAULT_EXPORT_OPTIONS } from "../../constants/default-export-options.const";
 import { DEFAULT_NOTE_COLOR } from "../../constants/default-note-color.const";
-import { DEFAULT_TOOL_SIZE } from "../../constants/default-tool-size.const";
+import { DEFAULT_TOOL_SIZES } from "../../constants/default-tool-sizes.const";
 import { IMAGE_LAYOUT } from "../../constants/image-layout.const";
 import { ITEM_KINDS } from "../../constants/item-kinds.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
 import { TOOL_SHORTCUTS } from "../../constants/tool-shortcuts.const";
+import { TOOL_SIZES } from "../../constants/tool-sizes.const";
 import { TOOLS } from "../../constants/tools.const";
 import { type CanvasEntry } from "../../models/canvas-entry.model";
 import { type CustomColor, type ToolColor } from "../../models/color.model";
@@ -156,6 +157,13 @@ export interface MountedCanvas {
   unmount: () => void;
 }
 
+// Which of the tool's sizes is closest to `size`.
+function getNearestSize(tool: StrokeTool, size: number): number {
+  return TOOL_SIZES[tool].reduce((nearest, each) =>
+    Math.abs(each - size) < Math.abs(nearest - size) ? each : nearest
+  );
+}
+
 export interface MountCanvasOptions {
   /**
    * Saves every change to local storage, under keys starting with this, along
@@ -263,16 +271,28 @@ export function mountCanvas(
   // The tool the dropper goes back to, whose color it picks.
   let previousTool: Tool = activeTool;
   let textSize = saved?.textSize ?? TEXT_LAYOUT.defaultSize;
-  let tools: Record<StrokeTool, ToolState> = saved?.tools ?? {
-    eraser: {
-      color: undefined,
-      size: DEFAULT_TOOL_SIZE,
-    },
-    pencil: {
-      color: COLORS[0],
-      size: DEFAULT_TOOL_SIZE,
-    },
-  };
+  // Sizes saved before each tool offered a few are the nearest one now.
+  let tools: Record<StrokeTool, ToolState> = saved
+    ? {
+        eraser: {
+          ...saved.tools.eraser,
+          size: getNearestSize("eraser", saved.tools.eraser.size),
+        },
+        pencil: {
+          ...saved.tools.pencil,
+          size: getNearestSize("pencil", saved.tools.pencil.size),
+        },
+      }
+    : {
+        eraser: {
+          color: undefined,
+          size: DEFAULT_TOOL_SIZES.eraser,
+        },
+        pencil: {
+          color: COLORS[0],
+          size: DEFAULT_TOOL_SIZES.pencil,
+        },
+      };
   // Most recently edited first.
   let canvases = storage.loadCanvases();
   // The last one open, unless it was blank or has been deleted, e.g. in
@@ -596,6 +616,14 @@ export function mountCanvas(
       toolbarActions.onToggleRulers();
       return;
     }
+    // [ and ] make the pencil or eraser smaller or bigger, like Photoshop's,
+    // and type while text is typed in.
+    const step = getSizeShortcut(event);
+    if (step && inUse && !canvas.isTyping) {
+      event.preventDefault();
+      stepToolSize(step);
+      return;
+    }
     // Tools' keys are letters, which type while text is typed in.
     const tool = getToolShortcut(event);
     if (tool && inUse && !canvas.isTyping) {
@@ -627,6 +655,31 @@ export function mountCanvas(
         (tool) => TOOL_SHORTCUTS[tool] === event.key.toUpperCase()
       ) ?? null
     );
+  }
+
+  // [ steps the size down and ] up, by position, so they work on any layout.
+  function getSizeShortcut(event: KeyboardEvent): -1 | 1 | null {
+    if (event.ctrlKey || event.metaKey || event.altKey) {
+      return null;
+    }
+    return event.code === "BracketLeft"
+      ? -1
+      : event.code === "BracketRight"
+        ? 1
+        : null;
+  }
+
+  // The pencil's or eraser's next size, if one's picked, as long as there's
+  // one that way.
+  function stepToolSize(step: -1 | 1) {
+    if (activeTool !== "pencil" && activeTool !== "eraser") {
+      return;
+    }
+    const sizes = TOOL_SIZES[activeTool];
+    const index = sizes.indexOf(tools[activeTool].size) + step;
+    if (index >= 0 && index < sizes.length) {
+      toolbarActions.onUpdateTool(activeTool, { size: sizes[index] });
+    }
   }
 
   // A canvas's drawing. A blank canvas has nothing saved, so it starts empty.

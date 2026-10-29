@@ -134,6 +134,64 @@
   }
 }
 
+/* Each size as the dot it draws, at its size, with its width below. */
+.canvas-size-picker {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.canvas-size-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 48px;
+  padding: 6px 4px 4px;
+  border-radius: 6px;
+  color: var(--canvas-color-text-muted);
+  cursor: pointer;
+
+  &:hover {
+    background-color: var(--canvas-color-hover);
+  }
+
+  &[aria-pressed="true"] {
+    background-color: var(--canvas-color-hover);
+    color: var(--canvas-color-text);
+    box-shadow: inset 0 0 0 2px var(--canvas-color-accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--canvas-color-accent);
+    outline-offset: -2px;
+  }
+}
+
+/* Centered in the room the largest needs, so their middles line up. The
+   eraser's largest are bigger than that, so they're shown at its size,
+   with their width below saying how big they are. */
+.canvas-size-dot {
+  --canvas-size-shown: min(var(--canvas-size), 40px);
+  flex: none;
+  width: var(--canvas-size-shown);
+  height: var(--canvas-size-shown);
+  margin: calc((40px - var(--canvas-size-shown)) / 2) 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--canvas-color-swatch-outline);
+
+  &[data-erases] {
+    box-shadow: inset 0 0 0 1.5px var(--canvas-color-text-muted);
+  }
+}
+
+.canvas-size-label {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
 .canvas-tool-size-slider {
   display: block;
   appearance: none;

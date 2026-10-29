@@ -144,18 +144,73 @@ test("picking a color updates the color button", async ({ page }) => {
   ).toBeHidden();
 });
 
-test("clicking the active tool opens its size slider", async ({ page }) => {
+test("clicking the active tool opens its sizes, which pick it and close", async ({
+  page,
+}) => {
   const pencil = page.getByRole("button", { name: "Pencil" });
-  const slider = page.getByRole("slider", { name: "Pencil size" });
+  const sizes = page.getByRole("group", { name: "Pencil size" });
 
   await pencil.click();
-  await expect(slider).toBeFocused();
+  // The size picked has focus.
+  await expect(sizes.getByRole("button", { pressed: true })).toBeFocused();
 
   // Safari doesn't focus buttons on click, so this checks focus still returns
   // to the button there.
   await page.keyboard.press("Escape");
-  await expect(slider).toBeHidden();
+  await expect(sizes).toBeHidden();
   await expect(pencil).toBeFocused();
+
+  await pencil.click();
+  await sizes.getByRole("button", { name: "20 pixels" }).click();
+  await expect(sizes).toBeHidden();
+  await pencil.click();
+  await expect(
+    sizes.getByRole("button", { name: "20 pixels" })
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("[ and ] step through the pencil's sizes", async ({ page }) => {
+  const pencil = page.getByRole("button", { name: "Pencil" });
+  const sizes = page.getByRole("group", { name: "Pencil size" });
+  const box = (await page.locator("canvas").first().boundingBox())!;
+  // The keys are the canvas's while the pointer's over it.
+  const overCanvas = () =>
+    page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await overCanvas();
+
+  await page.keyboard.press("]");
+  await page.keyboard.press("]");
+  await pencil.click();
+  await expect(
+    sizes.getByRole("button", { pressed: true })
+  ).toHaveAccessibleName("20 pixels");
+  await page.keyboard.press("Escape");
+
+  await overCanvas();
+  for (let i = 0; i < 6; i++) {
+    await page.keyboard.press("[");
+  }
+  await pencil.click();
+  // It stops at the smallest.
+  await expect(
+    sizes.getByRole("button", { pressed: true })
+  ).toHaveAccessibleName("2 pixels");
+});
+
+test("the pencil stays the size picked on screen, at any zoom", async ({
+  page,
+}) => {
+  const canvas = page.locator("canvas").first();
+  const box = (await canvas.boundingBox())!;
+  const cursor = page.locator(".canvas-cursor");
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const before = (await cursor.boundingBox())!;
+
+  await page.keyboard.press("ControlOrMeta+=");
+  await page.keyboard.press("ControlOrMeta+=");
+  await page.mouse.move(box.x + box.width / 2 + 5, box.y + box.height / 2);
+
+  expect((await cursor.boundingBox())!.width).toBeCloseTo(before.width, 0);
 });
 
 test("a popover opened from the keyboard returns focus on escape", async ({

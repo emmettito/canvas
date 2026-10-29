@@ -2,11 +2,10 @@ import { COLORS } from "../../constants/colors.const";
 import { EXPORT_FORMATS } from "../../constants/export-formats.const";
 import { EXPORT_SCALES } from "../../constants/export-scales.const";
 import { FILE_MENU_ITEMS } from "../../constants/file-menu-items.const";
-import { MAX_TOOL_SIZE } from "../../constants/max-tool-size.const";
-import { MIN_TOOL_SIZE } from "../../constants/min-tool-size.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
 import { TOOLBAR_ACTIONS } from "../../constants/toolbar-actions.const";
 import { TOOL_SHORTCUTS } from "../../constants/tool-shortcuts.const";
+import { TOOL_SIZES } from "../../constants/tool-sizes.const";
 import { TOOLS } from "../../constants/tools.const";
 import { UNTITLED_NAME } from "../../constants/untitled-name.const";
 import { type CanvasEntry } from "../../models/canvas-entry.model";
@@ -772,7 +771,12 @@ export class CanvasToolbar {
       case "export":
         return [opener, this.#createExportForm()];
       default:
-        return [opener, this.#createSizeSlider(popover)];
+        return [
+          opener,
+          popover === "text"
+            ? this.#createTextSizeSlider()
+            : this.#createSizePicker(popover),
+        ];
     }
   }
 
@@ -804,29 +808,52 @@ export class CanvasToolbar {
     }
   }
 
-  // Text has a font size, and the pencil and eraser a stroke size.
-  #createSizeSlider(tool: SizedTool): HTMLInputElement {
+  // Text's font size, from its smallest to its largest.
+  #createTextSizeSlider(): HTMLInputElement {
     const slider = createElement("input", "canvas-tool-size-slider");
     slider.type = "range";
-    slider.setAttribute("aria-label", `${TOOL_LABELS[tool]} size`);
-    if (tool === "text") {
-      slider.min = String(TEXT_LAYOUT.minSize);
-      slider.max = String(TEXT_LAYOUT.maxSize);
-      slider.value = String(this.#state.textSize);
-    } else {
-      slider.min = String(MIN_TOOL_SIZE);
-      slider.max = String(MAX_TOOL_SIZE);
-      slider.value = String(this.#state.tools[tool].size);
-    }
-    slider.addEventListener("input", () => {
-      const size = Number(slider.value);
-      if (tool === "text") {
-        this.#actions.onUpdateTextSize(size);
-      } else {
-        this.#actions.onUpdateTool(tool, { size });
-      }
-    });
+    slider.setAttribute("aria-label", `${TOOL_LABELS.text} size`);
+    slider.min = String(TEXT_LAYOUT.minSize);
+    slider.max = String(TEXT_LAYOUT.maxSize);
+    slider.value = String(this.#state.textSize);
+    slider.addEventListener("input", () =>
+      this.#actions.onUpdateTextSize(Number(slider.value))
+    );
     return slider;
+  }
+
+  // The pencil's and eraser's sizes, each shown as the dot it draws, at the
+  // size it draws it, in the pencil's color or as the eraser's outline.
+  // Picking one closes it, like picking a color.
+  #createSizePicker(tool: StrokeTool): HTMLDivElement {
+    const picker = createElement("div", "canvas-size-picker");
+    picker.setAttribute("role", "group");
+    picker.setAttribute("aria-label", `${TOOL_LABELS[tool]} size`);
+    const { size: current, color } = this.#state.tools[tool];
+    const shown = color === undefined ? null : toCss(color);
+    for (const size of TOOL_SIZES[tool]) {
+      const option = createButton("canvas-size-option");
+      const width = size * 2;
+      option.setAttribute("aria-label", `${width} pixels`);
+      option.setAttribute("aria-pressed", String(size === current));
+      const dot = createElement("span", "canvas-size-dot");
+      dot.style.setProperty("--canvas-size", `${width}px`);
+      if (shown) {
+        dot.style.backgroundColor = shown;
+      } else {
+        dot.toggleAttribute("data-erases", true);
+      }
+      const label = createElement("span", "canvas-size-label");
+      label.textContent = String(width);
+      label.setAttribute("aria-hidden", "true");
+      option.append(dot, label);
+      option.addEventListener("click", () => {
+        this.#closePopover();
+        this.#actions.onUpdateTool(tool, { size });
+      });
+      picker.append(option);
+    }
+    return picker;
   }
 
   #createColorOptions(): HTMLDivElement {

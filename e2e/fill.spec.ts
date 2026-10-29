@@ -78,10 +78,11 @@ test("fills inside an outline, below it, and is undone", async ({ page }) => {
   expect(await getFillAlpha(page, 500, 300)).toBe(255);
   // Not outside the outline.
   expect(await getFillAlpha(page, 300, 300)).toBe(0);
-  // It reaches a little under the line's soft edge, 15 pixels from its
-  // middle, which is drawn over it, but not its middle.
-  expect(await getFillAlpha(page, 414, 300)).toBe(255);
-  expect(await getFillAlpha(page, 405, 300)).toBe(0);
+  // It reaches a little under the line's soft edge, 2.5 pixels from its
+  // middle with the pencil's usual size, which is drawn over it, but not its
+  // middle.
+  expect(await getFillAlpha(page, 404, 300)).toBe(255);
+  expect(await getFillAlpha(page, 399, 300)).toBe(0);
   expect(await getColorAt(page, 500, 300)).toBe("red");
   expect(await getColorAt(page, 400, 300)).toBe("black");
 
