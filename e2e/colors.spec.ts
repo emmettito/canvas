@@ -14,6 +14,13 @@ async function typeHex(page: Page, hex: string) {
   await field.press("Enter");
 }
 
+// Picks the open canvas's background in the Settings dialog, and closes it.
+async function pickBackground(page: Page, name: string) {
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("radio", { name, exact: true }).check();
+  await page.keyboard.press("Escape");
+}
+
 // Draws a short line across `x`, `y` on screen.
 async function drawAt(page: Page, x: number, y: number) {
   await page.mouse.move(x - 30, y);
@@ -193,8 +200,7 @@ test("with the note tool, the dropper picks the notes' color", async ({
 test("each canvas has its own background, which is undone and kept", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Background: White" }).click();
-  await page.getByRole("button", { name: "Charcoal" }).click();
+  await pickBackground(page, "Charcoal");
 
   const surface = page.locator(".canvas-surface");
   await expect(surface).toHaveCSS("background-color", "rgb(31, 32, 35)");
@@ -209,9 +215,10 @@ test("each canvas has its own background, which is undone and kept", async ({
 
   await page.reload();
   await expect(surface).toHaveCSS("background-color", "rgb(31, 32, 35)");
-  await expect(
-    page.getByRole("button", { name: "Background: Charcoal" })
-  ).toBeVisible();
+  // The Settings dialog shows it.
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("radio", { name: "Charcoal" })).toBeChecked();
+  await page.keyboard.press("Escape");
 
   // A new canvas starts with the theme's.
   await page.getByRole("button", { name: "File", exact: true }).click();
@@ -220,11 +227,16 @@ test("each canvas has its own background, which is undone and kept", async ({
 });
 
 test("a custom background is exported", async ({ page }) => {
-  await page.getByRole("button", { name: "Background: White" }).click();
-  await typeHex(page, "#fde68a");
-  await expect(
-    page.getByRole("button", { name: "Background: #fde68a" })
-  ).toBeVisible();
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByLabel("Custom background").fill("#fde68a");
+  await expect(page.locator(".demo-swatch-custom")).toHaveAttribute(
+    "data-selected"
+  );
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".canvas-surface")).toHaveCSS(
+    "background-color",
+    "rgb(253, 230, 138)"
+  );
 
   await page.getByRole("button", { name: "File", exact: true }).click();
   await page.getByRole("button", { name: "Export", exact: true }).click();
@@ -281,10 +293,6 @@ test("the color code box shows the color picked now", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Color: #ffa500" })
   ).toBeVisible();
-
-  // And the background's.
-  await page.getByRole("button", { name: "Background: White" }).click();
-  await expect(code).toHaveValue("#ffffff");
 });
 
 test("the format bar's color code shows the text's color", async ({ page }) => {

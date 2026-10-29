@@ -8,6 +8,7 @@ import { proseMirrorEditor } from "./prosemirror";
 // enough: `sideEffects` in package.json lets the build skip that file, along
 // with its own import of the styles.
 import "./styles.css";
+import { setUpBackgroundPicker } from "./background-picker";
 import { setUpSettings } from "./settings";
 import { setUpThemePicker } from "./theme";
 
@@ -20,13 +21,19 @@ const settings = document.querySelector<HTMLDialogElement>(".demo-settings")!;
 settings.querySelector(".demo-settings-close")!.append(createPageIcon("close"));
 const openSettings = setUpSettings(settings);
 setUpThemePicker(settings.querySelector(".demo-theme-picker")!);
-mountCanvas(document.getElementById("root")!, {
+// picked from once the canvas is there.
+const showBackground = setUpBackgroundPicker(
+  settings.querySelector(".demo-background-picker")!,
+  (color) => canvas.setBackground(color)
+);
+const canvas = mountCanvas(document.getElementById("root")!, {
   storageKey: "canvas",
   textEditor: proseMirrorEditor,
   // The tab shows which canvas is open.
   onNameChange: (name) => {
     document.title = `${name || "Untitled"} – Canvas Demo`;
   },
+  onBackgroundChange: showBackground,
   topToolbar: [
     [
       {
@@ -52,5 +59,5 @@ mountCanvas(document.getElementById("root")!, {
     [button("image")],
   ],
   // How the canvas is shown, apart from what's drawn on it.
-  topRightToolbar: [[{ action: "background" }, { action: "zoom" }]],
+  topRightToolbar: [[{ action: "zoom" }]],
 });

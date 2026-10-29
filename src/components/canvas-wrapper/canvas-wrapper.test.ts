@@ -54,6 +54,28 @@ describe("mountCanvas", () => {
     expect(container.querySelectorAll(".canvas-root")).toHaveLength(1);
   });
 
+  it("reports the background as it mounts and when it's set", () => {
+    const container = document.createElement("div");
+    const onBackgroundChange = vi.fn();
+
+    const canvas = mountCanvas(container, { onBackgroundChange });
+    expect(onBackgroundChange).toHaveBeenCalledTimes(1);
+
+    canvas.setBackground("#1f2023");
+    expect(onBackgroundChange).toHaveBeenLastCalledWith("#1f2023");
+    // Setting the same one again changes nothing.
+    canvas.setBackground("#1f2023");
+    expect(onBackgroundChange).toHaveBeenCalledTimes(2);
+  });
+
+  it("throws for a background that isn't a solid color", () => {
+    const canvas = mountCanvas(document.createElement("div"));
+
+    expect(() => canvas.setBackground("transparent")).toThrow(
+      `"transparent" isn't a solid color.`
+    );
+  });
+
   it("has no toolbar unless it's given one", () => {
     const container = document.createElement("div");
 

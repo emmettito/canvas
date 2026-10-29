@@ -75,7 +75,6 @@ mountCanvas(document.getElementById("drawing")!, {
 | `image`            | Insert images from files                          |
 | `color`            | Pick the pencil's or notes' color (no icon)       |
 | `dropper`          | Pick a color from the drawing                     |
-| `background`       | Pick the canvas's background (no icon)            |
 | `zoom`             | Show the zoom, with a menu to change it (no icon) |
 | `file-menu`        | A File menu of file actions (no icon)             |
 | `custom`           | Your own text button, e.g. Settings (no icon)     |
@@ -86,8 +85,8 @@ canvas or opening another (see [Saving](#saving)).
 The toolbar floats at the bottom middle of the canvas. For a second toolbar at
 the top left, pass `topToolbar` in the same form, e.g. to keep the file
 controls apart from the drawing ones, and for a third at the top right, pass
-`topRightToolbar`, e.g. for the background and zoom, which change how the
-canvas is shown rather than what's drawn. Their menus open downward. Each
+`topRightToolbar`, e.g. for the zoom, which changes how the canvas is shown
+rather than what's drawn. Their menus open downward. Each
 control can only be on one toolbar. Ctrl+\ (Cmd+\ on a Mac) hides and shows
 them all, to see the whole canvas.
 
@@ -112,7 +111,7 @@ mountCanvas(document.getElementById("drawing")!, {
       { action: "custom", label: "Settings", onClick: openSettings },
     ],
   ],
-  topRightToolbar: [[{ action: "background" }, { action: "zoom" }]],
+  topRightToolbar: [[{ action: "zoom" }]],
   toolbar: [
     [
       { action: "pencil", icon: pencilIcon },
@@ -245,10 +244,25 @@ Colors are kept as they're picked, whatever the theme.
 
 ### Backgrounds
 
-Each canvas has its own background, which `background` picks, and exports
-keep. It's undone like any other change, and stays the same whatever the
-page's theme. A new canvas starts with `--canvas-color-canvas`, so a dark
-theme can start new canvases dark. When a canvas opens or its background
+Each canvas has its own background, which exports keep. It's undone like any
+other change, and stays the same whatever the page's theme. The library has no
+control for it, so your page shows its own picker, styled to match: pass
+`onBackgroundChange` to be told the open canvas's background as the canvas
+mounts and whenever it changes, e.g. when it's undone or another canvas opens,
+and call `setBackground` on the mounted canvas to change it. It takes any solid
+CSS color, and throws for one that isn't, e.g. `transparent`.
+
+```ts
+const canvas = mountCanvas(document.getElementById("drawing")!, {
+  onBackgroundChange: (color) => {
+    picker.value = color;
+  },
+});
+picker.addEventListener("change", () => canvas.setBackground(picker.value));
+```
+
+A new canvas starts with `--canvas-color-canvas`, so a dark theme can start new
+canvases dark. When a canvas opens or its background
 changes, a black pencil turns white on a dark background, and white black on a
 light one, so it shows.
 
@@ -415,8 +429,10 @@ formatted text. Its Settings dialog, beside the File menu, picks a theme:
 System, Light, or Dark, which is true black, for the page and its toolbars.
 New canvases start on the theme's background. System
 follows the system's light or dark mode, and is the default. The page
-remembers your choice. The dialog has a section per group of settings, so more
-can be added beside Appearance.
+remembers your choice. Below it, Canvas background picks the open canvas's
+background from a few swatches or any color, through `setBackground`. The
+dialog has a section per group of settings, so more can be added beside
+Appearance.
 
 The demo's toolbar icons are [Phosphor](https://phosphoricons.com)'s regular
 weight, under the MIT license, which the demo page ships in

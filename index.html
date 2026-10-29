@@ -67,6 +67,75 @@
               Dark
             </label>
           </fieldset>
+          <!-- Each canvas has its own background, so this changes the open
+               one's, and shows it. The script wires it up. -->
+          <fieldset class="demo-background-picker">
+            <legend>Canvas background</legend>
+            <div class="demo-swatches">
+              <label
+                class="demo-swatch"
+                title="White"
+                style="--swatch: #ffffff"
+              >
+                <input
+                  type="radio"
+                  name="background"
+                  value="#ffffff"
+                  aria-label="White"
+                />
+              </label>
+              <label
+                class="demo-swatch"
+                title="Paper"
+                style="--swatch: #fdf6e3"
+              >
+                <input
+                  type="radio"
+                  name="background"
+                  value="#fdf6e3"
+                  aria-label="Paper"
+                />
+              </label>
+              <label class="demo-swatch" title="Gray" style="--swatch: #e7e5e4">
+                <input
+                  type="radio"
+                  name="background"
+                  value="#e7e5e4"
+                  aria-label="Gray"
+                />
+              </label>
+              <label
+                class="demo-swatch"
+                title="Charcoal"
+                style="--swatch: #1f2023"
+              >
+                <input
+                  type="radio"
+                  name="background"
+                  value="#1f2023"
+                  aria-label="Charcoal"
+                />
+              </label>
+              <label
+                class="demo-swatch"
+                title="Black"
+                style="--swatch: #000000"
+              >
+                <input
+                  type="radio"
+                  name="background"
+                  value="#000000"
+                  aria-label="Black"
+                />
+              </label>
+              <label
+                class="demo-swatch demo-swatch-custom"
+                title="Custom color"
+              >
+                <input type="color" aria-label="Custom background" />
+              </label>
+            </div>
+          </fieldset>
         </section>
       </div>
     </dialog>

@@ -28,6 +28,7 @@ import {
   isCustomColor,
   isDarkColor,
   parseColor,
+  readCssColor,
   resolveColor,
   toHex,
 } from "../../utilities/colors";
@@ -120,6 +121,12 @@ function getHistoryShortcut(event: KeyboardEvent): "undo" | "redo" | null {
 }
 
 export interface MountedCanvas {
+  /**
+   * Changes the open canvas's background, which can be undone like any other
+   * change. Takes any solid CSS color, e.g. "#1f2023" or "red". Throws if
+   * it isn't one, e.g. "transparent".
+   */
+  setBackground: (color: string) => void;
   /** Removes the canvas and stops listening for events. */
   unmount: () => void;
 }
@@ -146,7 +153,7 @@ export interface MountCanvasOptions {
   topToolbar?: ToolbarControl[][];
   /**
    * Controls for a third toolbar, at the top right, in the same form, e.g.
-   * for the canvas's background and zoom, apart from the drawing tools.
+   * for the zoom, apart from the drawing tools.
    */
   topRightToolbar?: ToolbarControl[][];
   /**
@@ -156,6 +163,13 @@ export interface MountCanvasOptions {
    * title.
    */
   onNameChange?: (name: string) => void;
+  /**
+   * Called with the open canvas's background as it mounts and whenever the
+   * background changes, e.g. when it's set, undone, or another canvas is
+   * opened. Use it to show the background in your own picker, which changes
+   * it with `setBackground`.
+   */
+  onBackgroundChange?: (color: string) => void;
   /**
    * Makes the editor notes and text are typed in with. Without one, they're
    * plain text. Pass `proseMirrorEditor` from `@emmettito/canvas/prosemirror`
@@ -178,6 +192,7 @@ export function mountCanvas(
     topToolbar: topControls = [],
     topRightToolbar: topRightControls = [],
     onNameChange,
+    onBackgroundChange,
     textEditor = plainTextEditor,
   }: MountCanvasOptions = {}
 ): MountedCanvas {
@@ -244,6 +259,8 @@ export function mountCanvas(
   // The name the host was last told about, so it's only told of changes.
   // Null until it's told on mount.
   let reportedName: string | null = null;
+  // The same for the background.
+  let reportedBackground: string | null = null;
   // Where the pointer last was over the canvas, so a pasted image goes there.
   // Null while it's elsewhere.
   let pointer: Point | null = null;
@@ -374,12 +391,6 @@ export function mountCanvas(
       canvas.focusTyping();
       update();
     },
-    onSetBackground: (color, custom) => {
-      if (custom && isCustomColor(color)) {
-        recentColors = addRecentColor(recentColors, color);
-      }
-      setBackground(color);
-    },
     onUpdateTextSize: (size) => {
       textSize = size;
       update();
@@ -444,6 +455,7 @@ export function mountCanvas(
   // Last, so the bottom toolbar is last to tab to, as it's last on screen.
   root.append(bottom);
   reportName();
+  reportBackground();
   save();
 
   // Where the pointer is decides where a pasted image goes.
@@ -688,6 +700,14 @@ export function mountCanvas(
     }
   }
 
+  function reportBackground() {
+    const { background } = history.drawing;
+    if (background !== reportedBackground) {
+      reportedBackground = background;
+      onBackgroundChange?.(background);
+    }
+  }
+
   function updateToolbars() {
     const state = getToolbarState();
     for (const each of toolbars) {
@@ -798,7 +818,6 @@ export function mountCanvas(
       noteColor,
       colorTarget: getColorTarget(),
       recentColors,
-      background: history.drawing.background,
       textSize,
       canUndo: history.canUndo,
       canRedo: history.canRedo,
@@ -842,6 +861,7 @@ export function mountCanvas(
       canvases = [open, ...canvases.filter(({ id }) => id !== open.id)];
     }
     reportName();
+    reportBackground();
     updateToolbars();
     save();
   }
@@ -935,6 +955,13 @@ export function mountCanvas(
   observer.observe(canvasWrapper);
 
   return {
+    setBackground: (value) => {
+      const color = readCssColor(value);
+      if (!color) {
+        throw new Error(`"${value}" isn't a solid color.`);
+      }
+      setBackground(color);
+    },
     unmount: () => {
       // A view changed just before isn't lost.
       clearTimeout(viewportTimer);

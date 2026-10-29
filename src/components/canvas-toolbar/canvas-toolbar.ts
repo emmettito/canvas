@@ -49,7 +49,6 @@ export type ToolbarPosition = "top" | "bottom";
 type ToolbarPopover =
   | SizedTool
   | "color"
-  | "background"
   | "zoom"
   | "file-menu"
   | "history"
@@ -91,15 +90,6 @@ const EXPORT_FORMAT_LABELS: Record<ExportFormat, string> = {
 // The tools with a size, which clicking them again picks.
 type SizedTool = Exclude<Tool, "move" | "bucket" | "note" | "dropper">;
 
-// Backgrounds offered for the canvas. Any other can be picked too.
-const BACKGROUNDS = [
-  { label: "White", value: "#ffffff" },
-  { label: "Paper", value: "#fdf6e3" },
-  { label: "Gray", value: "#e7e5e4" },
-  { label: "Charcoal", value: "#1f2023" },
-  { label: "Black", value: "#000000" },
-];
-
 const TOOL_LABELS: Record<SizedTool, string> = {
   eraser: ACTION_LABELS.eraser,
   pencil: ACTION_LABELS.pencil,
@@ -116,7 +106,6 @@ const ANCHORED: ControlName[] = [
   "text",
   "color",
   "zoom",
-  "background",
   "file-menu",
 ];
 
@@ -165,8 +154,6 @@ export interface CanvasToolbarState {
   colorTarget: "pencil" | "note";
   // Custom colors picked, most recent first.
   recentColors: CustomColor[];
-  // The canvas's background.
-  background: string;
   textSize: number;
   canUndo: boolean;
   canRedo: boolean;
@@ -198,8 +185,6 @@ export interface CanvasToolbarActions {
   onSelectTool: (tool: Tool) => void;
   onUpdateTool: (tool: StrokeTool, values: Partial<ToolState>) => void;
   onUpdateNoteColor: (color: ToolColor) => void;
-  // `custom` is true for a color picked outside the offered backgrounds.
-  onSetBackground: (color: string, custom: boolean) => void;
   onUpdateTextSize: (size: number) => void;
   onInsertImage: () => void;
   onZoom: (action: ZoomAction) => void;
@@ -224,7 +209,6 @@ export function validateToolbar(groups: ToolbarControl[][]): void {
       !isButton &&
       action !== "color" &&
       action !== "zoom" &&
-      action !== "background" &&
       action !== "file-menu" &&
       action !== "custom"
     ) {
@@ -369,14 +353,6 @@ function getColor(state: CanvasToolbarState): ToolColor {
   return state.tools.pencil.color ?? COLORS[0];
 }
 
-// What a background's called: its name if it's offered, or its hex.
-function getBackgroundName(color: string): string {
-  return (
-    BACKGROUNDS.find(({ value }) => value === color.toLowerCase())?.label ??
-    color
-  );
-}
-
 /** The controls the host page asked for, in the groups it listed them in. */
 export class CanvasToolbar {
   readonly element = createElement("div", "canvas-toolbar");
@@ -384,10 +360,6 @@ export class CanvasToolbar {
   #actions: CanvasToolbarActions;
   #buttons: Partial<Record<ControlName, HTMLButtonElement>> = {};
   #colorSwatch = createElement("span", "canvas-color-swatch");
-  #backgroundSwatch = createElement(
-    "span",
-    "canvas-color-swatch canvas-background-swatch"
-  );
   #fileMenuItems: FileMenuItem[] = [];
   #openPopover: ToolbarPopover | null = null;
   #removePopover: (() => void) | null = null;
@@ -489,15 +461,6 @@ export class CanvasToolbar {
       colorButton.dataset.tooltip = label;
       expanded(colorButton, this.#openPopover === "color");
       this.#colorSwatch.style.backgroundColor = toCss(color);
-    }
-
-    const backgroundButton = buttons.background;
-    if (backgroundButton) {
-      const label = `Background: ${getBackgroundName(state.background)}`;
-      backgroundButton.setAttribute("aria-label", label);
-      backgroundButton.dataset.tooltip = label;
-      expanded(backgroundButton, this.#openPopover === "background");
-      this.#backgroundSwatch.style.backgroundColor = state.background;
     }
 
     const zoomButton = buttons.zoom;
@@ -642,12 +605,6 @@ export class CanvasToolbar {
       );
       return button;
     }
-    if (control.action === "background") {
-      const button = createButton("canvas-toolbar-button");
-      button.append(this.#backgroundSwatch);
-      button.addEventListener("click", () => this.#togglePopover("background"));
-      return button;
-    }
     if (control.action === "zoom") {
       const button = createButton(
         "canvas-toolbar-button canvas-toolbar-text-button"
@@ -773,8 +730,6 @@ export class CanvasToolbar {
     switch (popover) {
       case "color":
         return [opener, this.#createColorOptions()];
-      case "background":
-        return [opener, this.#createBackgroundOptions()];
       case "zoom":
         return [
           opener,
@@ -879,23 +834,6 @@ export class CanvasToolbar {
     // Typing a color code here doesn't stop typing text, which it colors.
     picker.dataset.canvasKeepsTyping = "";
     return picker;
-  }
-
-  #createBackgroundOptions(): HTMLDivElement {
-    return createColorPicker({
-      swatches: BACKGROUNDS.map(({ label, value }) => ({
-        label,
-        value,
-        shown: value,
-      })),
-      selected: this.#state.background,
-      current: this.#state.background,
-      recent: this.#state.recentColors,
-      onPick: (value, custom) => {
-        this.#closePopover();
-        this.#actions.onSetBackground(value, custom);
-      },
-    });
   }
 
   // Choosing an item closes the menu. The selected one has a check mark.

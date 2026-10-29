@@ -143,10 +143,8 @@ body {
   }
 }
 
-.demo-theme-picker {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+.demo-theme-picker,
+.demo-background-picker {
   margin: 0;
   padding: 0;
   border: 0;
@@ -157,6 +155,82 @@ body {
     font-size: 14px;
     font-weight: 500;
   }
+}
+
+.demo-theme-picker {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.demo-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* A background to pick, in its color. */
+.demo-swatch {
+  /* Holds its hidden input. */
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--swatch);
+  /* Keeps white and black visible against the dialog. */
+  box-shadow: inset 0 0 0 1px var(--demo-color-border);
+  cursor: pointer;
+
+  /* Covers the swatch, so it's what a click lands on. */
+  input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  &:hover {
+    box-shadow: inset 0 0 0 1px var(--demo-color-text-muted);
+  }
+
+  /* A ring, apart from the swatch, marks the chosen one. */
+  &:has(input:checked),
+  &[data-selected] {
+    box-shadow:
+      inset 0 0 0 1px var(--demo-color-border),
+      0 0 0 2px var(--demo-color-dialog),
+      0 0 0 4px var(--demo-color-accent);
+  }
+
+  &:has(input:focus-visible) {
+    outline: 2px solid var(--demo-color-accent);
+    outline-offset: 6px;
+  }
+}
+
+/* Any other color. A wheel of the canvas's palette until one's picked, like
+ * the toolbar's. The dialog is outside the canvas, so its colors are copied
+ * from `styles.css`. */
+.demo-swatch-custom:not([data-selected]) {
+  background: conic-gradient(
+    #ff0000 0 30deg,
+    #ff6500 0 60deg,
+    #ffab00 0 90deg,
+    #ffcc00 0 120deg,
+    #fcfd00 0 150deg,
+    #cff00e 0 180deg,
+    #7cd460 0 210deg,
+    #00daff 0 240deg,
+    #2c71ff 0 270deg,
+    #9453e8 0 300deg,
+    #ca37e0 0 330deg,
+    #ea4c8e 0 360deg
+  );
 }
 
 .demo-theme-option {

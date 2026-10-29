@@ -108,9 +108,10 @@ test("a new canvas in Dark starts black, with a white pencil", async ({
   await expect(
     page.getByRole("button", { name: "Color: white" })
   ).toBeVisible();
+  await page.getByRole("button", { name: "Settings" }).click();
   await expect(
-    page.getByRole("button", { name: "Background: Black" })
-  ).toBeVisible();
+    page.getByRole("radio", { name: "Black", exact: true })
+  ).toBeChecked();
 });
 
 test("a canvas keeps its background when the theme changes", async ({

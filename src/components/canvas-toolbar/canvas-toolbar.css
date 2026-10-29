@@ -102,39 +102,35 @@
 
 .canvas-color-grid {
   display: grid;
-  grid-template-columns: repeat(5, 24px);
-  /* Room for the selected swatch's tile. */
-  gap: 8px;
-  padding: 6px;
+  grid-template-columns: repeat(5, 32px);
+  gap: 12px;
+  /* Room for the selected swatch's ring. */
+  padding: 8px;
 }
 
+/* Like the demo's background swatches. */
 .canvas-color-option {
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px var(--canvas-color-swatch-outline);
   cursor: pointer;
 
-  /*
-   * The selected one sits on the same tile as the toolbar's chosen tool,
-   * behind the swatch.
-   */
-  &[aria-pressed="true"] {
-    position: relative;
-
-    &::before {
-      content: "";
-      position: absolute;
-      inset: -4px;
-      z-index: -1;
-      border-radius: 6px;
-      background-color: var(--canvas-color-selected);
-    }
+  &:hover {
+    box-shadow: inset 0 0 0 1px var(--canvas-color-text-muted);
   }
 
-  /* Around the tile, rather than over the swatch. */
+  /* A ring, apart from the swatch, marks the chosen one. */
+  &[aria-pressed="true"] {
+    box-shadow:
+      inset 0 0 0 1px var(--canvas-color-swatch-outline),
+      0 0 0 2px var(--canvas-color-surface),
+      0 0 0 4px var(--canvas-color-accent);
+  }
+
+  /* Around the ring, rather than over it. */
   &:focus-visible {
-    outline-offset: 4px;
+    outline-offset: 6px;
   }
 }
 
@@ -520,9 +516,4 @@
 .canvas-menu-hint {
   color: var(--canvas-color-text-muted);
   font-size: 12px;
-}
-
-/* The canvas's background, square to tell it from the drawing color. */
-.canvas-background-swatch {
-  border-radius: 4px;
 }
