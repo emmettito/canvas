@@ -517,7 +517,8 @@ test("hovering a button shows its name after a moment", async ({ page }) => {
 
   // Pressing a button hides it.
   await undo.hover();
-  await expect(tooltip).toHaveText("Undo");
+  // With its shortcut, Cmd on a Mac and Ctrl elsewhere.
+  await expect(tooltip).toHaveText(/^Undo (⌘|Ctrl\+)Z$/);
   await expect(tooltip).toBeVisible();
   await page.mouse.down();
   await expect(tooltip).toBeHidden();

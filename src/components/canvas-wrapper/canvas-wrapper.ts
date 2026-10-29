@@ -102,6 +102,22 @@ function isToggleShortcut(event: KeyboardEvent): boolean {
   );
 }
 
+// Cmd+Z undoes, and Cmd+Shift+Z or Ctrl+Y redoes. Ctrl rather than Cmd
+// elsewhere. By letter, so Z is where the layout puts it.
+function getHistoryShortcut(event: KeyboardEvent): "undo" | "redo" | null {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) {
+    return null;
+  }
+  switch (event.key.toLowerCase()) {
+    case "z":
+      return event.shiftKey ? "redo" : "undo";
+    case "y":
+      return event.shiftKey ? null : "redo";
+    default:
+      return null;
+  }
+}
+
 export interface MountedCanvas {
   /** Removes the canvas and stops listening for events. */
   unmount: () => void;
@@ -487,6 +503,17 @@ export function mountCanvas(
     if (zoomAction && inUse) {
       event.preventDefault();
       zoom(zoomAction);
+      return;
+    }
+    // Text being typed in has its own history, which these undo instead.
+    const historyAction = getHistoryShortcut(event);
+    if (historyAction && inUse && !canvas.isTyping) {
+      event.preventDefault();
+      if (historyAction === "undo") {
+        toolbarActions.onUndo();
+      } else {
+        toolbarActions.onRedo();
+      }
       return;
     }
     // Tools' keys are letters, which type while text is typed in.

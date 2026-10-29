@@ -61,6 +61,16 @@ test("text can be placed, typed, and undone", async ({ page }) => {
   await expect(getTexts(page)).toHaveCount(0);
 });
 
+test("text is undone and redone with the keyboard", async ({ page }) => {
+  await addText(page, "Hello");
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(getTexts(page)).toHaveCount(0);
+
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(getTexts(page)).toHaveText("Hello");
+});
+
 test("text left empty isn't kept", async ({ page }) => {
   await addText(page, "");
 

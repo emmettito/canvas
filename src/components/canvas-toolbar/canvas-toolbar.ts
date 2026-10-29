@@ -135,6 +135,20 @@ const IS_MAC = /Mac|iPhone|iPad/.test(navigator.userAgent);
 const MOD = IS_MAC ? "⌘" : "Ctrl+";
 const SHIFT = IS_MAC ? "⇧" : "Shift+";
 
+// Undo's and redo's, shown after their names.
+const HISTORY_SHORTCUTS: Partial<
+  Record<ToolbarAction, { shown: string; aria: string }>
+> = {
+  undo: {
+    shown: `${MOD}Z`,
+    aria: IS_MAC ? "Meta+Z" : "Control+Z",
+  },
+  redo: {
+    shown: `${MOD}${SHIFT}Z`,
+    aria: IS_MAC ? "Meta+Shift+Z" : "Control+Shift+Z Control+Y",
+  },
+};
+
 const ZOOM_ITEMS: { action: ZoomAction; label: string; hint: string }[] = [
   { action: "in", label: "Zoom in", hint: `${MOD}+` },
   { action: "out", label: "Zoom out", hint: `${MOD}−` },
@@ -289,6 +303,11 @@ function createIconButton(action: ToolbarAction, icon: Element) {
   if (shortcut) {
     button.dataset.shortcut = shortcut;
     button.setAttribute("aria-keyshortcuts", shortcut);
+  }
+  const history = HISTORY_SHORTCUTS[action];
+  if (history) {
+    button.dataset.shortcut = history.shown;
+    button.setAttribute("aria-keyshortcuts", history.aria);
   }
   const copy = icon.cloneNode(true) as Element;
   copy.setAttribute("aria-hidden", "true");
