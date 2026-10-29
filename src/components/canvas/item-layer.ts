@@ -66,6 +66,11 @@ export interface ItemLayerOptions<T extends PlacedItem, V extends ItemView<T>> {
   onMenu: (view: V, point: Point) => void;
   // Its element is removed, e.g. to stop what's in it.
   destroyView?: (view: V) => void;
+  // Where the item goes as it's dragged to `item`, e.g. lined up with others
+  // near it. `free` is whether Alt is held, to place it exactly.
+  snap?: (view: V, item: T, free: boolean) => T;
+  // An item stopped being moved or resized, kept or put back.
+  onGestureEnd?: () => void;
   // It was moved or resized.
   onChange: (item: T) => void;
   onRemove: (id: string) => void;
@@ -167,6 +172,7 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
       this.#gesture = null;
       gesture.view.item = gesture.from;
       this.#options.render(gesture.view);
+      this.#options.onGestureEnd?.();
     }
   }
 
@@ -318,10 +324,13 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
     gesture.moved = true;
     clearTimeout(this.#longPress);
     const { from, handle, view } = gesture;
-    view.item =
-      handle === null
-        ? { ...from, x: from.x + dx, y: from.y + dy }
-        : this.#options.resize(from, gesture.size, handle, dx, dy, gesture.min);
+    const { resize, snap } = this.#options;
+    if (handle === null) {
+      const moved = { ...from, x: from.x + dx, y: from.y + dy };
+      view.item = snap ? snap(view, moved, event.altKey) : moved;
+    } else {
+      view.item = resize(from, gesture.size, handle, dx, dy, gesture.min);
+    }
     this.#options.render(view);
   };
 
@@ -332,6 +341,7 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
       return;
     }
     this.#gesture = null;
+    this.#options.onGestureEnd?.();
     const { view } = gesture;
     if (!gesture.moved) {
       if (event.type === "pointerup") {

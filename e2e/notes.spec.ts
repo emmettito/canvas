@@ -140,6 +140,39 @@ test("dragging a note moves it, and the move can be undone", async ({
   expect(undone.x).toBeCloseTo(before.x, 0);
 });
 
+test("a note dragged near another lines up with it, unless Alt is held", async ({
+  page,
+}) => {
+  await addNote(page, "First", 0.3, 0.3);
+  await addNote(page, "Second", 0.6, 0.8);
+  const [first, second] = await page.locator(".canvas-note").all();
+  const target = (await first.boundingBox())!;
+  const start = (await second.boundingBox())!;
+  // Its left side ends up 3 pixels right of the first's.
+  const dx = target.x - start.x + 3;
+
+  await page.mouse.move(start.x + 20, start.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 20 + dx, start.y + 20, { steps: 5 });
+  await expect(page.locator(".canvas-snap-guide").first()).toBeVisible();
+  await page.mouse.up();
+
+  expect((await second.boundingBox())!.x).toBeCloseTo(target.x, 0);
+  await expect(page.locator(".canvas-snap-guide")).toHaveCount(0);
+
+  const lined = (await second.boundingBox())!;
+  // Past the drag threshold and back, ending 3 pixels to the right.
+  await page.keyboard.down("Alt");
+  await page.mouse.move(lined.x + 20, lined.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(lined.x + 60, lined.y + 20, { steps: 5 });
+  await page.mouse.move(lined.x + 23, lined.y + 20, { steps: 5 });
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+
+  expect((await second.boundingBox())!.x).toBeCloseTo(target.x + 3, 0);
+});
+
 // The middle of one of a note's invisible resize handles, e.g. "se" for its
 // bottom right corner.
 async function getHandle(page: Page, handle: string) {

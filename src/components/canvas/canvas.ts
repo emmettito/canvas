@@ -3,6 +3,7 @@ import { FILL_LAYOUT } from "../../constants/fill-layout.const";
 import { IMAGE_LAYOUT } from "../../constants/image-layout.const";
 import { LOUPE_LAYOUT } from "../../constants/loupe-layout.const";
 import { NOTE_LAYOUT } from "../../constants/note-layout.const";
+import { NOTE_SNAP } from "../../constants/note-snap.const";
 import { RESIZE_HANDLES } from "../../constants/resize-handles.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
 import { ZOOM } from "../../constants/zoom.const";
@@ -51,6 +52,7 @@ import {
 import { getNoteColor } from "../../utilities/lighten-color";
 import { resizeBox, resizeBoxKeepingShape } from "../../utilities/resize-box";
 import { isField } from "../../utilities/is-field";
+import { snapBox, type SnapGuide } from "../../utilities/snap-box";
 import { isAtEdge, type Restack, resolveLayers } from "../../utilities/layers";
 import { isBlank } from "../../utilities/rich-text";
 import {
@@ -276,6 +278,8 @@ export class Canvas {
   #surface = createElement("div", "canvas-surface");
   // Controls over the drawing, e.g. the format bar, which aren't filtered.
   #overlay = createElement("div", "canvas-overlay");
+  // What a note being moved lined up with.
+  #snapGuides = createElement("div", "canvas-snap-guides");
   #height = 0;
   #width = 0;
   #strokes: Stroke[] = [];
@@ -392,7 +396,11 @@ export class Canvas {
     );
     layer.addEventListener("contextmenu", this.#onLayerContextMenu);
     this.#surface.append(layer, this.#items, this.#cursor);
-    this.#overlay.append(this.#formatBar.element, this.#loupe.element);
+    this.#overlay.append(
+      this.#snapGuides,
+      this.#formatBar.element,
+      this.#loupe.element
+    );
     container.append(this.#surface, this.#overlay);
 
     const surface = this.#surface;
@@ -2146,10 +2154,51 @@ export class Canvas {
         width: NOTE_LAYOUT.minSize,
         height: NOTE_LAYOUT.minSize,
       }),
+      snap: (_view, note, free) => this.#snapNote(note, free),
+      onGestureEnd: () => this.#showSnapGuides([]),
       ...this.#typingOptions<Note>("notes"),
       onChange: (note) => this.#options.onItemChange("notes", note),
       onRemove: (id) => this.#options.onItemRemove("notes", id),
     });
+  }
+
+  // A note being moved lines up with the notes on screen near it, unless
+  // Alt is held, and guides show what it lined up with.
+  #snapNote(note: Note, free: boolean): Note {
+    if (free) {
+      this.#showSnapGuides([]);
+      return note;
+    }
+    const area = this.visibleArea;
+    const others = this.#layers.notes.views
+      .map(({ item }) => item)
+      .filter((other) => other.id !== note.id && intersectBoxes(other, area));
+    const { x, y, guides } = snapBox(
+      note,
+      others,
+      NOTE_SNAP.distance / this.#viewport.zoom,
+      NOTE_SNAP.gap
+    );
+    this.#showSnapGuides(guides);
+    return { ...note, x, y };
+  }
+
+  // Each guide is a line across or down the screen, a pixel thick at any
+  // zoom.
+  #showSnapGuides(guides: SnapGuide[]): void {
+    const { x, y, zoom } = this.#viewport;
+    this.#snapGuides.replaceChildren(
+      ...guides.map(({ from, to }) => {
+        const guide = createElement("div", "canvas-snap-guide");
+        const left = (Math.min(from.x, to.x) - x) * zoom;
+        const top = (Math.min(from.y, to.y) - y) * zoom;
+        guide.style.left = px(left);
+        guide.style.top = px(top);
+        guide.style.width = px(Math.max(Math.abs(to.x - from.x) * zoom, 1));
+        guide.style.height = px(Math.max(Math.abs(to.y - from.y) * zoom, 1));
+        return guide;
+      })
+    );
   }
 
   // Text is as wide as its longest line until its width is set, and at

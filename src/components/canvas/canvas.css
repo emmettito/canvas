@@ -184,6 +184,14 @@
   pointer-events: none;
 }
 
+/* Lines showing what a note being moved lined up with, centered on the
+ * edges they follow. */
+.canvas-snap-guide {
+  position: absolute;
+  translate: -0.5px -0.5px;
+  background-color: var(--canvas-color-accent);
+}
+
 /* The drawing's strokes and items, in its order, which each one's z-index
  * gives. The layers don't stack themselves, so their items can go between
  * runs of strokes and each other. */

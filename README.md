@@ -204,6 +204,11 @@ While `note` is picked, `color` picks the color of new notes, which are a light
 shade of it, so their text stays readable. Yellow is the default. Text that
 doesn't fit in a note is hidden, and left out of the export.
 
+A note being moved snaps to the notes on screen near it: its edges or middle
+line up with theirs, or it sits a small gap beside one it's level with, and
+lines show what it lined up with. Hold Alt (Option on a Mac) while moving it to
+place it exactly.
+
 A stroke started on a note, with the pencil or eraser, is drawn on it, over
 its text, unless an image is above the note there. It only shows inside the
 note and moves with it. Resizing the note doesn't stretch its strokes: they
