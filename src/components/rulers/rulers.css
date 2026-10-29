@@ -1,0 +1,79 @@
+/* Along the top and left edges, over the canvas, so it keeps its size. They
+ * only show where things are, so presses go through to the canvas. */
+.canvas-rulers {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.canvas-ruler {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.canvas-ruler-top {
+  width: 100%;
+  height: var(--canvas-ruler-size);
+}
+
+.canvas-ruler-left {
+  width: var(--canvas-ruler-size);
+  height: 100%;
+}
+
+/* Where they meet, covering both: a button that goes back to the origin,
+ * shown as a target. */
+.canvas-ruler-corner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: var(--canvas-ruler-size);
+  height: var(--canvas-ruler-size);
+  border-right: 1px solid var(--canvas-color-border);
+  border-bottom: 1px solid var(--canvas-color-border);
+  background: var(--canvas-color-surface);
+  color: var(--canvas-color-text-muted);
+  cursor: pointer;
+  pointer-events: auto;
+
+  &::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border: 1.5px solid currentColor;
+    border-radius: 50%;
+    background: radial-gradient(currentColor 1.5px, transparent 2px);
+  }
+
+  &:hover {
+    color: var(--canvas-color-text);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--canvas-color-accent);
+    outline-offset: -2px;
+  }
+
+  /* Beside it, over the top ruler, clear of the toolbars below, after a rest
+   * like the toolbar's. */
+  & > .canvas-tooltip {
+    top: 0;
+    left: calc(100% + 4px);
+    visibility: hidden;
+  }
+
+  &:hover > .canvas-tooltip {
+    visibility: visible;
+    transition: visibility 0s 500ms;
+  }
+}

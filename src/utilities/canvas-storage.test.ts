@@ -16,6 +16,7 @@ const SETTINGS: ToolSettings = {
   noteColor: "#ff8800",
   textSize: 32,
   recentColors: ["#ff8800", "#123456"],
+  rulers: true,
 };
 
 const STROKES: Stroke[] = [
@@ -292,6 +293,7 @@ describe("CanvasStorage export options", () => {
       noteColor: _,
       textSize: __,
       recentColors: ___,
+      rulers: ____,
       ...older
     } = SETTINGS;
     localStorage.setItem("test:settings", JSON.stringify(older));
@@ -301,6 +303,7 @@ describe("CanvasStorage export options", () => {
       noteColor: "--canvas-color-yellow",
       textSize: 24,
       recentColors: [],
+      rulers: false,
     });
   });
 

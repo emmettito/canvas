@@ -226,15 +226,16 @@ function isToolSize(value: unknown): value is number {
   return isNumber(value) && value >= MIN_TOOL_SIZE && value <= MAX_TOOL_SIZE;
 }
 
-// Settings saved before notes, text and custom colors have no note color,
-// text size or recent colors, so they're checked on their own.
+// Settings saved before notes, text, custom colors and rulers have no note
+// color, text size, recent colors or rulers, so they're checked on their own.
 function isToolSettings(value: unknown): value is Omit<
   ToolSettings,
-  "noteColor" | "textSize" | "recentColors"
+  "noteColor" | "textSize" | "recentColors" | "rulers"
 > & {
   noteColor?: unknown;
   textSize?: unknown;
   recentColors?: unknown;
+  rulers?: unknown;
 } {
   if (
     !isObject(value) ||
@@ -346,7 +347,8 @@ export class CanvasStorage {
     if (!isToolSettings(settings)) {
       return null;
     }
-    const { activeTool, tools, noteColor, textSize, recentColors } = settings;
+    const { activeTool, tools, noteColor, textSize, recentColors, rulers } =
+      settings;
     return {
       // The dropper is only picked for a moment, so it isn't kept.
       activeTool: activeTool === "dropper" ? "pencil" : activeTool,
@@ -356,6 +358,7 @@ export class CanvasStorage {
       recentColors: Array.isArray(recentColors)
         ? recentColors.filter(isCustomColor).slice(0, MAX_RECENT_COLORS)
         : [],
+      rulers: rulers === true,
     };
   }
 

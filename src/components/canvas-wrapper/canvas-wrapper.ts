@@ -49,6 +49,7 @@ import {
 } from "../canvas-toolbar/canvas-toolbar";
 import { Canvas, type Placing } from "../canvas/canvas";
 import { plainTextEditor } from "../canvas/plain-text-editor";
+import { Rulers } from "../rulers/rulers";
 import { Toast } from "../toast/toast";
 import "./canvas-wrapper.css";
 
@@ -118,6 +119,18 @@ function getHistoryShortcut(event: KeyboardEvent): "undo" | "redo" | null {
     default:
       return null;
   }
+}
+
+// Shift+R, like Figma, while nothing's being typed.
+function isRulersShortcut(event: KeyboardEvent): boolean {
+  return (
+    event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !event.repeat &&
+    event.key.toUpperCase() === "R"
+  );
 }
 
 export interface MountedCanvas {
@@ -337,6 +350,7 @@ export function mountCanvas(
     getImage: (id) => imageStore.get(open.id, id),
     onViewportChange: () => {
       updateToolbars();
+      rulers.refresh();
       clearTimeout(viewportTimer);
       viewportTimer = setTimeout(save, VIEWPORT_SAVE_DELAY);
     },
@@ -354,6 +368,11 @@ export function mountCanvas(
   canvas.setViewport(storedViewport);
   canvas.setShowAuthors(showAuthors);
   showDrawing();
+  const rulers = new Rulers({
+    getViewport: () => canvas.viewport,
+    // Where a new canvas starts, at the zoom it's at.
+    onGoToOrigin: () => canvas.panTo({ x: 0, y: 0 }),
+  });
   const toolbarActions: CanvasToolbarActions = {
     onUndo: () => {
       history.undo();
@@ -424,6 +443,10 @@ export function mountCanvas(
     },
     onInsertImage: () => fileInput.click(),
     onZoom: zoom,
+    onToggleRulers: () => {
+      showRulers(!rulers.shown);
+      update();
+    },
     onRename: (name) => {
       open = { ...open, name };
       update();
@@ -466,8 +489,9 @@ export function mountCanvas(
   // The toast sits above the bottom toolbar, rather than over it.
   const bottom = createElement("div", "canvas-bottom");
   bottom.append(toast.element);
-  root.append(canvasWrapper, corner, fileInput);
+  root.append(canvasWrapper, rulers.element, corner, fileInput);
   canvas.zoomOnPinch(root);
+  showRulers(saved?.rulers ?? false);
   const hasControls = (groups: ToolbarControl[][]) =>
     groups.some((group) => group.length > 0);
   if (hasControls(topControls)) {
@@ -488,9 +512,11 @@ export function mountCanvas(
   // Where the pointer is decides where a pasted image goes.
   canvasWrapper.addEventListener("pointermove", (event) => {
     pointer = canvas.getDrawingPoint(event.clientX, event.clientY);
+    rulers.setPointer({ x: event.clientX, y: event.clientY });
   });
   canvasWrapper.addEventListener("pointerleave", () => {
     pointer = null;
+    rulers.setPointer(null);
   });
   // Dropped image files are placed where they're dropped. Any other dropped
   // file is ignored, rather than the browser opening it in place of the page.
@@ -562,6 +588,12 @@ export function mountCanvas(
       } else {
         toolbarActions.onRedo();
       }
+      return;
+    }
+    // Like tools' keys, it types while text is typed in.
+    if (isRulersShortcut(event) && inUse && !canvas.isTyping) {
+      event.preventDefault();
+      toolbarActions.onToggleRulers();
       return;
     }
     // Tools' keys are letters, which type while text is typed in.
@@ -645,6 +677,7 @@ export function mountCanvas(
     fitPencilToBackground();
     storedViewport = storage.loadViewport(entry.id) ?? DEFAULT_VIEWPORT;
     canvas.setViewport(storedViewport);
+    rulers.refresh();
     update();
   }
 
@@ -733,6 +766,12 @@ export function mountCanvas(
       reportedBackground = background;
       onBackgroundChange?.(background);
     }
+  }
+
+  // The rulers, with the toolbars moved clear of them.
+  function showRulers(shown: boolean) {
+    rulers.shown = shown;
+    root.toggleAttribute("data-rulers", shown);
   }
 
   function updateToolbars() {
@@ -857,6 +896,7 @@ export function mountCanvas(
       canvases,
       openCanvasId: open.id,
       zoom: canvas.viewport.zoom,
+      rulers: rulers.shown,
     };
   }
 
@@ -904,6 +944,7 @@ export function mountCanvas(
       noteColor,
       textSize,
       recentColors,
+      rulers: rulers.shown,
     });
     if (canvases !== storedCanvases) {
       if (storage.saveCanvases(canvases)) {
@@ -976,6 +1017,7 @@ export function mountCanvas(
   const observer = new ResizeObserver(([entry]) => {
     const { height, width } = entry.contentRect;
     canvas.setSize(width, height);
+    rulers.refresh();
     // The export's size follows the canvas's.
     updateToolbars();
   });
@@ -1005,6 +1047,7 @@ export function mountCanvas(
         each.destroy();
       }
       canvas.destroy();
+      rulers.destroy();
       toast.destroy();
       root.remove();
     },

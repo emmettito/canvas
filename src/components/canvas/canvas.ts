@@ -504,6 +504,11 @@ export class Canvas {
     this.#zoomAtCenter(stepZoom(this.#viewport.zoom, direction));
   }
 
+  /** Pans so `point` on the drawing is at the top left, at the same zoom. */
+  panTo(point: Point): void {
+    this.#changeViewport({ ...this.#viewport, ...point });
+  }
+
   /** Zooms to `zoom`, e.g. 1 for 100%, around the canvas's middle. */
   zoomTo(zoom: number): void {
     this.#zoomAtCenter(zoom);

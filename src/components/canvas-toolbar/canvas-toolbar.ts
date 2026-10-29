@@ -171,6 +171,8 @@ export interface CanvasToolbarState {
   openCanvasId: string | null;
   // Screen pixels per drawing unit, e.g. 1 at 100%.
   zoom: number;
+  // Whether the rulers along the canvas's edges are shown.
+  rulers: boolean;
 }
 
 export interface CanvasToolbarActions {
@@ -188,6 +190,7 @@ export interface CanvasToolbarActions {
   onUpdateTextSize: (size: number) => void;
   onInsertImage: () => void;
   onZoom: (action: ZoomAction) => void;
+  onToggleRulers: () => void;
 }
 
 /**
@@ -733,13 +736,20 @@ export class CanvasToolbar {
       case "zoom":
         return [
           opener,
-          this.#createMenu(
-            ZOOM_ITEMS.map(({ action, label, hint }) => ({
+          this.#createMenu([
+            ...ZOOM_ITEMS.map(({ action, label, hint }) => ({
               label,
               hint,
               onSelect: () => this.#actions.onZoom(action),
-            }))
-          ),
+            })),
+            // Named for what it does, rather than checked, so its shortcut
+            // lines up with the others'.
+            {
+              label: this.#state.rulers ? "Hide rulers" : "Show rulers",
+              hint: `${SHIFT}R`,
+              onSelect: () => this.#actions.onToggleRulers(),
+            },
+          ]),
         ];
       case "file-menu": {
         const fileActions = this.#getFileActions();

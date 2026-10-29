@@ -239,3 +239,83 @@ test("pinching with two fingers zooms and pans", async ({
   await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
   await context.close();
 });
+
+test("Shift+R shows and hides the rulers, which are kept", async ({ page }) => {
+  const rulers = page.locator(".canvas-rulers");
+  const file = page.getByRole("button", { name: "File", exact: true });
+  await expect(rulers).toBeHidden();
+  const before = (await file.boundingBox())!;
+
+  await page.mouse.move(400, 300);
+  await page.keyboard.press("Shift+KeyR");
+
+  await expect(rulers).toBeVisible();
+  // The toolbars move clear of them.
+  await expect(async () => {
+    const after = (await file.boundingBox())!;
+    expectNear(after.x, before.x + 20);
+    expectNear(after.y, before.y + 20);
+  }).toPass();
+
+  await page.reload();
+  await expect(rulers).toBeVisible();
+
+  await getZoomButton(page).click();
+  await page.getByRole("button", { name: /^Hide rulers/ }).click();
+  await expect(rulers).toBeHidden();
+});
+
+test("the rulers' corner goes back to the origin", async ({ page }) => {
+  await addNote(page);
+  const before = await getNoteBox(page);
+  await page.mouse.move(700, 400);
+  await page.keyboard.press("Shift+KeyR");
+  await page.mouse.wheel(300, 200);
+  await expect(async () => {
+    expect((await getNoteBox(page)).x).toBeLessThan(before.x - 100);
+  }).toPass();
+
+  await page.getByRole("button", { name: "Go to origin" }).click();
+
+  await expect(async () => {
+    const after = await getNoteBox(page);
+    expectNear(after.x, before.x);
+    expectNear(after.y, before.y);
+  }).toPass();
+});
+
+test("Ctrl+scroll over a toolbar zooms the drawing, not the page", async ({
+  page,
+}) => {
+  const toolbar = (await page.locator(".canvas-toolbar").last().boundingBox())!;
+  await page.mouse.move(toolbar.x + 4, toolbar.y + toolbar.height / 2);
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up("Control");
+
+  await expect(getZoomButton(page)).toHaveText("272%");
+});
+
+test("Safari's pinch over a toolbar zooms the drawing, not the page", async ({
+  page,
+}) => {
+  // Safari sends trackpad pinches as gesture events, which are faked here,
+  // as other browsers don't have them.
+  const zoomed = await page
+    .locator(".canvas-toolbar")
+    .last()
+    .evaluate((toolbar) => {
+      const { x, y } = toolbar.getBoundingClientRect();
+      const send = (type: string) => {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.assign(event, { scale: 2, clientX: x + 4, clientY: y + 4 });
+        toolbar.dispatchEvent(event);
+        return event.defaultPrevented;
+      };
+      return [send("gesturestart"), send("gesturechange")];
+    });
+
+  // Stopping them is what keeps Safari from zooming the page.
+  expect(zoomed).toEqual([true, true]);
+  await expect(getZoomButton(page)).toHaveText("200%");
+});

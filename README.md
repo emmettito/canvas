@@ -344,6 +344,14 @@ Figma:
 The zoom is from 10% to 1000%, and `zoom` on a toolbar shows it, with a menu
 of the same actions. Each canvas reopens where it was left.
 
+Shift+R, or "Show rulers" in the `zoom` menu, shows rulers along the top and
+left edges, so it's clear where on the drawing the canvas is. They're in
+drawing units, with 0 where the drawing started, and mark the pointer's
+position on each, or the middle of the view, in gray, while the pointer's off
+the canvas. The corner where they meet goes back to the origin, at the same
+zoom. The toolbars at the top move clear of them, and whether they're shown
+is kept with the other settings.
+
 ### Exporting
 
 `export` opens a small dialog to choose the file:

@@ -12,4 +12,6 @@ export interface ToolSettings {
   recentColors: CustomColor[];
   // The font size of new text, in drawing units. It's in the pencil's color.
   textSize: number;
+  // Whether the rulers along the canvas's edges are shown.
+  rulers: boolean;
 }

@@ -7,6 +7,12 @@
   overflow: hidden;
   /* How far the floating toolbars sit from the edges. */
   --canvas-toolbar-inset: 12px;
+  /* How thick the rulers are, while they're shown. */
+  --canvas-ruler-size: 0px;
+
+  &[data-rulers] {
+    --canvas-ruler-size: 20px;
+  }
 }
 
 /* The drawing surface, edge to edge, under the toolbars. */
@@ -30,8 +36,11 @@
 }
 
 .canvas-root > .canvas-toolbar[data-position="top"] {
-  top: var(--canvas-toolbar-inset);
-  left: var(--canvas-toolbar-inset);
+  top: calc(var(--canvas-toolbar-inset) + var(--canvas-ruler-size));
+  left: calc(var(--canvas-toolbar-inset) + var(--canvas-ruler-size));
+  max-width: calc(
+    100% - var(--canvas-toolbar-inset) * 2 - var(--canvas-ruler-size)
+  );
 }
 
 /* The bottom middle: the bottom toolbar, with toasts above it. */
@@ -52,7 +61,8 @@
 /* The top right corner: the top right toolbar, with the status beside it. */
 .canvas-corner {
   position: absolute;
-  top: var(--canvas-toolbar-inset);
+  /* Below the top ruler, while it's shown. */
+  top: calc(var(--canvas-toolbar-inset) + var(--canvas-ruler-size));
   right: var(--canvas-toolbar-inset);
   z-index: 3;
   display: flex;
