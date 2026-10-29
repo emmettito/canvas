@@ -4,7 +4,7 @@ import { TEXT_LAYOUT } from "../../constants/text-layout.const";
 import { type CustomColor } from "../../models/color.model";
 import { type TextAlign } from "../../models/rich-text.model";
 import { createElement } from "../../utilities/create-element";
-import { getColorName } from "../../utilities/colors";
+import { getColorName, readCssColor } from "../../utilities/colors";
 import { getCssVariable } from "../../utilities/get-css-variable";
 import { createColorPicker } from "../color-picker/color-picker";
 import {
@@ -109,6 +109,8 @@ export class FormatBar {
   // What the palette's colors are read from, and the custom colors it offers
   // again.
   #root: Element | null = null;
+  // What the bar and its palette are kept inside, on screen.
+  #bounds: DOMRect | null = null;
   #recentColors: CustomColor[] = [];
   #onCustomColor: (color: CustomColor) => void;
 
@@ -167,6 +169,7 @@ export class FormatBar {
         "aria-expanded",
         String(!this.#colors.hidden)
       );
+      this.#placeColors();
     });
     this.#colors.hidden = true;
     color.append(this.#colorButton, this.#colors);
@@ -273,28 +276,64 @@ export class FormatBar {
     );
     bar.style.left = `${left}px`;
     bar.style.top = `${top}px`;
+    this.#bounds = bounds;
+    this.#placeColors();
+  }
+
+  // Opens the palette below its button, or above it if it'd be cut off
+  // below and there's more room above, and moves it sideways to fit.
+  #placeColors(): void {
+    const colors = this.#colors;
+    const bounds = this.#bounds;
+    if (colors.hidden || !bounds) {
+      return;
+    }
+    colors.removeAttribute("data-above");
+    colors.style.removeProperty("--colors-shift");
+    const button = this.#colorButton.getBoundingClientRect();
+    const rect = colors.getBoundingClientRect();
+    const roomAbove = button.top - bounds.top;
+    const roomBelow = bounds.bottom - button.bottom;
+    if (rect.bottom > bounds.bottom - GAP && roomAbove > roomBelow) {
+      colors.toggleAttribute("data-above", true);
+    }
+    let shift = 0;
+    if (rect.left < bounds.left + GAP) {
+      shift = bounds.left + GAP - rect.left;
+    } else if (rect.right > bounds.right - GAP) {
+      shift = bounds.right - GAP - rect.right;
+    }
+    colors.style.setProperty("--colors-shift", `${shift}px`);
   }
 
   // The palette's colors, resolved, so text keeps its color if the theme
-  // changes, like a stroke's.
+  // changes, like a stroke's. The text's own color is no formatting at all,
+  // so picking it removes any.
   #createColors(): HTMLElement {
     const root = this.#root ?? document.documentElement;
     const color = this.#formatting?.getFormat().color;
+    const own = readCssColor(this.#defaults.color);
+    const swatches = COLORS.map((palette) => {
+      const value = getCssVariable(root, palette);
+      return { label: getColorName(palette), value, shown: value };
+    });
+    // The color shown, as hex. None for a selection with more than one.
+    const shown =
+      color === null ? null : readCssColor(color ?? this.#defaults.color);
     return createColorPicker({
-      swatches: [
-        // The text's own color, which is no formatting at all.
-        { label: "Default", value: "", shown: this.#defaults.color },
-        ...COLORS.map((palette) => {
-          const value = getCssVariable(root, palette);
-          return { label: getColorName(palette), value, shown: value };
-        }),
-      ],
-      // None is chosen for a selection with more than one.
-      selected: color === undefined ? "" : color,
+      swatches,
+      // The swatch in it, or else a recent color.
+      selected:
+        shown &&
+        (swatches.find(({ value }) => readCssColor(value) === shown)?.value ??
+          shown),
       current: color === undefined ? this.#defaults.color : color,
       recent: this.#recentColors,
       onPick: (value, custom) => {
-        this.#formatting?.setValue("color", value || undefined);
+        this.#formatting?.setValue(
+          "color",
+          readCssColor(value) === own ? undefined : value
+        );
         if (custom) {
           this.#onCustomColor(value as CustomColor);
         }

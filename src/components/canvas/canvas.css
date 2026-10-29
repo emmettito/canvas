@@ -447,18 +447,26 @@
   position: relative;
 }
 
-/* The palette opens below the color button. */
+/*
+ * The palette opens below the color button, or above it where there's no
+ * room below. It's moved sideways to stay inside the canvas.
+ */
 .canvas-format-colors {
   position: absolute;
   width: max-content;
   padding: 4px;
   top: calc(100% + 8px);
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(calc(-50% + var(--colors-shift, 0px)));
   border: 1px solid var(--canvas-color-border);
   border-radius: 8px;
   background: var(--canvas-color-surface);
   box-shadow: var(--canvas-shadow);
+
+  &[data-above] {
+    top: auto;
+    bottom: calc(100% + 8px);
+  }
 
   &[hidden] {
     display: none;

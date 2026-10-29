@@ -229,6 +229,24 @@ test("keyboard shortcuts format what's typed next", async ({ page }) => {
   await expect(getTexts(page).locator("strong")).toHaveText("bold");
 });
 
+test("the color palette opens above text near the bottom", async ({
+  page,
+}) => {
+  await addText(page, "Low", 0.1, 0.92);
+  await page.keyboard.press("Enter");
+  const bar = getFormatBar(page);
+  await bar.getByRole("button", { name: "Text color" }).click();
+
+  const palette = (await page
+    .locator(".canvas-format-colors")
+    .boundingBox())!;
+  const canvas = (await page.locator("canvas").boundingBox())!;
+  expect(palette.y).toBeGreaterThanOrEqual(canvas.y);
+  expect(palette.y + palette.height).toBeLessThanOrEqual(
+    canvas.y + canvas.height
+  );
+});
+
 test("the font, size and color can be changed", async ({ page }) => {
   await selectNewText(page, "Fancy");
   const bar = getFormatBar(page);
@@ -254,6 +272,27 @@ test("the font, size and color can be changed", async ({ page }) => {
     "font-family",
     /Georgia/
   );
+});
+
+test("the text's own color is chosen, and picking it removes others", async ({
+  page,
+}) => {
+  await selectNewText(page, "Plain");
+  const bar = getFormatBar(page);
+  const colorButton = bar.getByRole("button", { name: "Text color" });
+
+  await colorButton.click();
+  await expect(bar.getByRole("button", { name: "black" })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+  await bar.getByRole("button", { name: "blue", exact: true }).click();
+  await expect(getTexts(page).locator("[data-color]")).toHaveCount(1);
+
+  await page.keyboard.press("ControlOrMeta+a");
+  await colorButton.click();
+  await bar.getByRole("button", { name: "black" }).click();
+  await expect(getTexts(page).locator("[data-color]")).toHaveCount(0);
 });
 
 test("paragraphs can be aligned", async ({ page }) => {
