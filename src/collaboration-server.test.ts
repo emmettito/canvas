@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CollaborationServer,
   type ServerMessage,
@@ -67,6 +67,7 @@ describe("CollaborationServer", () => {
             following: null,
           },
         ],
+        timer: null,
       },
     ]);
     // Told who's joined, in another color.
@@ -360,6 +361,68 @@ describe("CollaborationServer", () => {
       expect(c.received[0]).toMatchObject({
         peers: [{ id: "peer-2", following: null }],
       });
+    });
+  });
+
+  describe("the timer", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it("goes to everyone, with how long's left, and stops for everyone", () => {
+      vi.useFakeTimers({ now: 1000 });
+      const server = new CollaborationServer();
+      const [a, b] = joinAll(server, 2);
+      b.connection.receive({
+        type: "timer",
+        timer: { duration: 60_000, sound: "bell" },
+      });
+      const timer = {
+        duration: 60_000,
+        remaining: 60_000,
+        sound: "bell",
+        by: "peer-2",
+      };
+      expect(a.received.at(-1)).toEqual({ type: "timer", timer });
+      expect(b.received.at(-1)).toEqual({ type: "timer", timer });
+
+      // Someone joining later is told how long's left.
+      vi.advanceTimersByTime(20_000);
+      const [c] = joinAll(server, 1);
+      expect(c.received[0]).toMatchObject({
+        timer: { ...timer, remaining: 40_000 },
+      });
+
+      a.connection.receive({ type: "timer", timer: null });
+      expect(c.received.at(-1)).toEqual({ type: "timer", timer: null });
+    });
+
+    it("isn't sent once it's gone off", () => {
+      vi.useFakeTimers({ now: 1000 });
+      const server = new CollaborationServer();
+      const [a] = joinAll(server, 1);
+      a.connection.receive({
+        type: "timer",
+        timer: { duration: 1000, sound: "bell" },
+      });
+      vi.advanceTimersByTime(1000);
+
+      expect(joinAll(server, 1)[0].received[0]).toMatchObject({
+        timer: null,
+      });
+    });
+
+    it("turns away a timer that can't run", () => {
+      const [a] = joinAll(new CollaborationServer(), 1);
+      const before = a.received.length;
+      for (const timer of [
+        { duration: 0, sound: "bell" },
+        { duration: 1000 },
+        { duration: 1e12, sound: "bell" },
+        { duration: 1000, sound: "x".repeat(100) },
+      ]) {
+        a.connection.receive({ type: "timer", timer });
+      }
+
+      expect(a.received.length).toBe(before);
     });
   });
 });

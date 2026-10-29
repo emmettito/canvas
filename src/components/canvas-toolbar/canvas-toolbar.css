@@ -365,6 +365,29 @@
   }
 }
 
+/* Wide enough for each sound's name. */
+.canvas-timer {
+  width: 300px;
+}
+
+.canvas-timer-readout {
+  font-size: 32px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.canvas-timer-by {
+  color: var(--canvas-color-text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.canvas-timer-button[data-running] {
+  color: var(--canvas-color-accent);
+}
+
 .canvas-export-size {
   color: var(--canvas-color-text-muted);
   font-size: 12px;

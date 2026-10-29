@@ -5,10 +5,15 @@ import { DEFAULT_TOOL_SIZES } from "../../constants/default-tool-sizes.const";
 import { IMAGE_LAYOUT } from "../../constants/image-layout.const";
 import { ITEM_KINDS } from "../../constants/item-kinds.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
+import { TIMER_LAYOUT } from "../../constants/timer-layout.const";
 import { TOOL_SHORTCUTS } from "../../constants/tool-shortcuts.const";
 import { TOOL_SIZES } from "../../constants/tool-sizes.const";
 import { TOOLS } from "../../constants/tools.const";
-import { type PeerView, type SharedImage } from "../../collaboration-server";
+import {
+  type PeerView,
+  type SharedImage,
+  type SharedTimer,
+} from "../../collaboration-server";
 import { type Activity } from "../../models/activity.model";
 import { type CanvasEntry } from "../../models/canvas-entry.model";
 import {
@@ -25,6 +30,7 @@ import {
   type ZoomAction,
 } from "../../models/toolbar-control.model";
 import { type ToolState } from "../../models/tool-state.model";
+import { type Timer, type TimerSound } from "../../models/timer.model";
 import { type TextEditorFactory } from "../../models/text-editor.model";
 import { type StrokeTool, type Tool } from "../../models/tool.model";
 import { type Viewport } from "../../models/viewport.model";
@@ -49,6 +55,7 @@ import { getFileName } from "../../utilities/get-file-name";
 import { getImageSize } from "../../utilities/get-image-size";
 import { ImageStore } from "../../utilities/image-store";
 import { isField } from "../../utilities/is-field";
+import { isTimerSound, playTimerSound } from "../../utilities/play-timer-sound";
 import { getDefaultOrder, isOrderOf } from "../../utilities/layers";
 import {
   type ActivitySender,
@@ -382,6 +389,12 @@ export function mountCanvas(
   let pointerTimer: ReturnType<typeof setTimeout> | undefined;
   // The same for what the canvas shows.
   let viewTimer: ReturnType<typeof setTimeout> | undefined;
+  // The timer while it's going, which goes off for everyone drawing
+  // together, and what the next one starts with.
+  let timer: Timer | null = null;
+  let timerTick: ReturnType<typeof setInterval> | undefined;
+  let timerDuration = TIMER_LAYOUT.defaultDuration;
+  let timerSound: TimerSound = TIMER_LAYOUT.defaultSound;
   fitPencilToBackground();
   // The drawing and name as of the last update, so an update can tell
   // whether they were changed.
@@ -565,6 +578,24 @@ export function mountCanvas(
     onToggleRulers: () => {
       showRulers(!rulers.shown);
       update();
+    },
+    // While drawing together, the room starts and stops it for everyone,
+    // including this canvas.
+    onStartTimer: (duration, sound) => {
+      timerDuration = duration;
+      timerSound = sound;
+      if (session?.history) {
+        session.connection.send({ type: "timer", timer: { duration, sound } });
+      } else {
+        setTimer({ endsAt: Date.now() + duration, duration, sound, by: null });
+      }
+    },
+    onStopTimer: () => {
+      if (session?.history) {
+        session.connection.send({ type: "timer", timer: null });
+      } else {
+        setTimer(null);
+      }
     },
     onRename: (name) => {
       open = { ...open, name };
@@ -1099,6 +1130,7 @@ export function mountCanvas(
         history = shared.history;
         shared.me = message.you;
         presence.setPeers(message.peers, message.you);
+        receiveTimer(message.timer, false);
         fitPencilToBackground();
         update();
         void shareImages(
@@ -1143,6 +1175,9 @@ export function mountCanvas(
         }
         return;
       }
+      case "timer":
+        receiveTimer(message.timer, true);
+        return;
       case "left":
         presence.removePeer(message.id);
         receiveActivityOf(shared, message.id, null);
@@ -1240,6 +1275,52 @@ export function mountCanvas(
     presence.refresh();
     updateToolbars();
     shareView();
+  }
+
+  // The room's timer, as this canvas's, said when someone else starts one.
+  function receiveTimer(shared: SharedTimer | null, announce: boolean) {
+    if (!shared) {
+      setTimer(null);
+      return;
+    }
+    const by = shared.by === session?.me ? null : shared.by;
+    const { duration, remaining } = shared;
+    setTimer({
+      endsAt: Date.now() + remaining,
+      duration,
+      sound: isTimerSound(shared.sound) ? shared.sound : "chime",
+      by,
+    });
+    // Adding time to one already going isn't news.
+    if (announce && by && duration === remaining) {
+      const minutes = Math.round(duration / 60_000);
+      toast.show(`${getPeerName(by)} started a ${minutes}-minute timer`);
+    }
+  }
+
+  // Counts down while it's going, and goes off, playing its sound, once it's
+  // done.
+  function setTimer(next: Timer | null) {
+    timer = next;
+    clearInterval(timerTick);
+    timerTick = undefined;
+    if (next) {
+      timerTick = setInterval(() => {
+        if (timer && Date.now() >= timer.endsAt) {
+          const { sound } = timer;
+          setTimer(null);
+          playTimerSound(sound);
+          toast.show("Time's up");
+        } else {
+          updateToolbars();
+        }
+      }, TIMER_LAYOUT.tick);
+    }
+    updateToolbars();
+  }
+
+  function getPeerName(id: string): string {
+    return presence.getPeer(id)?.name || "Someone";
   }
 
   // Tells everyone drawing together who this is, once it's changed.
@@ -1344,6 +1425,12 @@ export function mountCanvas(
       openCanvasId: open.id,
       zoom: canvas.viewport.zoom,
       rulers: rulers.shown,
+      timer: timer && {
+        remaining: timer.endsAt - Date.now(),
+        by: timer.by && getPeerName(timer.by),
+      },
+      timerDuration,
+      timerSound,
     };
   }
 
@@ -1503,6 +1590,7 @@ export function mountCanvas(
       joinRoom(connection, room, onLeave),
     unmount: () => {
       leaveRoom();
+      clearInterval(timerTick);
       // A view changed just before isn't lost.
       clearTimeout(viewportTimer);
       save();

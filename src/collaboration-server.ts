@@ -38,6 +38,20 @@ export interface Peer {
 }
 
 /**
+ * A timer that goes off for everyone in a room, started by `by`. `sound` is
+ * which to play, passed on as it is.
+ */
+export interface SharedTimer {
+  // Milliseconds, from when it started.
+  duration: number;
+  // Milliseconds until it goes off, as of when it's sent, so it doesn't
+  // depend on anyone's clock being right.
+  remaining: number;
+  sound: string;
+  by: string;
+}
+
+/**
  * One change to the drawing, or undoing or redoing one of them, by whoever
  * the room says made it. Undoing a change leaves it out, so everything
  * changed since it stays.
@@ -71,6 +85,9 @@ export type ClientMessage<D = unknown, C = unknown, A = unknown> =
   | { type: "summon" }
   // Stops someone following them.
   | { type: "release"; id: string }
+  // Starts the room's timer, in place of any already going, or stops it with
+  // null.
+  | { type: "timer"; timer: { duration: number; sound: string } | null }
   | { type: "leave" };
 
 /** What a room sends each canvas in it. */
@@ -84,6 +101,7 @@ export type ServerMessage<D = unknown, C = unknown, A = unknown> =
       edits: Edit<C>[];
       images: SharedImage[];
       peers: Peer[];
+      timer: SharedTimer | null;
     }
   // Sent to everyone, including whoever made it, once it's in the order.
   | { type: "edit"; edit: Edit<C> }
@@ -95,6 +113,8 @@ export type ServerMessage<D = unknown, C = unknown, A = unknown> =
   | { type: "view"; id: string; view: PeerView }
   // Sent to everyone, including whoever started or stopped following.
   | { type: "follow"; id: string; following: string | null }
+  // Sent to everyone, including whoever started or stopped it.
+  | { type: "timer"; timer: SharedTimer | null }
   | { type: "left"; id: string };
 
 /** One canvas's link to the server, for whatever carries its messages. */
@@ -121,6 +141,11 @@ const PEER_COLORS = [
 // to send. A small photo, as the demo page makes, is a few kilobytes.
 const MAX_AVATAR_LENGTH = 200_000;
 
+// The longest a timer can run, in milliseconds: a day.
+const MAX_TIMER_DURATION = 24 * 60 * 60 * 1000;
+// The longest name of a timer's sound.
+const MAX_SOUND_LENGTH = 32;
+
 interface Member {
   peer: Peer;
   send: (message: ServerMessage) => void;
@@ -131,6 +156,8 @@ interface Room {
   edits: Edit[];
   images: Map<string, SharedImage>;
   members: Map<string, Member>;
+  // When it goes off, by the server's clock.
+  timer: (Omit<SharedTimer, "remaining"> & { endsAt: number }) | null;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -168,6 +195,30 @@ function isView(value: unknown): value is PeerView {
     (value.width as number) > 0 &&
     (value.height as number) > 0
   );
+}
+
+function isTimer(
+  value: unknown
+): value is { duration: number; sound: string } | null {
+  return (
+    value === null ||
+    (isObject(value) &&
+      typeof value.duration === "number" &&
+      value.duration > 0 &&
+      value.duration <= MAX_TIMER_DURATION &&
+      typeof value.sound === "string" &&
+      value.sound.length <= MAX_SOUND_LENGTH)
+  );
+}
+
+// The room's timer as it's sent, or null once it's gone off.
+function shareTimer({ timer }: Room): SharedTimer | null {
+  if (!timer) {
+    return null;
+  }
+  const { endsAt, ...rest } = timer;
+  const remaining = endsAt - Date.now();
+  return remaining > 0 ? { ...rest, remaining } : null;
 }
 
 function isEdit(value: unknown): value is Edit {
@@ -250,7 +301,13 @@ export class CollaborationServer {
       leave();
       let joined = this.#rooms.get(toRoom);
       if (!joined) {
-        joined = { drawing, edits: [], images: new Map(), members: new Map() };
+        joined = {
+          drawing,
+          edits: [],
+          images: new Map(),
+          members: new Map(),
+          timer: null,
+        };
         this.#rooms.set(toRoom, joined);
       }
       room = joined;
@@ -277,6 +334,7 @@ export class CollaborationServer {
         edits: joined.edits,
         images: [...joined.images.values()],
         peers: [...joined.members.values()].map((member) => member.peer),
+        timer: shareTimer(joined),
       });
       broadcast({ type: "presence", peer });
       joined.members.set(id, { peer, send });
@@ -387,6 +445,17 @@ export class CollaborationServer {
             }
             return;
           }
+          case "timer":
+            if (isTimer(message.timer)) {
+              room.timer = message.timer && {
+                duration: message.timer.duration,
+                sound: message.timer.sound,
+                by: id,
+                endsAt: Date.now() + message.timer.duration,
+              };
+              broadcast({ type: "timer", timer: shareTimer(room) });
+            }
+            return;
           case "leave":
             leave();
             return;

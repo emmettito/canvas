@@ -76,6 +76,7 @@ mountCanvas(document.getElementById("drawing")!, {
 | `color`            | Pick the pencil's or notes' color (no icon)       |
 | `dropper`          | Pick a color from the drawing                     |
 | `zoom`             | Show the zoom, with a menu to change it (no icon) |
+| `timer`            | A timer, showing how long's left (no icon)        |
 | `file-menu`        | A File menu of file actions (no icon)             |
 | `custom`           | Your own text button, e.g. Settings (no icon)     |
 
@@ -355,6 +356,21 @@ Figma:
 
 The zoom is from 10% to 1000%, and `zoom` on a toolbar shows it, with a menu
 of the same actions. Each canvas reopens where it was left.
+
+### Timer
+
+`timer` on a toolbar sets a timer: 1, 3, 5, 10, 15 or 30 minutes, or any
+number up to a day, with a sound to play as it goes off: Chime, Bell,
+Marimba, Alarm, or None. Picking a sound plays it, to hear it first. The
+sounds are made as they play, with the Web Audio API, so there are no files
+to load. While it's going, the button shows how long's left, and opening it
+offers a minute more or stopping it. Once it's done, its sound plays and
+"Time's up" shows. A new timer starts with the last one's length and sound.
+While drawing together, it goes off for everyone: whoever starts it picks the
+sound, anyone can add time or stop it, someone joining sees how long's left,
+and everyone else is told who started it. Browsers only play sound on a page
+that's been clicked or typed in, so a page nobody's touched shows "Time's up"
+without it.
 
 Shift+R, or "Show rulers" in the `zoom` menu, shows rulers along the top and
 left edges, so it's clear where on the drawing the canvas is. They're in

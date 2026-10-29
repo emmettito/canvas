@@ -5,10 +5,36 @@ import { type Browser, expect, type Page, test } from "@playwright/test";
 // together through.
 test.skip(!!process.env.CI, "Drawing together needs a server");
 
+// Plays the timer's sounds silently, so running the tests isn't noisy:
+// everything plays as it would, into a gain of 0 in front of the speakers.
+// Each tone started is counted, as `tonesPlayed`, to check a sound played.
+function muteAudio() {
+  const Audio = window.AudioContext;
+  const played = window as unknown as { tonesPlayed: number };
+  played.tonesPlayed = 0;
+  // No class fields, since Playwright compiles them to helpers the page
+  // doesn't have. Its own `destination` hides the speakers'.
+  window.AudioContext = class extends Audio {
+    constructor(options?: AudioContextOptions) {
+      super(options);
+      const muted = this.createGain();
+      muted.gain.value = 0;
+      muted.connect(super.destination);
+      Object.defineProperty(this, "destination", { value: muted });
+    }
+
+    override createOscillator() {
+      played.tonesPlayed++;
+      return super.createOscillator();
+    }
+  };
+}
+
 // A page of its own, as someone else on another computer would have, with
 // their own storage.
 async function openPage(browser: Browser, url = "/"): Promise<Page> {
   const context = await browser.newContext();
+  await context.addInitScript(muteAudio);
   const page = await context.newPage();
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto(url);
@@ -319,4 +345,35 @@ test("Follow me has everyone follow, and they can be released", async ({
   await expect(
     b.getByRole("group", { name: "Following" }).getByText("Following Ada")
   ).toBeHidden();
+});
+
+test("a timer started by anyone counts down for everyone, and stops for everyone", async ({
+  browser,
+}) => {
+  const { a, b } = await openTogether(browser);
+  await a.getByRole("button", { name: "Timer", exact: true }).click();
+  await a.getByRole("radio", { name: "3", exact: true }).check();
+  await a.getByRole("radio", { name: "Bell" }).check();
+  // Picking a sound plays it, to hear it.
+  expect(
+    await a.evaluate(
+      () => (window as unknown as { tonesPlayed: number }).tonesPlayed
+    )
+  ).toBeGreaterThan(0);
+  await a.getByRole("button", { name: "Start" }).click();
+
+  await expect(
+    a.getByRole("button", { name: /^Timer: 2:5\d left$/ })
+  ).toBeVisible();
+  await expect(
+    b.getByRole("button", { name: /^Timer: 2:5\d left$/ })
+  ).toBeVisible();
+  await expect(b.getByText("Ada started a 3-minute timer")).toBeVisible();
+
+  await b.getByRole("button", { name: /^Timer: / }).click();
+  await expect(b.getByText("Started by Ada")).toBeVisible();
+  await b.getByRole("button", { name: "Stop" }).click();
+  await expect(
+    a.getByRole("button", { name: "Timer", exact: true })
+  ).toBeVisible();
 });

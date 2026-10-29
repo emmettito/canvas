@@ -91,8 +91,9 @@ const canvas = mountCanvas(document.getElementById("root")!, {
     ],
     [button("image")],
   ],
-  // How the canvas is shown, apart from what's drawn on it.
-  topRightToolbar: [[{ action: "zoom" }]],
+  // A timer that goes off for everyone drawing together, and how the canvas
+  // is shown, apart from what's drawn on it.
+  topRightToolbar: [[{ action: "timer" }], [{ action: "zoom" }]],
 });
 // A shared canvas's link joins it.
 sharing?.joinFromAddress();

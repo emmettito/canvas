@@ -3,6 +3,8 @@ import { EXPORT_FORMATS } from "../../constants/export-formats.const";
 import { EXPORT_SCALES } from "../../constants/export-scales.const";
 import { FILE_MENU_ITEMS } from "../../constants/file-menu-items.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
+import { TIMER_LAYOUT } from "../../constants/timer-layout.const";
+import { TIMER_SOUNDS } from "../../constants/timer-sounds.const";
 import { TOOLBAR_ACTIONS } from "../../constants/toolbar-actions.const";
 import { TOOL_SHORTCUTS } from "../../constants/tool-shortcuts.const";
 import { TOOL_SIZES } from "../../constants/tool-sizes.const";
@@ -16,6 +18,7 @@ import {
   type ExportScale,
 } from "../../models/export-options.model";
 import { type Size } from "../../models/size.model";
+import { type TimerSound } from "../../models/timer.model";
 import {
   type FileMenuItem,
   type ToolbarAction,
@@ -31,6 +34,8 @@ import {
   resolveColor,
 } from "../../utilities/colors";
 import { canExportAt, getExportSize } from "../../utilities/export-drawing";
+import { formatTimer } from "../../utilities/format-timer";
+import { playTimerSound } from "../../utilities/play-timer-sound";
 import { createColorPicker } from "../color-picker/color-picker";
 import { showPopover } from "../popover/popover";
 import "./canvas-toolbar.css";
@@ -49,6 +54,7 @@ type ToolbarPopover =
   | SizedTool
   | "color"
   | "zoom"
+  | "timer"
   | "file-menu"
   | "history"
   | "rename"
@@ -105,6 +111,7 @@ const ANCHORED: ControlName[] = [
   "text",
   "color",
   "zoom",
+  "timer",
   "file-menu",
 ];
 
@@ -172,6 +179,13 @@ export interface CanvasToolbarState {
   zoom: number;
   // Whether the rulers along the canvas's edges are shown.
   rulers: boolean;
+  // The timer, while it's going: how long's left, in milliseconds, and who
+  // started it, or null if it was whoever's here.
+  timer: { remaining: number; by: string | null } | null;
+  // What a new timer starts with: the last one's length, in milliseconds,
+  // and sound.
+  timerDuration: number;
+  timerSound: TimerSound;
 }
 
 export interface CanvasToolbarActions {
@@ -190,6 +204,8 @@ export interface CanvasToolbarActions {
   onInsertImage: () => void;
   onZoom: (action: ZoomAction) => void;
   onToggleRulers: () => void;
+  onStartTimer: (duration: number, sound: TimerSound) => void;
+  onStopTimer: () => void;
 }
 
 /**
@@ -211,6 +227,7 @@ export function validateToolbar(groups: ToolbarControl[][]): void {
       !isButton &&
       action !== "color" &&
       action !== "zoom" &&
+      action !== "timer" &&
       action !== "file-menu" &&
       action !== "custom"
     ) {
@@ -362,6 +379,8 @@ export class CanvasToolbar {
   #actions: CanvasToolbarActions;
   #buttons: Partial<Record<ControlName, HTMLButtonElement>> = {};
   #colorSwatch = createElement("span", "canvas-color-swatch");
+  // How long's left, in the timer's popover while it's going.
+  #timerReadout: HTMLElement | null = null;
   #fileMenuItems: FileMenuItem[] = [];
   #openPopover: ToolbarPopover | null = null;
   #removePopover: (() => void) | null = null;
@@ -471,6 +490,27 @@ export class CanvasToolbar {
       zoomButton.textContent = zoom;
       zoomButton.setAttribute("aria-label", `Zoom: ${zoom}`);
       expanded(zoomButton, this.#openPopover === "zoom");
+    }
+
+    const timerButton = buttons.timer;
+    if (timerButton) {
+      const { timer } = state;
+      const left = timer && formatTimer(timer.remaining);
+      timerButton.textContent = left ?? "Timer";
+      timerButton.setAttribute(
+        "aria-label",
+        left ? `Timer: ${left} left` : "Timer"
+      );
+      timerButton.toggleAttribute("data-running", timer !== null);
+      expanded(timerButton, this.#openPopover === "timer");
+      // Starting or stopping it, from here or by someone else, changes what
+      // its popover offers, so it's closed.
+      if (this.#openPopover === "timer" && !timer !== !this.#timerReadout) {
+        this.#closePopover();
+      }
+      if (this.#timerReadout && left) {
+        this.#timerReadout.textContent = left;
+      }
     }
   }
 
@@ -615,6 +655,14 @@ export class CanvasToolbar {
       button.addEventListener("click", () => this.#togglePopover("zoom"));
       return button;
     }
+    if (control.action === "timer") {
+      const button = createButton(
+        "canvas-toolbar-button canvas-toolbar-text-button canvas-timer-button"
+      );
+      button.dataset.tooltip = "Timer";
+      button.addEventListener("click", () => this.#togglePopover("timer"));
+      return button;
+    }
     if (control.action === "file-menu") {
       this.#fileMenuItems = control.items;
       const button = createButton(
@@ -679,6 +727,7 @@ export class CanvasToolbar {
     this.#removePopover?.();
     this.#removePopover = null;
     this.#openPopover = null;
+    this.#timerReadout = null;
     document.removeEventListener(
       "pointerdown",
       this.#onDocumentPointerDown,
@@ -764,6 +813,13 @@ export class CanvasToolbar {
           ),
         ];
       }
+      case "timer":
+        return [
+          opener,
+          this.#state.timer
+            ? this.#createTimerStatus()
+            : this.#createTimerForm(),
+        ];
       case "history":
         return [opener, this.#createHistoryList()];
       case "rename":
@@ -1019,6 +1075,121 @@ export class CanvasToolbar {
     form.append(title, formats, scales, transparent, buttons);
     refresh();
     return form;
+  }
+
+  // How long to set it for, from a few lengths or any number of minutes, and
+  // what it plays, which is played as it's picked, to hear it. Enter starts
+  // it.
+  #createTimerForm(): HTMLFormElement {
+    const { timerDuration, timerSound } = this.#state;
+    const form = createElement("form", "canvas-form canvas-timer");
+    const title = createElement("p", "canvas-confirmation-message");
+    title.textContent = "Timer";
+
+    const minutes = createElement("input", "canvas-text-input");
+    minutes.type = "number";
+    minutes.name = "minutes";
+    minutes.min = "1";
+    minutes.max = String(TIMER_LAYOUT.maxMinutes);
+    minutes.step = "1";
+    minutes.required = true;
+    minutes.value = String(Math.max(1, Math.round(timerDuration / 60_000)));
+    minutes.setAttribute("aria-label", "Minutes");
+    minutes.addEventListener("focus", () => minutes.select(), { once: true });
+    const presets = createSegmented(
+      "Minutes",
+      "preset",
+      TIMER_LAYOUT.presets.map((preset) => ({
+        value: String(preset),
+        label: String(preset),
+        checked: String(preset) === minutes.value,
+      }))
+    );
+    presets.append(minutes);
+    // Picking a length fills it in, and typing one that's offered picks it.
+    presets.addEventListener("change", (event) => {
+      const input = event.target as HTMLInputElement;
+      if (input.name === "preset") {
+        minutes.value = input.value;
+      }
+    });
+    minutes.addEventListener("input", () => {
+      for (const radio of presets.querySelectorAll<HTMLInputElement>(
+        'input[name="preset"]'
+      )) {
+        radio.checked = radio.value === minutes.value;
+      }
+    });
+
+    const sounds = createSegmented(
+      "Sound",
+      "sound",
+      TIMER_SOUNDS.map(({ value, label }) => ({
+        value,
+        label,
+        checked: value === timerSound,
+      }))
+    );
+    const readSound = () => new FormData(form).get("sound") as TimerSound;
+    sounds.addEventListener("change", () => playTimerSound(readSound()));
+
+    const buttons = createElement("div", "canvas-confirmation-buttons");
+    const cancel = createButton("canvas-button");
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => this.#closePopover());
+    const submit = createElement(
+      "button",
+      "canvas-button canvas-button-primary"
+    );
+    submit.type = "submit";
+    submit.textContent = "Start";
+    form.addEventListener("submit", (event) => {
+      // It would otherwise submit a form the host mounted the canvas in.
+      event.preventDefault();
+      const duration = Number(minutes.value) * 60_000;
+      const sound = readSound();
+      this.#closePopover();
+      this.#actions.onStartTimer(duration, sound);
+    });
+    buttons.append(cancel, submit);
+    form.append(title, presets, sounds, buttons);
+    return form;
+  }
+
+  // How long's left, counting down, and who started it, with a minute more,
+  // or stopping it, for everyone.
+  #createTimerStatus(): HTMLDivElement {
+    const { timer, timerSound } = this.#state;
+    const status = createElement("div", "canvas-form canvas-timer");
+    const readout = createElement("p", "canvas-timer-readout");
+    readout.textContent = formatTimer(timer!.remaining);
+    readout.setAttribute("role", "timer");
+    readout.setAttribute("aria-label", "Time left");
+    this.#timerReadout = readout;
+    status.append(readout);
+    if (timer!.by) {
+      const by = createElement("p", "canvas-timer-by");
+      by.textContent = `Started by ${timer!.by}`;
+      status.append(by);
+    }
+    const buttons = createElement("div", "canvas-confirmation-buttons");
+    const more = createButton("canvas-button");
+    more.textContent = "+1 min";
+    more.addEventListener("click", () =>
+      this.#actions.onStartTimer(
+        this.#state.timer!.remaining + TIMER_LAYOUT.addTime,
+        timerSound
+      )
+    );
+    const stop = createButton("canvas-button canvas-button-primary");
+    stop.textContent = "Stop";
+    stop.addEventListener("click", () => {
+      this.#closePopover();
+      this.#actions.onStopTimer();
+    });
+    buttons.append(more, stop);
+    status.append(buttons);
+    return status;
   }
 
   #createHistoryList(): HTMLElement {
