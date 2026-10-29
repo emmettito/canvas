@@ -10,6 +10,21 @@ function connect(server: CollaborationServer) {
   return { connection, received };
 }
 
+// Connections that have each joined room "r", in order.
+function joinAll(server: CollaborationServer, count: number) {
+  return Array.from({ length: count }, () => {
+    const each = connect(server);
+    each.connection.receive({
+      type: "join",
+      room: "r",
+      name: "",
+      avatar: "",
+      drawing: 0,
+    });
+    return each;
+  });
+}
+
 describe("CollaborationServer", () => {
   it("welcomes someone with the room so far, and who's there", () => {
     const server = new CollaborationServer();
@@ -48,6 +63,8 @@ describe("CollaborationServer", () => {
             avatar: "",
             color: expect.any(String),
             pointer: null,
+            view: null,
+            following: null,
           },
         ],
       },
@@ -149,6 +166,8 @@ describe("CollaborationServer", () => {
         avatar,
         color: expect.any(String),
         pointer: null,
+        view: null,
+        following: null,
       },
     });
 
@@ -267,5 +286,80 @@ describe("CollaborationServer", () => {
 
     expect(a.received).toEqual([]);
     expect(b.received.length).toBe(before);
+  });
+
+  describe("following", () => {
+    it("passes on what someone's canvas shows to everyone else", () => {
+      const [a, b] = joinAll(new CollaborationServer(), 2);
+      const view = { x: 1, y: 2, width: 300, height: 200 };
+      a.connection.receive({ type: "view", view });
+      a.connection.receive({ type: "view", view: { ...view, width: 0 } });
+
+      expect(b.received.at(-1)).toEqual({ type: "view", id: "peer-1", view });
+      expect(a.received.at(-1)).not.toMatchObject({ type: "view" });
+    });
+
+    it("tells everyone who follows whom, until they stop", () => {
+      const [a, b] = joinAll(new CollaborationServer(), 2);
+      b.connection.receive({ type: "follow", id: "peer-1" });
+
+      const followed = { type: "follow", id: "peer-2", following: "peer-1" };
+      expect(a.received.at(-1)).toEqual(followed);
+      expect(b.received.at(-1)).toEqual(followed);
+
+      b.connection.receive({ type: "follow", id: null });
+      expect(a.received.at(-1)).toEqual({ ...followed, following: null });
+    });
+
+    it("turns away following yourself, nobody, or in a circle", () => {
+      const [a, b, c] = joinAll(new CollaborationServer(), 3);
+      b.connection.receive({ type: "follow", id: "peer-1" });
+      c.connection.receive({ type: "follow", id: "peer-2" });
+      const before = a.received.length;
+
+      a.connection.receive({ type: "follow", id: "peer-3" });
+      a.connection.receive({ type: "follow", id: "peer-1" });
+      a.connection.receive({ type: "follow", id: "peer-9" });
+
+      expect(a.received.length).toBe(before);
+    });
+
+    it("has everyone follow whoever summons them", () => {
+      const [a, b, c] = joinAll(new CollaborationServer(), 3);
+      a.connection.receive({ type: "follow", id: "peer-2" });
+      b.connection.receive({ type: "summon" });
+
+      expect(c.received.slice(-2)).toEqual([
+        { type: "follow", id: "peer-1", following: "peer-2" },
+        { type: "follow", id: "peer-3", following: "peer-2" },
+      ]);
+    });
+
+    it("lets someone release only those following them", () => {
+      const [a, b, c] = joinAll(new CollaborationServer(), 3);
+      b.connection.receive({ type: "follow", id: "peer-1" });
+      c.connection.receive({ type: "follow", id: "peer-1" });
+      b.connection.receive({ type: "release", id: "peer-3" });
+      a.connection.receive({ type: "release", id: "peer-2" });
+
+      expect(c.received.at(-1)).toEqual({
+        type: "follow",
+        id: "peer-2",
+        following: null,
+      });
+      expect(c.received.at(-2)).toMatchObject({ id: "peer-3" });
+    });
+
+    it("stops following someone who leaves", () => {
+      const server = new CollaborationServer();
+      const [a, b] = joinAll(server, 2);
+      b.connection.receive({ type: "follow", id: "peer-1" });
+      a.connection.close();
+      const [c] = joinAll(server, 1);
+
+      expect(c.received[0]).toMatchObject({
+        peers: [{ id: "peer-2", following: null }],
+      });
+    });
   });
 });

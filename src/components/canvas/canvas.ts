@@ -546,6 +546,17 @@ export class Canvas {
     }
   }
 
+  /**
+   * Shows all of `area` of the drawing, as big as fits, centered, e.g. what
+   * someone being followed sees. The host isn't told, since it didn't come
+   * from the person using it.
+   */
+  showArea(area: Box): void {
+    this.setViewport(
+      fitViewport(area, { width: this.#width, height: this.#height }, 0)
+    );
+  }
+
   /** Zooms in or out a step, around the canvas's middle. */
   stepZoom(direction: "in" | "out"): void {
     this.#zoomAtCenter(stepZoom(this.#viewport.zoom, direction));

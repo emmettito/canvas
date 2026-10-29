@@ -386,13 +386,23 @@ other settings under `storageKey`.
 
 People can draw on one canvas together, live, through a server you run.
 Everyone's changes show as they're made, with each person's pointer and name
-in their own color, and a row of who's there at the top right, with their
-photos. What they're in the middle of shows too: a stroke as it's drawn, an
+in their own color, and a row of who's there, with their photos, at the start
+of the top right toolbar. It's added while anyone's there, even without
+`topRightToolbar`, and hidden with the toolbars. What they're in the middle of shows too: a stroke as it's drawn, an
 item as it's moved or resized, outlined in their color, and a note or text
 as it's typed, even a new one, before it's added. Undo only
 undoes your own changes, leaving everyone else's, even ones made since. Each
 person's canvas is kept like any other, so it's there to open again on its
 own.
+
+Clicking someone in the row follows them: your canvas shows what theirs
+does, as big as fits, edged in their color, with "Following Ada" and a Stop
+button at the top. Moving around yourself, by scrolling, dragging or
+zooming, stops following too. Follow me, beside the row, has everyone else
+follow you. Whoever's followed sees "Bo is following you" for each person,
+with a Release button that lets them go. Following someone who follows you,
+even through others, would go round in a circle, so the server turns it
+away.
 
 The library doesn't send anything itself. On the page, call `collaborate` on
 the mounted canvas with a `connection` that carries its messages, e.g. over a

@@ -170,7 +170,7 @@ test("stopping sharing leaves the room, keeping the drawing", async ({
   await expect(a.getByRole("list", { name: "People here" })).toBeHidden();
 });
 
-test("each person's photo shows in the corner and by their pointer", async ({
+test("each person's photo shows in the corner, but not by their pointer", async ({
   browser,
 }) => {
   const { a, b } = await openTogether(browser);
@@ -191,7 +191,8 @@ test("each person's photo shows in the corner and by their pointer", async ({
     .toBe(128);
   const box = (await b.locator("canvas").first().boundingBox())!;
   await b.mouse.move(box.x + 300, box.y + 200);
-  await expect(a.locator(".canvas-peer-avatar")).toHaveCount(1);
+  await expect(a.locator(".canvas-peer-cursor")).toHaveCount(1);
+  await expect(a.locator(".canvas-peer-cursor img")).toHaveCount(0);
 
   // Removing it shows their initial again.
   await b.getByRole("button", { name: "Settings" }).click();
@@ -263,4 +264,59 @@ test("others see a note as it's moved, and as it's typed in", async ({
   await a.mouse.up();
   await expect(note).not.toHaveAttribute("data-peer");
   expect((await note.boundingBox())!.y).toBeCloseTo(before.y + 60, -1);
+});
+
+test("following someone shows what they see, until you move", async ({
+  browser,
+}) => {
+  const { a, b } = await openTogether(browser);
+  await b.getByRole("button", { name: "Follow Ada" }).click();
+  await expect(
+    b.getByRole("group", { name: "Following" }).getByText("Following Ada")
+  ).toBeVisible();
+  await expect(
+    a.getByRole("group", { name: "Following" }).getByText("Bo is following you")
+  ).toBeVisible();
+
+  // A zooms in, and B follows.
+  await a.getByRole("button", { name: "Zoom: 100%" }).click();
+  await a.getByRole("button", { name: "Zoom in" }).click();
+  await expect(
+    b.getByRole("button", { name: /^Zoom: 1[45]\d%$/ })
+  ).toBeVisible();
+
+  // B zooming stops following.
+  await b.getByRole("button", { name: /^Zoom: / }).click();
+  await b.getByRole("button", { name: "Zoom to 100%" }).click();
+  await expect(
+    b.getByRole("group", { name: "Following" }).getByText("Following Ada")
+  ).toBeHidden();
+  await expect(
+    a.getByRole("group", { name: "Following" }).getByText("Bo is following you")
+  ).toBeHidden();
+  await expect(b.getByRole("button", { name: "Follow Ada" })).toHaveAttribute(
+    "aria-pressed",
+    "false"
+  );
+});
+
+test("Follow me has everyone follow, and they can be released", async ({
+  browser,
+}) => {
+  const { a, b } = await openTogether(browser);
+  await a.getByRole("button", { name: "Follow me" }).click();
+  await expect(
+    b.getByRole("group", { name: "Following" }).getByText("Following Ada")
+  ).toBeVisible();
+  await expect(
+    a.getByRole("group", { name: "Following" }).getByText("Bo is following you")
+  ).toBeVisible();
+
+  await a.getByRole("button", { name: "Release Bo" }).click();
+  await expect(
+    a.getByRole("group", { name: "Following" }).getByText("Bo is following you")
+  ).toBeHidden();
+  await expect(
+    b.getByRole("group", { name: "Following" }).getByText("Following Ada")
+  ).toBeHidden();
 });

@@ -12,6 +12,14 @@ export interface PeerPointer {
   y: number;
 }
 
+/** The part of the drawing someone's canvas shows, in drawing units. */
+export interface PeerView {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 /** Someone in a room. */
 export interface Peer {
   id: string;
@@ -23,6 +31,10 @@ export interface Peer {
   color: string;
   // Where their pointer is, or null while it's off their canvas.
   pointer: PeerPointer | null;
+  // What their canvas shows, or null until they've said.
+  view: PeerView | null;
+  // The id of whoever they're following, whose view theirs shows, or null.
+  following: string | null;
 }
 
 /**
@@ -52,6 +64,13 @@ export type ClientMessage<D = unknown, C = unknown, A = unknown> =
   // What they're in the middle of, e.g. a stroke they're drawing, or null
   // once they've stopped. It's passed on as it is, and isn't kept.
   | { type: "activity"; activity: A | null }
+  | { type: "view"; view: PeerView }
+  // Follows someone, or stops following anyone with null.
+  | { type: "follow"; id: string | null }
+  // Has everyone else follow them.
+  | { type: "summon" }
+  // Stops someone following them.
+  | { type: "release"; id: string }
   | { type: "leave" };
 
 /** What a room sends each canvas in it. */
@@ -73,6 +92,9 @@ export type ServerMessage<D = unknown, C = unknown, A = unknown> =
   | { type: "presence"; peer: Peer }
   | { type: "pointer"; id: string; pointer: PeerPointer | null }
   | { type: "activity"; id: string; activity: A | null }
+  | { type: "view"; id: string; view: PeerView }
+  // Sent to everyone, including whoever started or stopped following.
+  | { type: "follow"; id: string; following: string | null }
   | { type: "left"; id: string };
 
 /** One canvas's link to the server, for whatever carries its messages. */
@@ -137,6 +159,17 @@ function isAvatar(value: unknown): value is string {
   );
 }
 
+function isView(value: unknown): value is PeerView {
+  return (
+    isObject(value) &&
+    [value.x, value.y, value.width, value.height].every(
+      (each) => typeof each === "number" && Number.isFinite(each)
+    ) &&
+    (value.width as number) > 0 &&
+    (value.height as number) > 0
+  );
+}
+
 function isEdit(value: unknown): value is Edit {
   if (!isObject(value) || typeof value.id !== "string") {
     return false;
@@ -182,11 +215,25 @@ export class CollaborationServer {
       }
     };
 
+    // Who `peer` follows, told to everyone.
+    const setFollowing = (peer: Peer, following: string | null) => {
+      if (peer.following !== following) {
+        peer.following = following;
+        broadcast({ type: "follow", id: peer.id, following });
+      }
+    };
+
     const leave = () => {
       if (!room) {
         return;
       }
       room.members.delete(id);
+      // Nobody follows someone who isn't here.
+      for (const member of room.members.values()) {
+        if (member.peer.following === id) {
+          member.peer.following = null;
+        }
+      }
       broadcast({ type: "left", id });
       if (room.members.size === 0) {
         this.#rooms.delete(roomName);
@@ -214,7 +261,15 @@ export class CollaborationServer {
       const color =
         PEER_COLORS.find((each) => !taken.has(each)) ??
         PEER_COLORS[joined.members.size % PEER_COLORS.length];
-      const peer: Peer = { id, name, avatar, color, pointer: null };
+      const peer: Peer = {
+        id,
+        name,
+        avatar,
+        color,
+        pointer: null,
+        view: null,
+        following: null,
+      };
       send({
         type: "welcome",
         you: id,
@@ -286,6 +341,52 @@ export class CollaborationServer {
               );
             }
             return;
+          // Only what it is, like a pointer.
+          case "view":
+            if (isView(message.view)) {
+              member.peer.view = message.view;
+              broadcast({ type: "view", id, view: message.view }, id);
+            }
+            return;
+          // Following someone who follows them, even through others, would
+          // go round in a circle, so it's turned away.
+          case "follow": {
+            const { id: target } = message;
+            if (target === null) {
+              setFollowing(member.peer, null);
+              return;
+            }
+            if (typeof target !== "string" || target === id) {
+              return;
+            }
+            const seen = new Set([id]);
+            let next: string | null = target;
+            while (next !== null && !seen.has(next)) {
+              seen.add(next);
+              next = room.members.get(next)?.peer.following ?? null;
+            }
+            if (room.members.has(target) && next === null) {
+              setFollowing(member.peer, target);
+            }
+            return;
+          }
+          // Whoever summons stops following anyone, so nobody goes round in
+          // a circle.
+          case "summon":
+            setFollowing(member.peer, null);
+            for (const other of room.members.values()) {
+              if (other !== member) {
+                setFollowing(other.peer, id);
+              }
+            }
+            return;
+          case "release": {
+            const follower = room.members.get(message.id as string);
+            if (follower?.peer.following === id) {
+              setFollowing(follower.peer, null);
+            }
+            return;
+          }
           case "leave":
             leave();
             return;

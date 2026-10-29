@@ -1,10 +1,15 @@
-/* Over the drawing, under the toolbars, and never in the way of a press. */
+/* Over the drawing, under the toolbars, and never in the way of a press.
+ * While following someone, it's edged in their color. */
 .canvas-peer-cursors {
   position: absolute;
   inset: 0;
   z-index: 2;
   overflow: hidden;
   pointer-events: none;
+
+  &[data-following] {
+    box-shadow: inset 0 0 0 3px var(--canvas-follow-color);
+  }
 }
 
 /* Its arrow's tip is where they're pointing. */
@@ -43,34 +48,36 @@
   line-height: 16px;
 }
 
-/* A photo starts the label, so the label's rounder at that end. */
-.canvas-peer-label:has(.canvas-peer-avatar) {
-  padding-left: 2px;
-  border-radius: 10px 6px 6px 10px;
-}
-
-.canvas-peer-avatar {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
 .canvas-peer-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* A row of who else is here, overlapping a little, like avatars. */
-.canvas-people {
-  display: flex;
-  padding-left: 6px;
+/* Who else is here, and Follow me, at the start of the top right toolbar,
+ * hidden while nobody is. The toolbar's next group then needs no line
+ * between them. */
+.canvas-presence {
+  gap: 6px;
 
   &[hidden] {
     display: none;
   }
+
+  &[hidden] + .canvas-toolbar-group {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+/* A row of who else is here, overlapping a little, like avatars. */
+.canvas-people {
+  display: flex;
+  padding-left: 6px;
+}
+
+.canvas-person-item {
+  display: flex;
 }
 
 .canvas-person {
@@ -89,15 +96,18 @@
   font-weight: 600;
   user-select: none;
   -webkit-user-select: none;
+  cursor: pointer;
 
-  /* Their name, below them, on hover. */
-  .canvas-tooltip {
-    top: calc(100% + 6px);
-    right: 0;
+  /* Whoever's followed is ringed in their color, apart from the row. */
+  &[aria-pressed="true"] {
+    z-index: 1;
+    box-shadow: 0 0 0 2px var(--canvas-peer-color);
   }
 
-  &:not(:hover) .canvas-tooltip {
-    display: none;
+  &:focus-visible {
+    z-index: 1;
+    outline: 2px solid var(--canvas-color-accent);
+    outline-offset: 2px;
   }
 }
 
@@ -111,4 +121,62 @@
   border-radius: 50%;
   object-fit: cover;
   box-shadow: 0 0 0 2px var(--canvas-peer-color);
+}
+
+/* Along the top's middle, below the top ruler while it's shown, one line
+ * each for who's followed and who's following. */
+.canvas-follow-bar {
+  position: absolute;
+  top: calc(var(--canvas-toolbar-inset) + var(--canvas-ruler-size) + 44px);
+  left: 50%;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - var(--canvas-toolbar-inset) * 2);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.canvas-follow-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 3px 3px 3px 10px;
+  border-radius: 8px;
+  background-color: var(--canvas-peer-color);
+  box-shadow: var(--canvas-shadow);
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 16px;
+  pointer-events: auto;
+}
+
+.canvas-follow-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-follow-action {
+  flex: none;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 5px;
+  background-color: rgb(255 255 255 / 0.2);
+  color: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+
+  &:hover {
+    background-color: rgb(255 255 255 / 0.32);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #ffffff;
+    outline-offset: 1px;
+  }
 }

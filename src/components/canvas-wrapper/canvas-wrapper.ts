@@ -8,7 +8,7 @@ import { TEXT_LAYOUT } from "../../constants/text-layout.const";
 import { TOOL_SHORTCUTS } from "../../constants/tool-shortcuts.const";
 import { TOOL_SIZES } from "../../constants/tool-sizes.const";
 import { TOOLS } from "../../constants/tools.const";
-import { type SharedImage } from "../../collaboration-server";
+import { type PeerView, type SharedImage } from "../../collaboration-server";
 import { type Activity } from "../../models/activity.model";
 import { type CanvasEntry } from "../../models/canvas-entry.model";
 import {
@@ -370,6 +370,8 @@ export function mountCanvas(
     connection: CollaborationConnection;
     stopListening: () => void;
     history: SharedHistory | null;
+    // This canvas's id in the room, once it's joined.
+    me: string | null;
     // What this canvas is in the middle of, as it's sent, and what everyone
     // else is, by their id.
     activity: ActivitySender;
@@ -378,6 +380,8 @@ export function mountCanvas(
   } | null = null;
   // Set while where the pointer is is waiting to be shared.
   let pointerTimer: ReturnType<typeof setTimeout> | undefined;
+  // The same for what the canvas shows.
+  let viewTimer: ReturnType<typeof setTimeout> | undefined;
   fitPencilToBackground();
   // The drawing and name as of the last update, so an update can tell
   // whether they were changed.
@@ -445,7 +449,12 @@ export function mountCanvas(
       update();
     },
     getImage: (id) => imageStore.get(open.id, id),
+    // Moving around stops following whoever's followed.
     onViewportChange: () => {
+      if (presence.following) {
+        follow(null);
+      }
+      shareView();
       updateToolbars();
       rulers.refresh();
       presence.refresh();
@@ -477,7 +486,12 @@ export function mountCanvas(
     onGoToOrigin: () => canvas.panTo({ x: 0, y: 0 }),
   });
   // Who else is here, while drawing together.
-  const presence = new Presence({ getViewport: () => canvas.viewport });
+  const presence = new Presence({
+    getViewport: () => canvas.viewport,
+    onFollow: follow,
+    onSummon: () => session?.connection.send({ type: "summon" }),
+    onRelease: (id) => session?.connection.send({ type: "release", id }),
+  });
   const toolbarActions: CanvasToolbarActions = {
     onUndo: () => {
       history.undo();
@@ -590,7 +604,9 @@ export function mountCanvas(
   const toolbars = [toolbar, topToolbar, topRightToolbar];
   // The status sits beside the top right toolbar, rather than under it.
   const corner = createElement("div", "canvas-corner");
-  corner.append(status, presence.people);
+  // Who's here starts the top right toolbar.
+  topRightToolbar.element.prepend(presence.element);
+  corner.append(status);
   // The toast sits above the bottom toolbar, rather than over it.
   const bottom = createElement("div", "canvas-bottom");
   bottom.append(toast.element);
@@ -599,6 +615,7 @@ export function mountCanvas(
     presence.cursors,
     rulers.element,
     corner,
+    presence.followBar,
     fileInput
   );
   canvas.zoomOnPinch(root);
@@ -608,9 +625,7 @@ export function mountCanvas(
   if (hasControls(topControls)) {
     root.append(topToolbar.element);
   }
-  if (hasControls(topRightControls)) {
-    corner.append(topRightToolbar.element);
-  }
+  placeTopRightToolbar();
   if (hasControls(controls)) {
     bottom.append(toolbar.element);
   }
@@ -993,6 +1008,7 @@ export function mountCanvas(
       room,
       connection,
       history: null,
+      me: null,
       activity: createActivitySender((activity) =>
         connection.send({ type: "activity", activity })
       ),
@@ -1030,6 +1046,8 @@ export function mountCanvas(
     session = null;
     clearTimeout(pointerTimer);
     pointerTimer = undefined;
+    clearTimeout(viewTimer);
+    viewTimer = undefined;
     left.stopListening();
     left.activity.cancel();
     for (const id of left.peerActivities.keys()) {
@@ -1037,12 +1055,33 @@ export function mountCanvas(
     }
     left.connection.send({ type: "leave" });
     presence.setPeers([]);
+    placeTopRightToolbar();
     history = new DrawingHistory(history.drawing);
     update();
     left.onLeave?.();
   }
 
+  // The top right toolbar is only in the page while it has controls, or
+  // someone else is here to show at its start.
+  function placeTopRightToolbar() {
+    const { element } = topRightToolbar;
+    const shown =
+      topRightControls.some((group) => group.length > 0) ||
+      !presence.element.hidden;
+    if (shown && !element.isConnected) {
+      corner.append(element);
+    } else if (!shown && element.isConnected) {
+      topRightToolbar.close();
+      element.remove();
+    }
+  }
+
   function receive(message: CanvasServerMessage) {
+    receiveMessage(message);
+    placeTopRightToolbar();
+  }
+
+  function receiveMessage(message: CanvasServerMessage) {
     const shared = session!;
     switch (message.type) {
       case "welcome": {
@@ -1058,13 +1097,15 @@ export function mountCanvas(
           (edit) => shared.connection.send({ type: "edit", edit })
         );
         history = shared.history;
-        presence.setPeers(message.peers);
+        shared.me = message.you;
+        presence.setPeers(message.peers, message.you);
         fitPencilToBackground();
         update();
         void shareImages(
           history.drawing.images.filter(({ id }) => !sent.has(id))
         );
         sharePointer();
+        shareView();
         return;
       }
       case "edit":
@@ -1083,6 +1124,25 @@ export function mountCanvas(
       case "activity":
         receiveActivityOf(shared, message.id, message.activity);
         return;
+      case "view":
+        presence.setView(message.id, message.view);
+        if (presence.following === message.id) {
+          showView(message.view);
+        }
+        return;
+      // Starting to follow someone, e.g. as they have everyone follow them,
+      // shows what they see straight away.
+      case "follow": {
+        presence.setFollowing(message.id, message.following);
+        const view =
+          message.id === shared.me && message.following
+            ? presence.getPeer(message.following)?.view
+            : null;
+        if (view) {
+          showView(view);
+        }
+        return;
+      }
       case "left":
         presence.removePeer(message.id);
         receiveActivityOf(shared, message.id, null);
@@ -1153,6 +1213,33 @@ export function mountCanvas(
       pointerTimer = undefined;
       session?.connection.send({ type: "pointer", pointer });
     }, POINTER_SHARE_DELAY);
+  }
+
+  // Tells everyone drawing together what the canvas shows, at most every so
+  // often, so whoever follows it sees the same.
+  function shareView() {
+    if (!session?.history || viewTimer !== undefined) {
+      return;
+    }
+    viewTimer = setTimeout(() => {
+      viewTimer = undefined;
+      session?.connection.send({ type: "view", view: canvas.visibleArea });
+    }, POINTER_SHARE_DELAY);
+  }
+
+  // Follows someone, by their id, or stops following anyone with null.
+  function follow(id: string | null) {
+    session?.connection.send({ type: "follow", id });
+  }
+
+  // Shows what someone followed sees, and passes it on to anyone following
+  // this canvas.
+  function showView(view: PeerView) {
+    canvas.showArea(view);
+    rulers.refresh();
+    presence.refresh();
+    updateToolbars();
+    shareView();
   }
 
   // Tells everyone drawing together who this is, once it's changed.
@@ -1378,6 +1465,14 @@ export function mountCanvas(
     const { height, width } = entry.contentRect;
     canvas.setSize(width, height);
     rulers.refresh();
+    // Whoever's followed is still all shown, at its new size.
+    const followed =
+      presence.following && presence.getPeer(presence.following)?.view;
+    if (followed) {
+      canvas.showArea(followed);
+      presence.refresh();
+    }
+    shareView();
     // The export's size follows the canvas's.
     updateToolbars();
   });

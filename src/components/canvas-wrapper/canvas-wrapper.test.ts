@@ -214,7 +214,22 @@ describe("mountCanvas", () => {
     expect(corner.querySelector(".canvas-status")).not.toBeNull();
     const toolbar = corner.querySelector<HTMLElement>(".canvas-toolbar")!;
     expect(toolbar.dataset.position).toBe("top");
-    expect(toolbar.querySelector("button")!.textContent).toBe("100%");
+    expect(
+      toolbar.querySelector('[aria-label="Zoom: 100%"]')!.textContent
+    ).toBe("100%");
+  });
+
+  it("starts the top right toolbar with who's here, hidden while nobody is", () => {
+    const container = document.createElement("div");
+
+    mountCanvas(container, {
+      topRightToolbar: [[{ action: "zoom" }]],
+    });
+
+    const toolbar = container.querySelector(".canvas-corner .canvas-toolbar")!;
+    const presence = toolbar.firstElementChild as HTMLElement;
+    expect(presence.matches(".canvas-presence")).toBe(true);
+    expect(presence.hidden).toBe(true);
   });
 
   it("throws for a control on two toolbars", () => {

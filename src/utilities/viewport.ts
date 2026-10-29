@@ -110,14 +110,19 @@ export function getFillBox({ rings }: Fill): Box | null {
 }
 
 /**
- * The viewport that shows all of `box`, centered, with room around it, on a
- * canvas `size` pixels big. Without a box, it's the 100% view.
+ * The viewport that shows all of `box`, centered, with `margin` of the
+ * canvas's size around it, on a canvas `size` pixels big. Without a box, it's
+ * the 100% view.
  */
-export function fitViewport(box: Box | null, size: Size): Viewport {
+export function fitViewport(
+  box: Box | null,
+  size: Size,
+  margin = ZOOM.fitMargin
+): Viewport {
   if (!box || size.width <= 0 || size.height <= 0) {
     return DEFAULT_VIEWPORT;
   }
-  const room = 1 - ZOOM.fitMargin * 2;
+  const room = 1 - margin * 2;
   const zoom = clampZoom(
     Math.min(
       (size.width * room) / Math.max(box.width, 1),
