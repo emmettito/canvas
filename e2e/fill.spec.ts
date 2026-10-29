@@ -89,21 +89,38 @@ test("fills inside an outline, below it, and is undone", async ({ page }) => {
   await expect(page.locator(".canvas-fills")).toHaveCount(0);
 });
 
-test("filling around everything fills the background", async ({ page }) => {
+test("filling around everything changes nothing", async ({ page }) => {
   await drawSquare(page, 400, 200, 200);
   await pickColor(page, "blue");
   await page.getByRole("button", { name: "Paint bucket" }).click();
 
   await page.mouse.click(200, 500);
 
-  await expect(
-    page.getByRole("button", { name: "Background: #2c71ff" })
-  ).toBeVisible();
+  await expect(page.getByRole("status")).toHaveText("Nothing closed to fill");
+  // The background stays as it was.
+  await expect(page.locator(".canvas-surface")).toHaveCSS(
+    "background-color",
+    "rgb(255, 255, 255)"
+  );
   await expect(page.locator(".canvas-fills")).toHaveCount(0);
+  // The square, still nothing to undo past.
   await page.getByRole("button", { name: "Undo" }).click();
-  await expect(
-    page.getByRole("button", { name: "Background: White" })
-  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
+});
+
+test("filling to a note's edges changes nothing", async ({ page }) => {
+  await page.getByRole("button", { name: "Sticky note" }).click();
+  await page.mouse.click(500, 300);
+  await page.keyboard.type("Hi");
+  await page.keyboard.press("Escape");
+  await pickColor(page, "purple");
+  await page.getByRole("button", { name: "Paint bucket" }).click();
+
+  await page.mouse.click(500, 360);
+
+  await expect(page.getByRole("status")).toHaveText("Nothing closed to fill");
+  await expect(page.locator(".canvas-note-fills")).toHaveCount(0);
+  expect(await getColorAt(page, 500, 360)).toBe("#fefe99");
 });
 
 test("fills over a fill, and the eraser erases fills before it", async ({
@@ -138,21 +155,17 @@ test("fills a note's area on the note, and keeps fills", async ({ page }) => {
   await page.keyboard.type("Hi");
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Pencil" }).click();
-  // A line across the note, which splits it in two.
-  await page.mouse.move(380, 330);
-  await page.mouse.down();
-  await page.mouse.move(620, 330, { steps: 8 });
-  await page.mouse.up();
+  await drawSquare(page, 460, 250, 80);
   await pickColor(page, "purple");
   await page.getByRole("button", { name: "Paint bucket" }).click();
 
-  await page.mouse.click(500, 360);
+  await page.mouse.click(500, 290);
 
   await expect(page.locator(".canvas-note-fills")).toHaveCount(1);
   await expect(page.locator(".canvas-fills")).toHaveCount(0);
-  expect(await getColorAt(page, 500, 360)).toBe("purple");
-  // Above the line, the note's own color.
-  expect(await getColorAt(page, 500, 300)).toBe("#fefe99");
+  expect(await getColorAt(page, 500, 290)).toBe("purple");
+  // Outside the square, the note's own color.
+  expect(await getColorAt(page, 500, 360)).toBe("#fefe99");
 
   // Moving the note moves its fill.
   await page.reload();
@@ -161,7 +174,7 @@ test("fills a note's area on the note, and keeps fills", async ({ page }) => {
   await page.mouse.down();
   await page.mouse.move(540, 250, { steps: 5 });
   await page.mouse.up();
-  expect(await getColorAt(page, 600, 360)).toBe("purple");
+  expect(await getColorAt(page, 600, 290)).toBe("purple");
 });
 
 test("fills are kept, and exported as outlines", async ({ page }) => {

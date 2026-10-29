@@ -48,6 +48,7 @@ import {
 } from "../canvas-toolbar/canvas-toolbar";
 import { Canvas, type Placing } from "../canvas/canvas";
 import { plainTextEditor } from "../canvas/plain-text-editor";
+import { Toast } from "../toast/toast";
 import "./canvas-wrapper.css";
 
 // A blank canvas. It only goes into the history once it's changed.
@@ -262,6 +263,8 @@ export function mountCanvas(
     // Choosing the same file again should still insert it.
     fileInput.value = "";
   });
+  // Says why something did nothing, e.g. the paint bucket.
+  const toast = new Toast();
   const canvas = new Canvas(canvasWrapper, getStrokeToolState(), {
     onStrokeComplete: (stroke) => {
       history.addStroke(stroke);
@@ -283,7 +286,7 @@ export function mountCanvas(
       history.addFill(fill);
       update();
     },
-    onFillBackground: (color) => setBackground(color),
+    onNothingToFill: () => toast.show("Nothing closed to fill"),
     onItemRestack: (kind, id, to) => {
       history.restackItem(kind, id, to);
       update();
@@ -422,6 +425,9 @@ export function mountCanvas(
   // The status sits beside the top right toolbar, rather than under it.
   const corner = createElement("div", "canvas-corner");
   corner.append(status);
+  // The toast sits above the bottom toolbar, rather than over it.
+  const bottom = createElement("div", "canvas-bottom");
+  bottom.append(toast.element);
   root.append(canvasWrapper, corner, fileInput);
   canvas.zoomOnPinch(root);
   const hasControls = (groups: ToolbarControl[][]) =>
@@ -433,8 +439,10 @@ export function mountCanvas(
     corner.append(topRightToolbar.element);
   }
   if (hasControls(controls)) {
-    root.append(toolbar.element);
+    bottom.append(toolbar.element);
   }
+  // Last, so the bottom toolbar is last to tab to, as it's last on screen.
+  root.append(bottom);
   reportName();
   save();
 
@@ -938,6 +946,7 @@ export function mountCanvas(
         each.destroy();
       }
       canvas.destroy();
+      toast.destroy();
       root.remove();
     },
   };

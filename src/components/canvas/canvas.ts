@@ -85,8 +85,9 @@ export interface CanvasOptions {
   onViewportChange: (viewport: Viewport) => void;
   // The paint bucket filled an area of the drawing.
   onFill: (fill: Fill) => void;
-  // The paint bucket filled around everything, which is the background.
-  onFillBackground: (color: string) => void;
+  // The paint bucket was pressed where nothing's closed in, so it did
+  // nothing.
+  onNothingToFill: () => void;
   // The dropper picked a color from the drawing.
   onPickColor: (color: CustomColor) => void;
   // A custom color was picked in the format bar, to pick again.
@@ -1156,8 +1157,11 @@ export class Canvas {
         return;
       }
       const mask = floodFill(data, width, height, seed, tolerance);
-      if (!note && touchesEdge(mask) && isNear(parseColor(this.#background))) {
-        this.#options.onFillBackground(fillColor);
+      // Only areas closed in by lines are filled, so a stray click doesn't
+      // fill everything: not one that goes past what's searched, around
+      // everything, or, on a note, to its edges.
+      if (touchesEdge(mask)) {
+        this.#options.onNothingToFill();
         return;
       }
       // From the note's top left corner, on one, like its strokes.

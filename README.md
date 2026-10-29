@@ -150,16 +150,19 @@ toolbar have one.
 
 With `bucket` picked, clicking the canvas fills the area around the click, in
 the pencil's color: everything there that looks the same color, up to the
-lines and edges around it, as the drawing's drawn. Fills are kept as outlines,
+lines around it, as the drawing's drawn. Fills are kept as outlines,
 not pixels, so they stay sharp at any zoom and export to SVG as shapes.
 
 - Fills are below every stroke and item, so the lines around one are always
   drawn over its edge. It reaches a little under them, so no gap shows at
   their soft edges. A fill over a fill is above it.
-- An area that goes past the canvas's edges, around everything, is the
-  background, so clicking it changes the background instead.
-- On a note, it fills the note's area, below its text and strokes, and moves
-  and resizes with the note like its strokes.
+- Only areas closed in by lines are filled, so a stray click can't fill
+  everything. Clicking one that isn't, which goes past the canvas's edges
+  around everything, or a note's edges, does nothing, and a message at the
+  bottom of the canvas says so for a moment. It never changes the
+  background.
+- On a note, it fills the area inside lines drawn on the note, below its text
+  and strokes, and moves and resizes with the note like its strokes.
 - The eraser erases fills made before it, like strokes. Clicking an image
   does nothing.
 

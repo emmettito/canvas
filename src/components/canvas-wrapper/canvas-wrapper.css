@@ -34,10 +34,19 @@
   left: var(--canvas-toolbar-inset);
 }
 
-.canvas-root > .canvas-toolbar[data-position="bottom"] {
+/* The bottom middle: the bottom toolbar, with toasts above it. */
+.canvas-bottom {
+  position: absolute;
   bottom: var(--canvas-toolbar-inset);
   left: 50%;
+  z-index: 3;
+  max-width: calc(100% - var(--canvas-toolbar-inset) * 2);
   transform: translateX(-50%);
+  pointer-events: none;
+
+  & > .canvas-toolbar {
+    pointer-events: auto;
+  }
 }
 
 /* The top right corner: the top right toolbar, with the status beside it. */
