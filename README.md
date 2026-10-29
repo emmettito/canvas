@@ -146,9 +146,9 @@ for `eraser`, G for `bucket`, N for `note`, T for `text` and I for `dropper`. On
 toolbar have one.
 
 Clicking `pencil` or `eraser` again shows its sizes, each as the dot it
-draws, at the size it draws it, with its width in pixels below. The pencil's
-are 2, 5, 10, 20 and 40 pixels wide, and the eraser's 10 to 80. [ and ]
-pick the next size down or up, like Photoshop's. A size is on screen, not on
+draws, at the size it draws it, with its width in pixels below, and the one
+picked ringed, like the color picked. Both offer the same sizes: 2, 5, 10, 20
+and 40 pixels wide. [ and ] pick the next size down or up, like Photoshop's. A size is on screen, not on
 the drawing, so a stroke looks the size picked at any zoom: zoomed in, it's
 finer on the drawing, for detail.
 

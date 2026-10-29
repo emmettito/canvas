@@ -823,15 +823,15 @@ export class CanvasToolbar {
   }
 
   // The pencil's and eraser's sizes, each shown as the dot it draws, at the
-  // size it draws it, in the pencil's color or as the eraser's outline.
-  // Picking one closes it, like picking a color.
+  // size it draws it, in the pencil's color or as the eraser's outline. The
+  // one picked is ringed, and picking one closes it, like picking a color.
   #createSizePicker(tool: StrokeTool): HTMLDivElement {
     const picker = createElement("div", "canvas-size-picker");
     picker.setAttribute("role", "group");
     picker.setAttribute("aria-label", `${TOOL_LABELS[tool]} size`);
     const { size: current, color } = this.#state.tools[tool];
     const shown = color === undefined ? null : toCss(color);
-    for (const size of TOOL_SIZES[tool]) {
+    for (const size of TOOL_SIZES) {
       const option = createButton("canvas-size-option");
       const width = size * 2;
       option.setAttribute("aria-label", `${width} pixels`);

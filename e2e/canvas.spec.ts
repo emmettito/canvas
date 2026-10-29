@@ -169,6 +169,36 @@ test("clicking the active tool opens its sizes, which pick it and close", async 
   ).toHaveAttribute("aria-pressed", "true");
 });
 
+test("the eraser offers the pencil's sizes", async ({ page }) => {
+  const sizeNames = async (tool: string) => {
+    const button = page.getByRole("button", { name: tool, exact: true });
+    const sizes = page.getByRole("group", { name: `${tool} size` });
+    // Picked, then clicked again for its sizes.
+    if ((await button.getAttribute("aria-pressed")) !== "true") {
+      await button.click();
+    }
+    await button.click();
+    await expect(sizes).toBeVisible();
+    const names = await sizes
+      .getByRole("button")
+      .evaluateAll((buttons) =>
+        buttons.map((button) => button.getAttribute("aria-label"))
+      );
+    await page.keyboard.press("Escape");
+    return names;
+  };
+
+  const pencil = await sizeNames("Pencil");
+  expect(pencil).toEqual([
+    "2 pixels",
+    "5 pixels",
+    "10 pixels",
+    "20 pixels",
+    "40 pixels",
+  ]);
+  expect(await sizeNames("Eraser")).toEqual(pencil);
+});
+
 test("[ and ] step through the pencil's sizes", async ({ page }) => {
   const pencil = page.getByRole("button", { name: "Pencil" });
   const sizes = page.getByRole("group", { name: "Pencil size" });

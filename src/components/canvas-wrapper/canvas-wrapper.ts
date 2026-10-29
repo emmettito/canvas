@@ -208,9 +208,9 @@ export interface CollaborateOptions {
   onLeave?: () => void;
 }
 
-// Which of the tool's sizes is closest to `size`.
-function getNearestSize(tool: StrokeTool, size: number): number {
-  return TOOL_SIZES[tool].reduce((nearest, each) =>
+// Which of the tools' sizes is closest to `size`.
+function getNearestSize(size: number): number {
+  return TOOL_SIZES.reduce((nearest, each) =>
     Math.abs(each - size) < Math.abs(nearest - size) ? each : nearest
   );
 }
@@ -330,16 +330,17 @@ export function mountCanvas(
   // The tool the dropper goes back to, whose color it picks.
   let previousTool: Tool = activeTool;
   let textSize = saved?.textSize ?? TEXT_LAYOUT.defaultSize;
-  // Sizes saved before each tool offered a few are the nearest one now.
+  // Sizes saved before the tools offered the same few are the nearest one
+  // now.
   let tools: Record<StrokeTool, ToolState> = saved
     ? {
         eraser: {
           ...saved.tools.eraser,
-          size: getNearestSize("eraser", saved.tools.eraser.size),
+          size: getNearestSize(saved.tools.eraser.size),
         },
         pencil: {
           ...saved.tools.pencil,
-          size: getNearestSize("pencil", saved.tools.pencil.size),
+          size: getNearestSize(saved.tools.pencil.size),
         },
       }
     : {
@@ -766,10 +767,9 @@ export function mountCanvas(
     if (activeTool !== "pencil" && activeTool !== "eraser") {
       return;
     }
-    const sizes = TOOL_SIZES[activeTool];
-    const index = sizes.indexOf(tools[activeTool].size) + step;
-    if (index >= 0 && index < sizes.length) {
-      toolbarActions.onUpdateTool(activeTool, { size: sizes[index] });
+    const index = TOOL_SIZES.indexOf(tools[activeTool].size) + step;
+    if (index >= 0 && index < TOOL_SIZES.length) {
+      toolbarActions.onUpdateTool(activeTool, { size: TOOL_SIZES[index] });
     }
   }
 
