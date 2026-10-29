@@ -15,6 +15,7 @@
   "exclude": [
     "src/main.ts",
     "src/settings.ts",
+    "src/share.ts",
     "src/theme.ts",
     "src/demo-icons.ts",
     "src/**/*.test.ts"

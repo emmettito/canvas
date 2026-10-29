@@ -8,9 +8,16 @@ import { TEXT_LAYOUT } from "../../constants/text-layout.const";
 import { TOOL_SHORTCUTS } from "../../constants/tool-shortcuts.const";
 import { TOOL_SIZES } from "../../constants/tool-sizes.const";
 import { TOOLS } from "../../constants/tools.const";
+import { type SharedImage } from "../../collaboration-server";
+import { type Activity } from "../../models/activity.model";
 import { type CanvasEntry } from "../../models/canvas-entry.model";
+import {
+  type CanvasServerMessage,
+  type CollaborationConnection,
+} from "../../models/collaboration.model";
 import { type CustomColor, type ToolColor } from "../../models/color.model";
 import { type Drawing } from "../../models/drawing.model";
+import { type History } from "../../models/history.model";
 import { type Point } from "../../models/point.model";
 import {
   type ToolbarControl,
@@ -33,6 +40,7 @@ import {
   resolveColor,
   toHex,
 } from "../../utilities/colors";
+import { blobToDataUrl, dataUrlToBlob } from "../../utilities/data-url";
 import { DrawingHistory } from "../../utilities/drawing-history";
 import { getCssVariable } from "../../utilities/get-css-variable";
 import { EXPORT_EXTENSIONS } from "../../utilities/export-drawing";
@@ -41,6 +49,13 @@ import { getImageSize } from "../../utilities/get-image-size";
 import { ImageStore } from "../../utilities/image-store";
 import { isField } from "../../utilities/is-field";
 import { getDefaultOrder, isOrderOf } from "../../utilities/layers";
+import {
+  type ActivitySender,
+  createActivitySender,
+  isSharedActivity,
+  receiveActivity,
+} from "../../utilities/shared-activity";
+import { SharedHistory } from "../../utilities/shared-history";
 import { DEFAULT_VIEWPORT } from "../../utilities/viewport";
 import {
   CanvasToolbar,
@@ -50,6 +65,7 @@ import {
 } from "../canvas-toolbar/canvas-toolbar";
 import { Canvas, type Placing } from "../canvas/canvas";
 import { plainTextEditor } from "../canvas/plain-text-editor";
+import { Presence } from "../presence/presence";
 import { Rulers } from "../rulers/rulers";
 import { Toast } from "../toast/toast";
 import "./canvas-wrapper.css";
@@ -69,6 +85,10 @@ const LEGACY_BACKGROUND = "#ffffff";
 // How long scrolling or zooming has to pause before the view is saved, so
 // it isn't saved for every step.
 const VIEWPORT_SAVE_DELAY = 300;
+
+// How often, at most, where the pointer is goes to everyone drawing
+// together, in milliseconds, so moving it doesn't flood the room.
+const POINTER_SHARE_DELAY = 50;
 
 // The zoom shortcuts' keys, by position, so they work on any layout:
 // Ctrl+= or + zooms in, Ctrl+- out, Ctrl+0 or Shift+0 to 100%, and Shift+1 to
@@ -148,13 +168,44 @@ export interface MountedCanvas {
    */
   setAuthor: (name: string) => void;
   /**
+   * Changes the photo shown for whoever's drawing to everyone drawing
+   * together with them, e.g. once they've picked one. Takes an image's data
+   * URL, or an https address. Empty for none, which shows their initial.
+   */
+  setAvatar: (url: string) => void;
+  /**
    * Shows or hides who signed each note, on the canvas and in exports, e.g.
    * for a tidier canvas. Notes stay signed, so showing them again brings
    * their names back.
    */
   setShowAuthors: (show: boolean) => void;
+  /** The open canvas's id, e.g. to draw on it together as a room. */
+  readonly canvasId: string;
+  /**
+   * Draws together with everyone in `room`, through `connection`. The canvas
+   * with the room's id opens, or a new one with it, and joins the room, which
+   * starts from this canvas's drawing if nobody's in it yet. Everyone's
+   * changes show as they're made, with each person's pointer and name, and
+   * undo only undoes this canvas's own changes. It's kept like any other
+   * canvas, so it's there to open again on its own. Returns a function that
+   * leaves the room. Opening another canvas leaves it too.
+   */
+  collaborate: (
+    connection: CollaborationConnection,
+    options: CollaborateOptions
+  ) => () => void;
   /** Removes the canvas and stops listening for events. */
   unmount: () => void;
+}
+
+export interface CollaborateOptions {
+  /** The room to join, which is also the id of the canvas it's kept as. */
+  room: string;
+  /**
+   * Called once the canvas leaves the room, however it does, e.g. as another
+   * canvas is opened.
+   */
+  onLeave?: () => void;
 }
 
 // Which of the tool's sizes is closest to `size`.
@@ -216,6 +267,12 @@ export interface MountCanvasOptions {
    */
   author?: string;
   /**
+   * The photo of whoever's drawing, shown to everyone drawing together with
+   * them, as an image's data URL or an https address. Change it with
+   * `setAvatar`. Without one, their initial shows instead.
+   */
+  avatar?: string;
+  /**
    * Whether signed notes show who signed them, on the canvas and in exports.
    * Change it with `setShowAuthors`. Shown by default.
    */
@@ -239,6 +296,7 @@ export function mountCanvas(
     onBackgroundChange,
     textEditor = plainTextEditor,
     author: initialAuthor = "",
+    avatar: initialAvatar = "",
     showAuthors = true,
   }: MountCanvasOptions = {}
 ): MountedCanvas {
@@ -264,6 +322,7 @@ export function mountCanvas(
   const imageStore = new ImageStore(storageKey);
   const saved = storage.loadToolSettings();
   let author = initialAuthor.trim();
+  let avatar = initialAvatar;
   let exportOptions = storage.loadExportOptions() ?? DEFAULT_EXPORT_OPTIONS;
   let activeTool: Tool = saved?.activeTool ?? "pencil";
   let noteColor: ToolColor = saved?.noteColor ?? DEFAULT_NOTE_COLOR;
@@ -300,7 +359,23 @@ export function mountCanvas(
   const lastOpenId = storage.loadOpenCanvas();
   let open: CanvasEntry =
     canvases.find(({ id }) => id === lastOpenId) ?? createEntry();
-  const history = new DrawingHistory(loadDrawing(open.id));
+  // Replaced by a shared one while drawing together.
+  let history: History = new DrawingHistory(loadDrawing(open.id));
+  // Drawing together with others in a room, or null while drawing alone.
+  // Its history is null until the room has sent what's been drawn so far.
+  let session: {
+    room: string;
+    connection: CollaborationConnection;
+    stopListening: () => void;
+    history: SharedHistory | null;
+    // What this canvas is in the middle of, as it's sent, and what everyone
+    // else is, by their id.
+    activity: ActivitySender;
+    peerActivities: Map<string, Activity>;
+    onLeave?: () => void;
+  } | null = null;
+  // Set while where the pointer is is waiting to be shared.
+  let pointerTimer: ReturnType<typeof setTimeout> | undefined;
   fitPencilToBackground();
   // The drawing and name as of the last update, so an update can tell
   // whether they were changed.
@@ -371,6 +446,7 @@ export function mountCanvas(
     onViewportChange: () => {
       updateToolbars();
       rulers.refresh();
+      presence.refresh();
       clearTimeout(viewportTimer);
       viewportTimer = setTimeout(save, VIEWPORT_SAVE_DELAY);
     },
@@ -384,6 +460,11 @@ export function mountCanvas(
       recentColors = addRecentColor(recentColors, color);
       update();
     },
+    onActivity: (activity) => {
+      if (session?.history) {
+        session.activity.set(activity);
+      }
+    },
   });
   canvas.setViewport(storedViewport);
   canvas.setShowAuthors(showAuthors);
@@ -393,6 +474,8 @@ export function mountCanvas(
     // Where a new canvas starts, at the zoom it's at.
     onGoToOrigin: () => canvas.panTo({ x: 0, y: 0 }),
   });
+  // Who else is here, while drawing together.
+  const presence = new Presence({ getViewport: () => canvas.viewport });
   const toolbarActions: CanvasToolbarActions = {
     onUndo: () => {
       history.undo();
@@ -505,11 +588,17 @@ export function mountCanvas(
   const toolbars = [toolbar, topToolbar, topRightToolbar];
   // The status sits beside the top right toolbar, rather than under it.
   const corner = createElement("div", "canvas-corner");
-  corner.append(status);
+  corner.append(status, presence.people);
   // The toast sits above the bottom toolbar, rather than over it.
   const bottom = createElement("div", "canvas-bottom");
   bottom.append(toast.element);
-  root.append(canvasWrapper, rulers.element, corner, fileInput);
+  root.append(
+    canvasWrapper,
+    presence.cursors,
+    rulers.element,
+    corner,
+    fileInput
+  );
   canvas.zoomOnPinch(root);
   showRulers(saved?.rulers ?? false);
   const hasControls = (groups: ToolbarControl[][]) =>
@@ -533,10 +622,12 @@ export function mountCanvas(
   canvasWrapper.addEventListener("pointermove", (event) => {
     pointer = canvas.getDrawingPoint(event.clientX, event.clientY);
     rulers.setPointer({ x: event.clientX, y: event.clientY });
+    sharePointer();
   });
   canvasWrapper.addEventListener("pointerleave", () => {
     pointer = null;
     rulers.setPointer(null);
+    sharePointer();
   });
   // Dropped image files are placed where they're dropped. Any other dropped
   // file is ignored, rather than the browser opening it in place of the page.
@@ -718,12 +809,15 @@ export function mountCanvas(
   // Replaces what's being worked on, with nothing to undo. What it replaces
   // is already saved.
   function openCanvas(entry: CanvasEntry) {
+    if (session && entry.id !== session.room) {
+      leaveRoom();
+    }
     // The view being left is saved now, rather than after the delay.
     clearTimeout(viewportTimer);
     save();
     const drawing = loadDrawing(entry.id);
     open = entry;
-    history.reset(drawing);
+    history = new DrawingHistory(drawing);
     lastDrawing = drawing;
     lastName = entry.name;
     stored = withStoredBackground(drawing, entry.id);
@@ -731,6 +825,7 @@ export function mountCanvas(
     storedViewport = storage.loadViewport(entry.id) ?? DEFAULT_VIEWPORT;
     canvas.setViewport(storedViewport);
     rulers.refresh();
+    presence.refresh();
     update();
   }
 
@@ -786,6 +881,12 @@ export function mountCanvas(
         : 1;
     const width = size.width * fit;
     const height = size.height * fit;
+    // Everyone drawing together gets its file before the image, so it shows
+    // as soon as the image does.
+    const data = session?.history && (await blobToDataUrl(file));
+    if (data) {
+      session?.connection.send({ type: "image", image: { id, data } });
+    }
     history.addItem("images", {
       id,
       x: center.x - width / 2,
@@ -864,10 +965,198 @@ export function mountCanvas(
   // Changes the canvas's background, so it can be undone.
   function setBackground(color: string) {
     if (color !== history.drawing.background) {
-      history.change({ ...history.drawing, background: color });
+      history.setBackground(color);
       fitPencilToBackground();
     }
     update();
+  }
+
+  // Joins `room`, opening its canvas, which the room starts from if it's
+  // new. Leaves any room it's in first.
+  function joinRoom(
+    connection: CollaborationConnection,
+    room: string,
+    onLeave?: () => void
+  ) {
+    leaveRoom();
+    if (open.id !== room) {
+      openCanvas(
+        canvases.find(({ id }) => id === room) ?? {
+          id: room,
+          name: "",
+          updatedAt: Date.now(),
+        }
+      );
+    }
+    const joined = {
+      room,
+      connection,
+      history: null,
+      activity: createActivitySender((activity) =>
+        connection.send({ type: "activity", activity })
+      ),
+      peerActivities: new Map(),
+      onLeave,
+      stopListening: connection.listen((message) => {
+        // Messages still on their way once it's left are ignored.
+        if (session === joined) {
+          receive(message);
+        }
+      }),
+    };
+    session = joined;
+    connection.send({
+      type: "join",
+      room,
+      name: author,
+      avatar,
+      drawing: history.drawing,
+    });
+    return () => {
+      if (session === joined) {
+        leaveRoom();
+      }
+    };
+  }
+
+  // Goes back to drawing alone, keeping the drawing as it is, with nothing
+  // to undo, since what was undone was shared.
+  function leaveRoom() {
+    const left = session;
+    if (!left) {
+      return;
+    }
+    session = null;
+    clearTimeout(pointerTimer);
+    pointerTimer = undefined;
+    left.stopListening();
+    left.activity.cancel();
+    for (const id of left.peerActivities.keys()) {
+      canvas.setPeerActivity({ id, color: "" }, null);
+    }
+    left.connection.send({ type: "leave" });
+    presence.setPeers([]);
+    history = new DrawingHistory(history.drawing);
+    update();
+    left.onLeave?.();
+  }
+
+  function receive(message: CanvasServerMessage) {
+    const shared = session!;
+    switch (message.type) {
+      case "welcome": {
+        // Their files first, so the images show with the drawing.
+        for (const image of message.images) {
+          receiveImage(image);
+        }
+        const sent = new Set(message.images.map(({ id }) => id));
+        shared.history = new SharedHistory(
+          message.drawing,
+          message.edits,
+          message.you,
+          (edit) => shared.connection.send({ type: "edit", edit })
+        );
+        history = shared.history;
+        presence.setPeers(message.peers);
+        fitPencilToBackground();
+        update();
+        void shareImages(
+          history.drawing.images.filter(({ id }) => !sent.has(id))
+        );
+        sharePointer();
+        return;
+      }
+      case "edit":
+        shared.history?.receive(message.edit);
+        update();
+        return;
+      case "image":
+        receiveImage(message.image);
+        return;
+      case "presence":
+        presence.setPeer(message.peer);
+        return;
+      case "pointer":
+        presence.setPointer(message.id, message.pointer);
+        return;
+      case "activity":
+        receiveActivityOf(shared, message.id, message.activity);
+        return;
+      case "left":
+        presence.removePeer(message.id);
+        receiveActivityOf(shared, message.id, null);
+        return;
+    }
+  }
+
+  // Shows what someone else is in the middle of, in their color. Anything
+  // that isn't an activity is ignored, since it could come from anyone.
+  function receiveActivityOf(
+    shared: NonNullable<typeof session>,
+    id: string,
+    activity: unknown
+  ) {
+    if (activity !== null && !isSharedActivity(activity)) {
+      return;
+    }
+    const next = receiveActivity(
+      shared.peerActivities.get(id) ?? null,
+      activity
+    );
+    if (next) {
+      shared.peerActivities.set(id, next);
+    } else if (!shared.peerActivities.delete(id)) {
+      return;
+    }
+    const color =
+      presence.getPeer(id)?.color ??
+      getCssVariable(root, "--canvas-color-accent");
+    canvas.setPeerActivity({ id, color }, next);
+  }
+
+  // Keeps the file of an image someone else added, and shows it.
+  function receiveImage({ id, data }: SharedImage) {
+    const file = dataUrlToBlob(data);
+    if (!file) {
+      return;
+    }
+    void imageStore.put(open.id, id, file).then((saved) => {
+      if (!saved) {
+        imagesSaved = false;
+        save();
+      }
+    });
+    canvas.reloadImage(id);
+  }
+
+  // Sends the files of images the room doesn't have yet, e.g. ones on the
+  // canvas the room started from.
+  async function shareImages(images: { id: string }[]) {
+    const shared = session;
+    for (const { id } of images) {
+      const file = await imageStore.get(open.id, id);
+      const data = file && (await blobToDataUrl(file));
+      if (data && session === shared) {
+        shared?.connection.send({ type: "image", image: { id, data } });
+      }
+    }
+  }
+
+  // Tells everyone drawing together where the pointer is, at most every so
+  // often.
+  function sharePointer() {
+    if (!session?.history || pointerTimer !== undefined) {
+      return;
+    }
+    pointerTimer = setTimeout(() => {
+      pointerTimer = undefined;
+      session?.connection.send({ type: "pointer", pointer });
+    }, POINTER_SHARE_DELAY);
+  }
+
+  // Tells everyone drawing together who this is, once it's changed.
+  function shareProfile() {
+    session?.connection.send({ type: "profile", name: author, avatar });
   }
 
   // The pencil stays visible on a new background: black becomes white on a
@@ -1087,9 +1376,20 @@ export function mountCanvas(
     setAuthor: (name) => {
       author = name.trim();
       canvas.setPlacing(getPlacing());
+      shareProfile();
+    },
+    setAvatar: (url) => {
+      avatar = url;
+      shareProfile();
     },
     setShowAuthors: (show) => canvas.setShowAuthors(show),
+    get canvasId() {
+      return open.id;
+    },
+    collaborate: (connection, { room, onLeave }) =>
+      joinRoom(connection, room, onLeave),
     unmount: () => {
+      leaveRoom();
       // A view changed just before isn't lost.
       clearTimeout(viewportTimer);
       save();

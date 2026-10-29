@@ -70,6 +70,8 @@ export interface ItemLayerOptions<T extends PlacedItem, V extends ItemView<T>> {
   // Where the item goes as it's dragged to `item`, e.g. lined up with others
   // near it. `free` is whether Alt is held, to place it exactly.
   snap?: (view: V, item: T, free: boolean) => T;
+  // An item was dragged to where `view` shows it, as it's moved or resized.
+  onGestureMove?: (view: V) => void;
   // An item stopped being moved or resized, kept or put back.
   onGestureEnd?: () => void;
   // It was moved or resized.
@@ -114,6 +116,9 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
   #openedByLongPress = false;
   // The last press without a drag, to tell a double press.
   #lastPress: { id: string; time: number } | null = null;
+  // Items shown as someone else has them, e.g. as they move them, by id.
+  // Ones that aren't in the drawing yet are shown above the rest.
+  #previews = new Map<string, T>();
 
   constructor(layerClassName: string, options: ItemLayerOptions<T, V>) {
     this.#options = options;
@@ -195,6 +200,29 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
     }
   }
 
+  /**
+   * Shows `item` in place of the item with its id, or above the rest if
+   * there isn't one yet, until it's shown as null, e.g. as someone drawing
+   * together with this canvas moves it, or types in a note they're adding.
+   * Returns its view while it's shown.
+   */
+  setPreview(id: string, item: T | null): V | undefined {
+    if (item) {
+      this.#previews.set(id, item);
+    } else if (!this.#previews.delete(id)) {
+      return undefined;
+    }
+    this.#render();
+    return item ? this.#views.get(id) : undefined;
+  }
+
+  /** Whether the item is only a preview, since it isn't in the drawing yet. */
+  isPreviewOnly(id: string): boolean {
+    return (
+      this.#previews.has(id) && !this.#items.some((item) => item.id === id)
+    );
+  }
+
   isDraft(id: string): boolean {
     return id === this.#draftId;
   }
@@ -248,19 +276,29 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
     this.#views.delete(id);
   }
 
-  // Shows the items, in order, reusing the elements already shown so one
-  // being typed in keeps its focus.
+  // Shows the items, in order, and then previews of ones that aren't in the
+  // drawing yet, reusing the elements already shown so one being typed in
+  // keeps its focus.
   #render(): void {
     const ids = new Set(this.#items.map(({ id }) => id));
     for (const id of this.#views.keys()) {
-      if (!ids.has(id) && !this.isDraft(id)) {
+      if (!ids.has(id) && !this.isDraft(id) && !this.#previews.has(id)) {
         this.#discard(id);
       }
     }
     const layer = this.element;
-    this.#items.forEach((item, index) => {
+    const gesture = this.#gesture;
+    const shown = [
+      ...this.#items,
+      ...[...this.#previews.values()].filter(({ id }) => !ids.has(id)),
+    ];
+    shown.forEach((item, index) => {
       const view = this.#views.get(item.id) ?? this.#createView(item);
-      view.item = item;
+      // One being moved or resized stays where the pointer has it, e.g. as
+      // someone drawing together with this canvas changes something else.
+      if (gesture?.view !== view || !gesture.moved) {
+        view.item = this.#previews.get(item.id) ?? item;
+      }
       // Moving the element would take its focus, so it only moves if it has
       // to.
       if (layer.children[index] !== view.element) {
@@ -333,6 +371,7 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
       view.item = resize(from, gesture.size, handle, dx, dy, gesture.min);
     }
     this.#options.render(view);
+    this.#options.onGestureMove?.(view);
   };
 
   #onPointerUp = (event: PointerEvent): void => {

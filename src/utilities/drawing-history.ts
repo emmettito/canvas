@@ -1,17 +1,14 @@
+import { type DrawingChange } from "../models/drawing-change.model";
 import {
   type Drawing,
   type DrawingItem,
   type ItemKind,
 } from "../models/drawing.model";
 import { type Fill } from "../models/fill.model";
+import { type History } from "../models/history.model";
 import { type Stroke } from "../models/stroke.model";
-import {
-  addItemLayer,
-  addStrokeLayer,
-  removeItemLayer,
-  type Restack,
-  restackItemLayer,
-} from "./layers";
+import { applyChange, hasContent } from "./apply-change";
+import { type Restack } from "./layers";
 
 /**
  * The current drawing, and the earlier and undone versions of it. Each change
@@ -19,7 +16,7 @@ import {
  * canvas can tell when strokes were only added, and so old versions can be
  * kept cheaply.
  */
-export class DrawingHistory {
+export class DrawingHistory implements History {
   #drawing: Drawing;
   // Most recent last.
   #past: Drawing[] = [];
@@ -46,83 +43,45 @@ export class DrawingHistory {
     return this.#undone.length > 0;
   }
 
-  /** Whether anything is drawn or placed. */
   get canClear(): boolean {
-    const { strokes, fills, images, texts, notes } = this.#drawing;
-    return (
-      strokes.length > 0 ||
-      fills.length > 0 ||
-      images.length > 0 ||
-      texts.length > 0 ||
-      notes.length > 0
-    );
+    return hasContent(this.#drawing);
   }
 
-  /** Draws a stroke on top of everything. */
   addStroke(stroke: Stroke): void {
-    this.change({
-      ...this.#drawing,
-      strokes: [...this.strokes, stroke],
-      order: addStrokeLayer(this.#drawing.order),
-    });
+    this.#apply({ type: "add-stroke", stroke });
   }
 
-  /** Fills an area, below everything but older fills. */
   addFill(fill: Fill): void {
-    this.change({ ...this.#drawing, fills: [...this.#drawing.fills, fill] });
+    this.#apply({ type: "add-fill", fill });
   }
 
-  /** Places an item on top of everything. */
   addItem<K extends ItemKind>(kind: K, item: DrawingItem<K>): void {
-    this.#changeItems(
-      kind,
-      [...this.#getItems(kind), item],
-      addItemLayer(this.#drawing.order, kind, item.id)
-    );
+    this.#apply({ type: "add-item", kind, item });
   }
 
-  /** Replaces the item with the same id, e.g. once it's moved. */
   updateItem<K extends ItemKind>(kind: K, item: DrawingItem<K>): void {
-    this.#changeItems(
-      kind,
-      this.#getItems(kind).map((other) => (other.id === item.id ? item : other))
-    );
+    this.#apply({ type: "update-item", kind, id: item.id, fields: item });
   }
 
   removeItem(kind: ItemKind, id: string): void {
-    this.#changeItems(
-      kind,
-      this.#getItems(kind).filter((item) => item.id !== id),
-      removeItemLayer(this.#drawing.order, kind, id)
-    );
+    this.#apply({ type: "remove-item", kind, id });
   }
 
   /**
-   * Moves an item to the front, above everything, or the back. Nothing
-   * changes, so there's nothing to undo, if it's already there.
+   * Nothing changes, so there's nothing to undo, if it's already at the
+   * front, or the back.
    */
   restackItem(kind: ItemKind, id: string, to: Restack): void {
-    const order = restackItemLayer(this.#drawing.order, kind, id, to);
-    if (order !== this.#drawing.order) {
-      this.change({ ...this.#drawing, order });
-    }
+    this.#apply({ type: "restack-item", kind, id, to });
   }
 
-  /** Removes everything. Like adding a stroke, it can be undone. */
+  setBackground(color: string): void {
+    this.#apply({ type: "set-background", color });
+  }
+
+  /** Like adding a stroke, it can be undone. */
   clear(): void {
-    if (!this.canClear) {
-      return;
-    }
-    // The background stays.
-    this.change({
-      ...this.#drawing,
-      strokes: [],
-      fills: [],
-      images: [],
-      texts: [],
-      notes: [],
-      order: [],
-    });
+    this.#apply({ type: "clear" });
   }
 
   /** Replaces the drawing, so it can be undone. */
@@ -160,15 +119,12 @@ export class DrawingHistory {
     this.#drawing = next;
   }
 
-  #getItems<K extends ItemKind>(kind: K): DrawingItem<K>[] {
-    return this.#drawing[kind] as DrawingItem<K>[];
-  }
-
-  #changeItems<K extends ItemKind>(
-    kind: K,
-    items: DrawingItem<K>[],
-    order = this.#drawing.order
-  ): void {
-    this.change({ ...this.#drawing, [kind]: items, order });
+  // A change that changes nothing, e.g. clearing a blank drawing, has nothing
+  // to undo.
+  #apply(change: DrawingChange): void {
+    const drawing = applyChange(this.#drawing, change);
+    if (drawing !== this.#drawing) {
+      this.change(drawing);
+    }
   }
 }

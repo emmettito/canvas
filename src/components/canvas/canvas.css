@@ -208,6 +208,32 @@
   z-index: 2;
 }
 
+/* What others drawing together are drawing, over everything they draw on. */
+.canvas-peer-ink {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Something someone else is moving or typing in, in their color, as thick
+ * on screen at any zoom. */
+.canvas-images > [data-peer],
+.canvas-texts > [data-peer],
+.canvas-notes > [data-peer] {
+  outline: calc(2px / var(--canvas-zoom, 1)) solid var(--canvas-peer-color);
+  outline-offset: calc(2px / var(--canvas-zoom, 1));
+}
+
+/* Theirs alone so far, e.g. a note they haven't finished adding. */
+.canvas-images > [data-peer-only],
+.canvas-texts > [data-peer-only],
+.canvas-notes > [data-peer-only] {
+  pointer-events: none !important;
+}
+
 /*
  * The pencil and eraser draw over items, so items only take pointer input
  * with the move tool, which moves them, or the tool that places their kind,

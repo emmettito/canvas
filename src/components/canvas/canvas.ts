@@ -8,6 +8,7 @@ import { NOTE_SNAP } from "../../constants/note-snap.const";
 import { RESIZE_HANDLES } from "../../constants/resize-handles.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
 import { ZOOM } from "../../constants/zoom.const";
+import { type Activity } from "../../models/activity.model";
 import { type Box } from "../../models/box.model";
 import { type CustomColor, type ToolColor } from "../../models/color.model";
 import {
@@ -105,6 +106,17 @@ export interface CanvasOptions {
   onPickColor: (color: CustomColor) => void;
   // A custom color was picked in the format bar, to pick again.
   onCustomColor: (color: CustomColor) => void;
+  // What's being done changed, e.g. a stroke being drawn, or null once it's
+  // done, after the change it made, so everyone drawing together sees it as
+  // it happens.
+  onActivity?: (activity: Activity | null) => void;
+}
+
+/** Someone drawing together with the canvas, as their activity shows. */
+export interface ActivityPeer {
+  id: string;
+  // Their color, e.g. their pointer's.
+  color: string;
 }
 
 /** What pressing the canvas places, instead of drawing. */
@@ -224,17 +236,26 @@ function getCachedStrokeBox(stroke: Stroke): Box | null {
   return box;
 }
 
+// The item an activity is moving or typing in.
+function getActivityId(
+  activity: Exclude<Activity, { type: "stroke" }>
+): string {
+  return activity.type === "move" ? activity.id : activity.item.id;
+}
+
 function isSameBox(a: Box, b: Box): boolean {
   return (
     a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
   );
 }
 
-function isSame(a: Stroke[], b: Stroke[]): boolean {
+// The same strokes or fills, in the same order, even if they're in a new
+// array, e.g. once someone else's change is made.
+function isSame<T>(a: T[], b: T[]): boolean {
   return a.length === b.length && startsWith(a, b);
 }
 
-function startsWith(strokes: Stroke[], prefix: Stroke[]): boolean {
+function startsWith<T>(strokes: T[], prefix: T[]): boolean {
   return (
     prefix.length <= strokes.length &&
     prefix.every((stroke, index) => stroke === strokes[index])
@@ -290,6 +311,13 @@ export class Canvas {
   // The drawing's strokes and items, stacked in its order, above the input
   // layer, so items can take pointer input themselves.
   #items = createElement("div", "canvas-items");
+  // The strokes others drawing together are drawing, until they're added.
+  // It's only on the page while there are some.
+  #peerInk = createElement("canvas", "canvas-peer-ink");
+  #peerActivities = new Map<
+    string,
+    { peer: ActivityPeer; activity: Activity }
+  >();
   // The drawing as it's shown: its background, strokes and items, and the
   // input on them. A theme can filter it, e.g. to show it dark.
   #surface = createElement("div", "canvas-surface");
@@ -412,6 +440,7 @@ export class Canvas {
       this.#layers.notes.element
     );
     layer.addEventListener("contextmenu", this.#onLayerContextMenu);
+    this.#peerInk.setAttribute("aria-hidden", "true");
     this.#surface.append(layer, this.#items, this.#cursor);
     this.#overlay.append(
       this.#snapGuides,
@@ -600,6 +629,7 @@ export class Canvas {
     this.#width = width;
     this.#height = height;
     this.#paint();
+    this.#paintPeerInk();
   }
 
   /**
@@ -674,6 +704,23 @@ export class Canvas {
       void url.then((value) => value && URL.revokeObjectURL(value));
     }
     this.#imageUrls.clear();
+  }
+
+  /**
+   * Shows an image's file again, e.g. once it's arrived from someone drawing
+   * together with this canvas, after the image itself.
+   */
+  reloadImage(id: string): void {
+    const before = this.#imageUrls.get(id);
+    this.#imageUrls.delete(id);
+    const view = this.#layers.images.getView(id);
+    void this.#getImageUrl(id).then((url) => {
+      if (view && url) {
+        view.image.src = url;
+        view.element.removeAttribute("data-missing");
+      }
+      void before?.then((value) => value && URL.revokeObjectURL(value));
+    });
   }
 
   /**
@@ -942,7 +989,7 @@ export class Canvas {
     };
     if (
       painted &&
-      painted.fills === fills &&
+      isSame(painted.fills, fills) &&
       isSame(painted.erasers, erasers) &&
       painted.width === width &&
       painted.height === height &&
@@ -1258,6 +1305,7 @@ export class Canvas {
     for (const context of this.#getDrawnContexts(drawn)) {
       drawStroke(context, stroke);
     }
+    this.#shareStroke(drawn);
   };
 
   #onPointerMove = (event: PointerEvent): void => {
@@ -1280,6 +1328,7 @@ export class Canvas {
     for (const context of this.#getDrawnContexts(drawn)) {
       drawStroke(context, stroke, stroke.points.length - 2);
     }
+    this.#shareStroke(drawn);
   };
 
   #onPointerUp = (event: PointerEvent): void => {
@@ -1310,6 +1359,7 @@ export class Canvas {
         note.inked = { ...note.inked, strokes };
       }
       this.#options.onItemChange("notes", { ...note.item, strokes });
+      this.#options.onActivity?.(null);
       return;
     }
     const painted = run === null ? null : this.#runs[run]?.painted;
@@ -1317,7 +1367,16 @@ export class Canvas {
       painted.strokes = [...painted.strokes, stroke];
     }
     this.#options.onStrokeComplete(stroke);
+    this.#options.onActivity?.(null);
   };
+
+  #shareStroke({ stroke, note }: Drawn): void {
+    this.#options.onActivity?.({
+      type: "stroke",
+      note: note?.item.id ?? null,
+      stroke,
+    });
+  }
 
   // Fills the area around a point on screen with the pencil's color: the
   // pixels around it that look the same, as the drawing's drawn, up to the
@@ -1484,6 +1543,7 @@ export class Canvas {
     for (const note of this.#layers.notes.views) {
       this.#paintInk(note);
     }
+    this.#paintPeerInk();
     this.#placeFormatBar();
     // What's under the pointer changes as the drawing scrolls and zooms.
     if (this.#loupe.active && this.#loupeAt) {
@@ -1622,6 +1682,7 @@ export class Canvas {
       return;
     }
     this.#drawn = null;
+    this.#options.onActivity?.(null);
     if (drawn.note) {
       drawn.note.inked = null;
       drawn.note.filled = null;
@@ -1882,6 +1943,7 @@ export class Canvas {
     view.element.toggleAttribute("data-editing", true);
     this.#showEmpty(typed);
     view.editor.edit();
+    this.#shareTyping();
     // Only an editor that formats text has a format bar.
     const { formatting } = view.editor;
     if (formatting) {
@@ -1926,6 +1988,25 @@ export class Canvas {
       // Its text, or its color, changed.
       this.#options.onItemChange(kind, item as never);
     }
+    this.#options.onActivity?.(null);
+  }
+
+  // What's being typed, so far, for everyone drawing together.
+  #shareTyping(): void {
+    const editing = this.#editing;
+    if (!editing) {
+      return;
+    }
+    const { kind, view } = editing;
+    const item = { ...view.item, content: view.editor.content } as
+      | Note
+      | TextBox;
+    this.#options.onActivity?.({
+      type: "typing",
+      kind,
+      item:
+        kind === "notes" ? { ...(item as Note), strokes: [], fills: [] } : item,
+    });
   }
 
   // An empty text box shows a hint, and is wide enough to find again.
@@ -2004,6 +2085,7 @@ export class Canvas {
           this.#showEmpty(editing.view);
           this.#formatBar.update();
           this.#placeFormatBar();
+          this.#shareTyping();
         }
       },
     });
@@ -2017,6 +2099,169 @@ export class Canvas {
       }
     });
     return editor;
+  }
+
+  // Where an item is as it's moved or resized, for everyone drawing
+  // together, until it's dropped.
+  #gestureOptions<T extends PlacedItem>(kind: ItemKind) {
+    return {
+      onGestureMove: ({ item }: ItemView<T>) => {
+        const { x, y, width, height } = item as T & {
+          width?: number | null;
+          height?: number | null;
+        };
+        this.#options.onActivity?.({
+          type: "move",
+          kind,
+          id: item.id,
+          box: { x, y, width, height },
+        });
+      },
+      onGestureEnd: () => this.#options.onActivity?.(null),
+    };
+  }
+
+  /**
+   * Shows what someone drawing together with this canvas is in the middle
+   * of, or stops showing it once it's null: the stroke they're drawing, or
+   * the item they're moving or typing in, outlined in their color.
+   */
+  setPeerActivity(peer: ActivityPeer, activity: Activity | null): void {
+    const before = this.#peerActivities.get(peer.id)?.activity;
+    if (activity) {
+      this.#peerActivities.set(peer.id, { peer, activity });
+    } else {
+      this.#peerActivities.delete(peer.id);
+    }
+    // The item they had, if they've stopped, or moved on to another.
+    if (
+      before &&
+      before.type !== "stroke" &&
+      (!activity ||
+        activity.type === "stroke" ||
+        getActivityId(activity) !== getActivityId(before))
+    ) {
+      this.#showPeerItem(before.kind, getActivityId(before), null, peer);
+    }
+    if (activity?.type === "move") {
+      const shown = this.#getShownItem(activity.kind, activity.id);
+      if (shown) {
+        this.#showPeerItem(
+          activity.kind,
+          activity.id,
+          { ...shown, ...activity.box } as DrawingItem<ItemKind>,
+          peer
+        );
+      }
+    } else if (activity?.type === "typing") {
+      const { kind, item } = activity;
+      const shown = this.#getShownItem(kind, item.id);
+      // One in the drawing keeps its own strokes and fills.
+      this.#showPeerItem(
+        kind,
+        item.id,
+        shown ? { ...shown, content: item.content } : item,
+        peer
+      );
+    }
+    if (before?.type === "stroke" || activity?.type === "stroke") {
+      this.#paintPeerInk();
+    }
+  }
+
+  // The item in the drawing, or as someone else is showing it, if there's
+  // one with `id`.
+  #getShownItem(kind: ItemKind, id: string): DrawingItem<ItemKind> | null {
+    const layer = this.#getAnyLayer(kind);
+    return (
+      layer.items.find((item) => item.id === id) ??
+      (layer.isPreviewOnly(id) ? (layer.getView(id)?.item ?? null) : null)
+    );
+  }
+
+  #getAnyLayer(kind: ItemKind) {
+    return this.#layers[kind] as unknown as ItemLayer<
+      DrawingItem<ItemKind>,
+      ItemView<DrawingItem<ItemKind>>
+    >;
+  }
+
+  // Shows an item as `peer` has it, outlined in their color, or as it is in
+  // the drawing once `item` is null. One that's only theirs so far can't be
+  // pressed.
+  #showPeerItem(
+    kind: ItemKind,
+    id: string,
+    item: DrawingItem<ItemKind> | null,
+    peer: ActivityPeer
+  ): void {
+    const layer = this.#getAnyLayer(kind);
+    const before = layer.getView(id);
+    const view = layer.setPreview(id, item);
+    if (view) {
+      view.element.style.setProperty("--canvas-peer-color", peer.color);
+      view.element.toggleAttribute("data-peer", true);
+      view.element.toggleAttribute("data-peer-only", layer.isPreviewOnly(id));
+    } else if (before) {
+      before.element.removeAttribute("data-peer");
+      before.element.removeAttribute("data-peer-only");
+    }
+  }
+
+  // Draws the strokes others are drawing over everything, in their colors,
+  // at the zoom. Erasing shows as a faint trail in their color, since
+  // there's nothing to show it erasing until it's done.
+  #paintPeerInk(): void {
+    const canvas = this.#peerInk;
+    const strokes = [...this.#peerActivities.values()].filter(
+      ({ activity }) => activity.type === "stroke"
+    );
+    if (strokes.length === 0) {
+      canvas.remove();
+      return;
+    }
+    if (!canvas.isConnected) {
+      this.#items.after(canvas);
+    }
+    const pixelRatio = window.devicePixelRatio || 1;
+    const width = Math.round(this.#width * pixelRatio);
+    const height = Math.round(this.#height * pixelRatio);
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return;
+    }
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, width, height);
+    const { x, y, zoom } = this.#viewport;
+    for (const { peer, activity } of strokes) {
+      if (activity.type !== "stroke") {
+        continue;
+      }
+      const origin = activity.note
+        ? this.#layers.notes.getView(activity.note)?.item
+        : { x: 0, y: 0 };
+      if (!origin) {
+        continue;
+      }
+      const scale = pixelRatio * zoom;
+      context.setTransform(
+        scale,
+        0,
+        0,
+        scale,
+        (origin.x - x) * scale,
+        (origin.y - y) * scale
+      );
+      const { stroke } = activity;
+      const erases = stroke.color === undefined;
+      context.globalAlpha = erases ? 0.25 : 1;
+      drawStroke(context, { ...stroke, color: stroke.color ?? peer.color });
+    }
+    context.globalAlpha = 1;
   }
 
   // Pressing text while it's being typed in moves the cursor. With the move
@@ -2108,6 +2353,7 @@ export class Canvas {
     if (this.#editing?.view === view) {
       this.#editing = null;
       this.#formatBar.close();
+      this.#options.onActivity?.(null);
     }
     (
       this.#layers[kind] as unknown as ItemLayer<
@@ -2254,7 +2500,11 @@ export class Canvas {
         element.style.width = px(item.width);
         element.style.height = px(item.height);
         element.style.backgroundColor = item.color;
-        editor.setContent(item.content);
+        // What's being typed isn't in the drawing until typing stops, so
+        // someone else's change mustn't replace it.
+        if (this.#editing?.view !== view) {
+          editor.setContent(item.content);
+        }
         this.#paintInk(view);
       },
       resize: (note, _size, handle, dx, dy, min) => {
@@ -2283,7 +2533,11 @@ export class Canvas {
         height: NOTE_LAYOUT.minSize,
       }),
       snap: (_view, note, free) => this.#snapNote(note, free),
-      onGestureEnd: () => this.#showSnapGuides([]),
+      ...this.#gestureOptions<Note>("notes"),
+      onGestureEnd: () => {
+        this.#showSnapGuides([]);
+        this.#options.onActivity?.(null);
+      },
       ...this.#typingOptions<Note>("notes"),
       onChange: (note) => this.#options.onItemChange("notes", note),
       onRemove: (id) => this.#options.onItemRemove("notes", id),
@@ -2342,7 +2596,8 @@ export class Canvas {
         element.append(editor.element);
         return { element, item: box, editor };
       },
-      render: ({ element, item, editor }) => {
+      render: (view) => {
+        const { element, item, editor } = view;
         element.style.left = px(item.x);
         element.style.top = px(item.y);
         element.style.width =
@@ -2351,7 +2606,11 @@ export class Canvas {
         element.style.fontSize = px(item.fontSize);
         element.style.color = item.color;
         element.toggleAttribute("data-wraps", item.width !== null);
-        editor.setContent(item.content);
+        // What's being typed isn't in the drawing until typing stops, so
+        // someone else's change mustn't replace it.
+        if (this.#editing?.view !== view) {
+          editor.setContent(item.content);
+        }
       },
       // Only the sides the handle is on change, so text that's as wide as
       // its longest line stays that way when only its height changes.
@@ -2371,6 +2630,7 @@ export class Canvas {
         height: editor.element.offsetHeight,
       }),
       ...this.#typingOptions<TextBox>("texts"),
+      ...this.#gestureOptions<TextBox>("texts"),
       onChange: (box) => this.#options.onItemChange("texts", box),
       onRemove: (id) => this.#options.onItemRemove("texts", id),
     });
@@ -2414,6 +2674,7 @@ export class Canvas {
       }),
       onPress: ({ element }) => element.focus(),
       onMenu: (view, point) => this.#openItemMenu("images", view, point),
+      ...this.#gestureOptions<ImageItem>("images"),
       onChange: (item) => this.#options.onItemChange("images", item),
       onRemove: (id) => this.#options.onItemRemove("images", id),
     });

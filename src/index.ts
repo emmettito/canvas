@@ -2,10 +2,16 @@
 import "./styles.css";
 
 export {
+  type CollaborateOptions,
   type MountCanvasOptions,
   type MountedCanvas,
   mountCanvas,
 } from "./components/canvas-wrapper/canvas-wrapper";
+export {
+  type CanvasClientMessage,
+  type CanvasServerMessage,
+  type CollaborationConnection,
+} from "./models/collaboration.model";
 export {
   type FileMenuItem,
   type ToolbarAction,

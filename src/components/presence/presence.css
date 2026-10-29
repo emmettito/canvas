@@ -1,0 +1,114 @@
+/* Over the drawing, under the toolbars, and never in the way of a press. */
+.canvas-peer-cursors {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Its arrow's tip is where they're pointing. */
+.canvas-peer-cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: flex-start;
+  transition: transform 80ms linear;
+
+  svg {
+    flex: none;
+    fill: var(--canvas-peer-color);
+    stroke: #ffffff;
+    stroke-width: 1.2;
+    stroke-linejoin: round;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+.canvas-peer-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 180px;
+  margin: 14px 0 0 -2px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background-color: var(--canvas-peer-color);
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+/* A photo starts the label, so the label's rounder at that end. */
+.canvas-peer-label:has(.canvas-peer-avatar) {
+  padding-left: 2px;
+  border-radius: 10px 6px 6px 10px;
+}
+
+.canvas-peer-avatar {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.canvas-peer-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A row of who else is here, overlapping a little, like avatars. */
+.canvas-people {
+  display: flex;
+  padding-left: 6px;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.canvas-person {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: -6px;
+  border: 2px solid var(--canvas-color-surface);
+  border-radius: 50%;
+  background-color: var(--canvas-peer-color);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+  -webkit-user-select: none;
+
+  /* Their name, below them, on hover. */
+  .canvas-tooltip {
+    top: calc(100% + 6px);
+    right: 0;
+  }
+
+  &:not(:hover) .canvas-tooltip {
+    display: none;
+  }
+}
+
+/* Over their initial, which shows if it doesn't load, ringed in their color
+ * so they still stand out. */
+.canvas-person-avatar {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 0 0 2px var(--canvas-peer-color);
+}

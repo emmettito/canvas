@@ -1,0 +1,271 @@
+import { describe, expect, it } from "vitest";
+import {
+  CollaborationServer,
+  type ServerMessage,
+} from "./collaboration-server";
+
+function connect(server: CollaborationServer) {
+  const received: ServerMessage[] = [];
+  const connection = server.connect((message) => received.push(message));
+  return { connection, received };
+}
+
+describe("CollaborationServer", () => {
+  it("welcomes someone with the room so far, and who's there", () => {
+    const server = new CollaborationServer();
+    const a = connect(server);
+    a.connection.receive({
+      type: "join",
+      room: "r",
+      name: "Ada",
+      avatar: "",
+      drawing: 1,
+    });
+    a.connection.receive({
+      type: "edit",
+      edit: { id: "e", author: "", type: "change", change: "x" },
+    });
+    const b = connect(server);
+    b.connection.receive({
+      type: "join",
+      room: "r",
+      name: "Bo",
+      avatar: "",
+      drawing: 2,
+    });
+
+    expect(b.received).toEqual([
+      {
+        type: "welcome",
+        you: "peer-2",
+        drawing: 1,
+        edits: [{ id: "e", author: "peer-1", type: "change", change: "x" }],
+        images: [],
+        peers: [
+          {
+            id: "peer-1",
+            name: "Ada",
+            avatar: "",
+            color: expect.any(String),
+            pointer: null,
+          },
+        ],
+      },
+    ]);
+    // Told who's joined, in another color.
+    const joined = a.received.at(-1);
+    expect(joined).toMatchObject({ type: "presence", peer: { name: "Bo" } });
+    expect(joined).not.toMatchObject({
+      peer: {
+        color: (b.received[0] as { peers: { color: string }[] }).peers[0].color,
+      },
+    });
+  });
+
+  it("sends each edit to everyone, including whoever made it", () => {
+    const server = new CollaborationServer();
+    const a = connect(server);
+    const b = connect(server);
+    a.connection.receive({
+      type: "join",
+      room: "r",
+      name: "",
+      avatar: "",
+      drawing: 0,
+    });
+    b.connection.receive({
+      type: "join",
+      room: "r",
+      name: "",
+      avatar: "",
+      drawing: 0,
+    });
+
+    const edit = { id: "e", author: "anyone", type: "undo", target: "t" };
+    b.connection.receive({ type: "edit", edit });
+
+    const sent = { type: "edit", edit: { ...edit, author: "peer-2" } };
+    expect(a.received.at(-1)).toEqual(sent);
+    expect(b.received.at(-1)).toEqual(sent);
+  });
+
+  it("passes on where someone's pointing, and images, to everyone else", () => {
+    const server = new CollaborationServer();
+    const a = connect(server);
+    const b = connect(server);
+    a.connection.receive({
+      type: "join",
+      room: "r",
+      name: "",
+      avatar: "",
+      drawing: 0,
+    });
+    b.connection.receive({
+      type: "join",
+      room: "r",
+      name: "",
+      avatar: "",
+      drawing: 0,
+    });
+    const before = b.received.length;
+
+    b.connection.receive({ type: "pointer", pointer: { x: 1, y: 2 } });
+    const image = { id: "i", data: "data:image/png;base64,AA==" };
+    b.connection.receive({ type: "image", image });
+
+    expect(a.received.slice(-2)).toEqual([
+      { type: "pointer", id: "peer-2", pointer: { x: 1, y: 2 } },
+      { type: "image", image },
+    ]);
+    expect(b.received.length).toBe(before);
+  });
+
+  it("passes on a new name and photo, and keeps them for whoever joins next", () => {
+    const server = new CollaborationServer();
+    const a = connect(server);
+    const b = connect(server);
+    a.connection.receive({
+      type: "join",
+      room: "r",
+      name: "",
+      avatar: "",
+      drawing: 0,
+    });
+    b.connection.receive({
+      type: "join",
+      room: "r",
+      name: "",
+      avatar: "",
+      drawing: 0,
+    });
+
+    const avatar = "data:image/jpeg;base64,AA==";
+    b.connection.receive({ type: "profile", name: "Bo", avatar });
+    expect(a.received.at(-1)).toEqual({
+      type: "presence",
+      peer: {
+        id: "peer-2",
+        name: "Bo",
+        avatar,
+        color: expect.any(String),
+        pointer: null,
+      },
+    });
+
+    const c = connect(server);
+    c.connection.receive({
+      type: "join",
+      room: "r",
+      name: "",
+      avatar: "",
+      drawing: 0,
+    });
+    expect(c.received[0]).toMatchObject({
+      peers: [{ name: "" }, { name: "Bo", avatar }],
+    });
+  });
+
+  it("passes on what someone's in the middle of, without keeping it", () => {
+    const server = new CollaborationServer();
+    const a = connect(server);
+    const b = connect(server);
+    a.connection.receive({
+      type: "join",
+      room: "r",
+      name: "",
+      avatar: "",
+      drawing: 0,
+    });
+    b.connection.receive({
+      type: "join",
+      room: "r",
+      name: "",
+      avatar: "",
+      drawing: 0,
+    });
+    const before = b.received.length;
+
+    b.connection.receive({ type: "activity", activity: { drawing: true } });
+    b.connection.receive({ type: "activity", activity: null });
+
+    expect(a.received.slice(-2)).toEqual([
+      { type: "activity", id: "peer-2", activity: { drawing: true } },
+      { type: "activity", id: "peer-2", activity: null },
+    ]);
+    expect(b.received.length).toBe(before);
+    const c = connect(server);
+    c.connection.receive({
+      type: "join",
+      room: "r",
+      name: "",
+      avatar: "",
+      drawing: 0,
+    });
+    expect(c.received).toHaveLength(1);
+  });
+
+  it("ends a room once everyone's left", () => {
+    const server = new CollaborationServer();
+    const a = connect(server);
+    const b = connect(server);
+    a.connection.receive({
+      type: "join",
+      room: "r",
+      name: "",
+      avatar: "",
+      drawing: 1,
+    });
+    b.connection.receive({
+      type: "join",
+      room: "r",
+      name: "",
+      avatar: "",
+      drawing: 1,
+    });
+
+    b.connection.close();
+    expect(a.received.at(-1)).toEqual({ type: "left", id: "peer-2" });
+    a.connection.receive({ type: "leave" });
+
+    const c = connect(server);
+    c.connection.receive({
+      type: "join",
+      room: "r",
+      name: "",
+      avatar: "",
+      drawing: 2,
+    });
+    expect(c.received[0]).toMatchObject({ type: "welcome", drawing: 2 });
+  });
+
+  it("ignores what isn't a message, or comes before joining", () => {
+    const server = new CollaborationServer();
+    const a = connect(server);
+    const b = connect(server);
+    b.connection.receive({
+      type: "join",
+      room: "r",
+      name: "",
+      avatar: "",
+      drawing: 0,
+    });
+    const before = b.received.length;
+
+    for (const message of [
+      null,
+      "join",
+      { type: "edit", edit: { id: "e", type: "change", change: 1 } },
+    ]) {
+      a.connection.receive(message);
+    }
+    b.connection.receive({ type: "edit", edit: { type: "change" } });
+    b.connection.receive({ type: "image", image: { id: "i", data: "x" } });
+    b.connection.receive({ type: "pointer", pointer: { x: "1" } });
+    // Only an image's data URL, or an address on the web, is a photo.
+    b.connection.receive({ type: "profile", name: "", avatar: "javascript:" });
+    b.connection.receive({ type: "activity" });
+
+    expect(a.received).toEqual([]);
+    expect(b.received.length).toBe(before);
+  });
+});

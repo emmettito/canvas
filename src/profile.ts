@@ -1,4 +1,9 @@
 const STORAGE_KEY = "name";
+const AVATAR_KEY = "avatar";
+// How big a photo's kept, in pixels across, which is sharp enough for the
+// corner of the canvas on any screen, and small enough to send everyone.
+const AVATAR_SIZE = 128;
+const AVATAR_QUALITY = 0.85;
 // Saved only while they're hidden, since they're shown by default.
 const HIDE_AUTHORS_KEY = "hide-authors";
 
@@ -72,4 +77,102 @@ export function setUpShowAuthorsField(
     onChange(input.checked);
   });
   return !hidden;
+}
+
+// The middle square of `file`, as a small JPEG's data URL, or null if it
+// isn't an image the browser can read.
+async function toAvatar(file: File): Promise<string | null> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return null;
+  }
+  const side = Math.min(bitmap.width, bitmap.height);
+  const canvas = document.createElement("canvas");
+  canvas.width = AVATAR_SIZE;
+  canvas.height = AVATAR_SIZE;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return null;
+  }
+  // JPEG has no transparency, so a transparent photo is on white.
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, AVATAR_SIZE, AVATAR_SIZE);
+  context.drawImage(
+    bitmap,
+    (bitmap.width - side) / 2,
+    (bitmap.height - side) / 2,
+    side,
+    side,
+    0,
+    0,
+    AVATAR_SIZE,
+    AVATAR_SIZE
+  );
+  bitmap.close();
+  return canvas.toDataURL("image/jpeg", AVATAR_QUALITY);
+}
+
+/**
+ * Wires up the demo page's photo field, which keeps the photo picked, made
+ * small and square, and calls `onChange` with it as a data URL, or empty
+ * once it's removed. Returns the saved photo, for the canvas to start with.
+ */
+export function setUpPhotoField(
+  field: HTMLElement,
+  onChange: (avatar: string) => void
+): string {
+  const preview = field.querySelector<HTMLImageElement>(".demo-photo-preview")!;
+  const choose = field.querySelector<HTMLButtonElement>(".demo-photo-choose")!;
+  const remove = field.querySelector<HTMLButtonElement>(".demo-photo-remove")!;
+  const input = field.querySelector<HTMLInputElement>(".demo-photo-input")!;
+  let saved = "";
+  try {
+    saved = localStorage.getItem(AVATAR_KEY) ?? "";
+  } catch {
+    // Storage can be unavailable, e.g. in some private windows.
+  }
+
+  function show(avatar: string) {
+    preview.hidden = !avatar;
+    if (avatar) {
+      preview.src = avatar;
+    } else {
+      preview.removeAttribute("src");
+    }
+    remove.hidden = !avatar;
+    choose.textContent = avatar ? "Change photo" : "Choose photo";
+  }
+
+  function set(avatar: string) {
+    try {
+      if (avatar) {
+        localStorage.setItem(AVATAR_KEY, avatar);
+      } else {
+        localStorage.removeItem(AVATAR_KEY);
+      }
+    } catch {
+      // The photo just won't be remembered.
+    }
+    show(avatar);
+    onChange(avatar);
+  }
+
+  choose.addEventListener("click", () => input.click());
+  input.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    // The same file can be picked again, e.g. after removing it.
+    input.value = "";
+    const avatar = file && (await toAvatar(file));
+    if (avatar) {
+      set(avatar);
+    }
+  });
+  remove.addEventListener("click", () => {
+    set("");
+    choose.focus();
+  });
+  show(saved);
+  return saved;
 }

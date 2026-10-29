@@ -9,8 +9,13 @@ import { proseMirrorEditor } from "./prosemirror";
 // with its own import of the styles.
 import "./styles.css";
 import { setUpBackgroundPicker } from "./background-picker";
-import { setUpNameField, setUpShowAuthorsField } from "./profile";
+import {
+  setUpNameField,
+  setUpPhotoField,
+  setUpShowAuthorsField,
+} from "./profile";
 import { setUpSettings } from "./settings";
+import { setUpSharing } from "./share";
 import { setUpThemePicker } from "./theme";
 
 // A toolbar button with the demo's icon for it.
@@ -28,6 +33,10 @@ const name = setUpNameField(
   settings.querySelector(".demo-name-field")!,
   (value) => canvas.setAuthor(value)
 );
+const avatar = setUpPhotoField(
+  settings.querySelector(".demo-photo-field")!,
+  (value) => canvas.setAvatar(value)
+);
 const showAuthors = setUpShowAuthorsField(
   settings.querySelector(".demo-show-authors")!,
   (show) => canvas.setShowAuthors(show)
@@ -38,10 +47,17 @@ const showBackground = setUpBackgroundPicker(
   settings.querySelector(".demo-background-picker")!,
   (color) => canvas.setBackground(color)
 );
+// Only with a server to pass the drawing between everyone drawing together,
+// the dev server or `npm start`'s. GitHub Pages has none, so there's no
+// Share button there.
+const share = document.querySelector<HTMLDialogElement>(".demo-share")!;
+share.querySelector(".demo-share-close")!.append(createPageIcon("close"));
+const sharing = setUpSharing(share, setUpSettings(share), () => canvas);
 const canvas = mountCanvas(document.getElementById("root")!, {
   storageKey: "canvas",
   textEditor: proseMirrorEditor,
   author: name,
+  avatar,
   showAuthors,
   // The tab shows which canvas is open.
   onNameChange: (name) => {
@@ -56,6 +72,9 @@ const canvas = mountCanvas(document.getElementById("root")!, {
       },
       // The page's own settings, beside the canvas's File menu.
       { action: "custom", label: "Settings", onClick: openSettings },
+      ...(sharing
+        ? [{ action: "custom", label: "Share", onClick: sharing.open } as const]
+        : []),
     ],
   ],
   toolbar: [
@@ -75,3 +94,5 @@ const canvas = mountCanvas(document.getElementById("root")!, {
   // How the canvas is shown, apart from what's drawn on it.
   topRightToolbar: [[{ action: "zoom" }]],
 });
+// A shared canvas's link joins it.
+sharing?.joinFromAddress();

@@ -61,6 +61,38 @@
               placeholder="Your name"
             />
           </label>
+          <!-- Shown to everyone drawing together with you. It's made small
+               and square before it's kept. The script wires it up. -->
+          <div
+            class="demo-field demo-photo-field"
+            role="group"
+            aria-labelledby="demo-photo-label"
+          >
+            <span id="demo-photo-label">Photo</span>
+            <div class="demo-photo-row">
+              <img class="demo-photo-preview" alt="Your photo" hidden />
+              <button
+                class="demo-button demo-button-secondary demo-photo-choose"
+                type="button"
+              >
+                Choose photo
+              </button>
+              <button
+                class="demo-button demo-button-secondary demo-photo-remove"
+                type="button"
+                hidden
+              >
+                Remove
+              </button>
+              <input
+                class="demo-photo-input"
+                type="file"
+                accept="image/*"
+                aria-label="Photo file"
+                hidden
+              />
+            </div>
+          </div>
           <!-- Notes stay signed while names are hidden. The script wires it
                up. -->
           <label class="demo-checkbox">
@@ -157,6 +189,52 @@
               </label>
             </div>
           </fieldset>
+        </section>
+      </div>
+    </dialog>
+    <!-- Draws on the open canvas with others, which only works while the dev
+         server's running. The script wires it up, and only offers it then. -->
+    <dialog class="demo-settings demo-share" aria-labelledby="demo-share-title">
+      <div class="demo-settings-content">
+        <div class="demo-settings-header">
+          <h2 id="demo-share-title">Draw together</h2>
+          <form method="dialog">
+            <!-- The script adds its icon. -->
+            <button
+              class="demo-icon-button demo-share-close"
+              aria-label="Close"
+            ></button>
+          </form>
+        </div>
+        <section class="demo-settings-section demo-share-start">
+          <p class="demo-share-text">
+            Share this canvas, and anyone who opens its link draws on it with
+            you, live. Each of you can undo only your own changes.
+          </p>
+          <button class="demo-button demo-share-start-button" type="button">
+            Share this canvas
+          </button>
+        </section>
+        <section class="demo-settings-section demo-share-shared" hidden>
+          <label class="demo-field">
+            Link
+            <span class="demo-share-row">
+              <input class="demo-share-link" type="text" readonly />
+              <button
+                class="demo-button demo-button-secondary demo-share-copy"
+                type="button"
+              >
+                Copy
+              </button>
+            </span>
+          </label>
+          <p class="demo-share-text demo-share-hint"></p>
+          <button
+            class="demo-button demo-button-secondary demo-share-stop"
+            type="button"
+          >
+            Stop sharing
+          </button>
         </section>
       </div>
     </dialog>

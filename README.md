@@ -4,7 +4,7 @@ A simple art canvas. Draw with a pencil or eraser, fill areas with a paint
 bucket, pick
 from a color palette, adjust the size of each tool, add text, images and
 sticky notes, draw on the notes, move and stack it all, and undo or redo any
-of it. The canvas fills the space it's
+of it, alone or live with others. The canvas fills the space it's
 given, with its toolbars floating above it.
 
 **[Try the live demo](https://emmettito.github.io/canvas/)**
@@ -380,6 +380,75 @@ is kept with the other settings.
 The dialog starts from the choices last exported with, which are kept with the
 other settings under `storageKey`.
 
+### Drawing together
+
+People can draw on one canvas together, live, through a server you run.
+Everyone's changes show as they're made, with each person's pointer and name
+in their own color, and a row of who's there at the top right, with their
+photos. What they're in the middle of shows too: a stroke as it's drawn, an
+item as it's moved or resized, outlined in their color, and a note or text
+as it's typed, even a new one, before it's added. Undo only
+undoes your own changes, leaving everyone else's, even ones made since. Each
+person's canvas is kept like any other, so it's there to open again on its
+own.
+
+The library doesn't send anything itself. On the page, call `collaborate` on
+the mounted canvas with a `connection` that carries its messages, e.g. over a
+WebSocket, and the `room` to join. The canvas with the room's id opens, or a
+new one with it, so the room's id can be the canvas's own: `canvasId` is the
+open one's. The room starts from the drawing of whoever joins it first. It
+returns a function that leaves the room, and opening another canvas leaves it
+too. `onLeave` is called either way.
+
+Pass `avatar`, an image's data URL or an https address, and everyone else
+sees that photo instead of an initial. Call `setAvatar` when it changes, and
+`setAuthor` for the name, and they're told. Keep it small, e.g. 128 pixels
+square, since it's sent to everyone who joins: the server turns away one
+longer than 200,000 characters.
+
+```ts
+const socket = new WebSocket("wss://example.com/draw");
+const leave = canvas.collaborate(
+  {
+    send: (message) => socket.send(JSON.stringify(message)),
+    listen: (listener) => {
+      const onMessage = (event: MessageEvent) =>
+        listener(JSON.parse(event.data));
+      socket.addEventListener("message", onMessage);
+      return () => socket.removeEventListener("message", onMessage);
+    },
+  },
+  { room: canvas.canvasId, onLeave: () => socket.close() }
+);
+```
+
+On the server, `CollaborationServer` from
+`@emmettito/canvas/collaboration-server` runs the rooms. It has no
+dependencies and doesn't touch the DOM, so it runs in Node. Connect each
+canvas, pass on what it sends, and close it when it goes. A room lasts until
+everyone's left, and keeps everything in memory, so it's for small groups.
+What someone's in the middle of is passed on but never kept.
+
+```ts
+import { CollaborationServer } from "@emmettito/canvas/collaboration-server";
+import { WebSocketServer } from "ws";
+
+const rooms = new CollaborationServer();
+new WebSocketServer({ port: 8080 }).on("connection", (socket) => {
+  const connection = rooms.connect((message) =>
+    socket.send(JSON.stringify(message))
+  );
+  socket.on("message", (data) => connection.receive(JSON.parse(String(data))));
+  socket.on("close", () => connection.close());
+});
+```
+
+Changes to different parts of the same item are both kept, e.g. one person
+moving a note while another types in it. The same part changed by two
+people at once, e.g. both typing in a note, keeps whichever reached the
+server last. Text being typed stays as it is until typing stops, whatever
+anyone else does.
+
 ### Saving
 
 Every change is saved as it's made, and the last canvas open reopens on the
@@ -451,6 +520,8 @@ npm run dev
 | `npm run dev`          | Start the dev server                     |
 | `npm run build`        | Type-check and build the library         |
 | `npm run build:demo`   | Type-check and build the demo page       |
+| `npm run build:app`    | Build the demo page for `npm start`      |
+| `npm start`            | Serve that build, and draw together      |
 | `npm run preview`      | Serve the demo page build                |
 | `npm run lint`         | Lint with oxlint, failing on warnings    |
 | `npm run typecheck`    | Type-check without building              |
@@ -478,9 +549,31 @@ follows the system's light or dark mode, and is the default. The page
 remembers your choice. Below it, Canvas background picks the open canvas's
 background from a few swatches or any color, through `setBackground`. Above
 them, Profile's Name field signs new notes and exports, through `author` and
-`setAuthor`. The page remembers it. Unchecking Show names on sticky notes hides bylines, through
+`setAuthor`. The page remembers it. Its Photo is shown to everyone drawing
+together with you, through `avatar` and `setAvatar`: the middle square of the
+picture picked, made 128 pixels across, which the page remembers too.
+Unchecking Show names on sticky notes hides bylines, through
 `setShowAuthors`, and the page remembers that too. The dialog has a section
 per group of settings, so more can be added beside Profile and Appearance.
+
+A Share button beside Settings shares the open canvas, with a link to copy.
+Anyone who opens the link draws on it with you. A server passes the drawing
+between you, over a WebSocket at `/collaborate` beside the page, which
+`server/collaboration-socket.ts` runs with `CollaborationServer`. If the
+connection's lost, e.g. as the server restarts, the page joins again.
+
+- **In development**, `npm run dev` runs it on the dev server, through a Vite
+  plugin in `vite.config.ts`. Only this computer can open the link, unless
+  the dev server's on your network, with `npm run dev -- --host`, which the
+  link then uses.
+- **In production**, `npm run build:app` builds the page into `dist-app`, and
+  `npm start` serves it and runs the rooms, with Node alone, no Vite. It
+  listens on port 8080 on every address, or `PORT` and `HOST`. Put it behind
+  a proxy that passes WebSocket upgrades on, with HTTPS, so the page's
+  clipboard and `wss://` work. `ws`, its one dependency, is a development
+  dependency, so install with them, e.g. `npm ci`.
+- GitHub Pages has no server, so the demo built for it, `npm run build:demo`,
+  has no Share button.
 
 The demo's toolbar icons are [Phosphor](https://phosphoricons.com)'s regular
 weight, under the MIT license, which the demo page ships in

@@ -13,6 +13,7 @@
 # production
 /dist
 /dist-demo
+/dist-app
 *.tgz
 
 # misc

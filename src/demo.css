@@ -348,6 +348,25 @@ body {
   }
 }
 
+/* The photo, if there is one, with buttons to change or remove it. */
+.demo-photo-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.demo-photo-preview {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px var(--demo-color-border);
+
+  &[hidden] {
+    display: none;
+  }
+}
+
 /* An on-or-off setting, with its label beside it. */
 .demo-checkbox {
   display: flex;
@@ -362,6 +381,76 @@ body {
     margin: 0;
     accent-color: var(--demo-color-accent);
     cursor: inherit;
+  }
+}
+
+/* A dialog's action, filled with the accent, or outlined if it's secondary. */
+.demo-button {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background-color: var(--demo-color-accent);
+  color: #ffffff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    filter: brightness(1.08);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--demo-color-accent);
+    outline-offset: 2px;
+  }
+}
+
+.demo-button-secondary {
+  border-color: var(--demo-color-border);
+  background: none;
+  color: var(--demo-color-text);
+
+  &:hover {
+    filter: none;
+    background-color: var(--demo-color-hover);
+  }
+}
+
+/* The Share dialog's buttons are as wide as their text, at the start. */
+.demo-share .demo-button {
+  align-self: flex-start;
+}
+
+.demo-share-text {
+  margin: 0;
+  color: var(--demo-color-text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+
+  code {
+    color: var(--demo-color-text);
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+}
+
+/* Before sharing, or once it's shared. */
+.demo-share .demo-settings-section[hidden] {
+  display: none;
+}
+
+/* The link, with its copy button beside it. */
+.demo-share-row {
+  display: flex;
+  gap: 8px;
+
+  input {
+    flex: 1;
+    min-width: 0;
   }
 }
 
