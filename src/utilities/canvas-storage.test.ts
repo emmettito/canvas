@@ -335,7 +335,27 @@ describe("CanvasStorage export options", () => {
     ]);
   });
 
-  it("keeps who signed a note, and leaves out an author that isn't one", () => {
+  it("keeps who signed a note, and leaves out names that aren't any", () => {
+    localStorage.setItem(
+      "test:canvas:a:notes",
+      JSON.stringify([
+        { ...NOTES[0], authors: ["Ada", "Grace"] },
+        { ...NOTES[0], id: "b", authors: ["", 7, "Ada"] },
+        { ...NOTES[0], id: "c", authors: [] },
+        { ...NOTES[0], id: "d", authors: "Ada" },
+      ])
+    );
+    const storage = new CanvasStorage("test");
+
+    expect(storage.loadItems("a", "notes")).toEqual([
+      { ...NOTES[0], authors: ["Ada", "Grace"] },
+      { ...NOTES[0], id: "b", authors: ["Ada"] },
+      { ...NOTES[0], id: "c" },
+      { ...NOTES[0], id: "d" },
+    ]);
+  });
+
+  it("keeps who signed a note saved with one author", () => {
     localStorage.setItem(
       "test:canvas:a:notes",
       JSON.stringify([
@@ -347,7 +367,7 @@ describe("CanvasStorage export options", () => {
     const storage = new CanvasStorage("test");
 
     expect(storage.loadItems("a", "notes")).toEqual([
-      { ...NOTES[0], author: "Ada" },
+      { ...NOTES[0], authors: ["Ada"] },
       { ...NOTES[0], id: "b" },
       { ...NOTES[0], id: "c" },
     ]);

@@ -287,11 +287,13 @@ light one, so it shows.
 
 Pass `author`, e.g. the name someone set, and each new note is signed with it
 in small, quieter type along its bottom, inside its padding, so its text has a
-line less room. Exports draw the byline the same way, cut short with an
+line less room. Changing a note's text, or drawing or filling on it, adds the
+name after the names already there, e.g. "Ada, Bo", unless it's there
+already. Moving or resizing a note, or changing its color, doesn't. Exports draw the byline the same way, cut short with an
 ellipsis if it's too long. PNG and SVG exports also keep the name as their
 author: an `Author` iTXt chunk in a PNG, and Dublin Core's `dc:creator` in an
 SVG's metadata. JPEGs don't. Call `setAuthor` on the mounted canvas when the
-name changes. Notes already placed keep the name they were signed with, and
+name changes. Notes already signed keep the names they were signed with, and
 without one, nothing's signed. Pass `showAuthors: false`, or call
 `setShowAuthors(false)`, to hide every note's byline, on the canvas and in
 exports, and give its text that line back. Notes stay signed, so showing

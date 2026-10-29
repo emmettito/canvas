@@ -16,6 +16,7 @@ import { NOTE_LAYOUT } from "../constants/note-layout.const";
 import { TEXT_LAYOUT } from "../constants/text-layout.const";
 import { drawFills, getFillSteps } from "./draw-fills";
 import { drawStroke } from "./draw-stroke";
+import { getByline } from "./get-byline";
 import { resolveLayers } from "./layers";
 import { addPngText } from "./png-text";
 import {
@@ -122,7 +123,7 @@ function layOutNote(
 // How much room a note's byline takes from its text.
 function getBylineHeight(note: Note): number {
   const { bylineSize, lineHeight } = NOTE_LAYOUT;
-  return note.author ? bylineSize * lineHeight : 0;
+  return note.authors?.length ? bylineSize * lineHeight : 0;
 }
 
 // `text`, cut short with an ellipsis if it's wider than `room`, as CSS's
@@ -146,14 +147,15 @@ function fitText(
   return `${characters.join("")}…`;
 }
 
-// A signed note's author, on one line along its bottom, inside its padding.
-// Null if nobody signed it.
+// Who signed a note, on one line along its bottom, inside its padding. Null
+// if nobody did.
 function layOutByline(
   note: Note,
   { noteColor, fontFamily }: TextStyle,
   measurer: TextMeasurer
 ): PlacedSpan | null {
-  if (!note.author) {
+  const byline = getByline(note);
+  if (!byline) {
     return null;
   }
   const { padding, bylineSize } = NOTE_LAYOUT;
@@ -166,7 +168,7 @@ function layOutByline(
     strike: false,
     color: noteColor,
   };
-  const text = fitText(note.author, note.width - padding * 2, style, measurer);
+  const text = fitText(byline, note.width - padding * 2, style, measurer);
   const { ascent, descent } = measurer.metrics(style);
   // Centered in its line box, the way CSS places a line's text.
   const lineBox = getBylineHeight(note);

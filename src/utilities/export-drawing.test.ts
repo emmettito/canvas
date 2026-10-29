@@ -197,7 +197,7 @@ describe("createSvg with notes", () => {
 
 describe("createSvg with signed notes", () => {
   it("shows the author along the note's bottom, quieter than its text", () => {
-    const svg = toSvg({ notes: [{ ...NOTE, author: "Ada" }] });
+    const svg = toSvg({ notes: [{ ...NOTE, authors: ["Ada"] }] });
 
     expect(svg).toMatch(
       /<g fill-opacity="0.6"><text xml:space="preserve"><tspan x="32" [^>]*font-size="11"[^>]*>Ada<\/tspan><\/text><\/g>/
@@ -213,18 +213,26 @@ describe("createSvg with signed notes", () => {
     };
 
     expect(toSvg({ notes: [small] })).toContain(">two<");
-    const svg = toSvg({ notes: [{ ...small, author: "Ada" }] });
+    const svg = toSvg({ notes: [{ ...small, authors: ["Ada"] }] });
     expect(svg).toContain(">one<");
     expect(svg).not.toContain(">two<");
   });
 
   it("cuts a long author short with an ellipsis", () => {
     const svg = toSvg({
-      notes: [{ ...NOTE, width: 60, author: "Bartholomew Montgomery" }],
+      notes: [{ ...NOTE, width: 60, authors: ["Bartholomew Montgomery"] }],
     });
 
     expect(svg).toMatch(/>[^<>]+…<\/tspan>/);
     expect(svg).not.toContain("Montgomery");
+  });
+
+  it("names everyone who signed it, in the order they did", () => {
+    const svg = toSvg({
+      notes: [{ ...NOTE, width: 400, authors: ["Ada", "Grace"] }],
+    });
+
+    expect(svg).toContain(">Ada, Grace</tspan>");
   });
 
   it("leaves unsigned notes without one", () => {

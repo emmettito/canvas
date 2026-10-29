@@ -44,6 +44,7 @@ import {
   toHex,
 } from "../../utilities/colors";
 import { exportDrawing, renderDrawing } from "../../utilities/export-drawing";
+import { getByline } from "../../utilities/get-byline";
 import { getCssVariable } from "../../utilities/get-css-variable";
 import {
   floodFill,
@@ -798,7 +799,7 @@ export class Canvas {
         ? notes
         : notes.map((note) => {
             const unsigned = { ...note };
-            delete unsigned.author;
+            delete unsigned.authors;
             return unsigned;
           }),
       order: this.#order,
@@ -1295,7 +1296,7 @@ export class Canvas {
     if (note && !note.ink) {
       // Its first stroke, which needs a canvas.
       note.ink = createElement("canvas", "canvas-note-ink");
-      note.editor.element.after(note.ink);
+      (note.byline ?? note.editor.element).after(note.ink);
       this.#paintInk(note);
     } else if (!note && drawn.run === runs) {
       this.#paint();
@@ -1870,7 +1871,7 @@ export class Canvas {
       content: [{ runs: [] }],
       strokes: [],
       fills: [],
-      ...(author && { author }),
+      ...(author && { authors: [author] }),
     });
     view.element.style.zIndex = String(this.#order.length + 1);
     return view;
@@ -2474,19 +2475,11 @@ export class Canvas {
       createView: (note, element) => {
         const editor = this.#createEditor("notes", note, "Sticky note");
         element.append(editor.element);
-        // A note's author never changes, so it's only shown once.
-        let byline: HTMLElement | null = null;
-        if (note.author) {
-          byline = createElement("div", "canvas-note-byline");
-          byline.textContent = note.author;
-          element.toggleAttribute("data-signed", true);
-          element.append(byline);
-        }
         return {
           element,
           item: note,
           editor,
-          byline,
+          byline: null,
           ink: null,
           inked: null,
           fillCanvas: null,
@@ -2500,6 +2493,7 @@ export class Canvas {
         element.style.width = px(item.width);
         element.style.height = px(item.height);
         element.style.backgroundColor = item.color;
+        this.#showByline(view);
         // What's being typed isn't in the drawing until typing stops, so
         // someone else's change mustn't replace it.
         if (this.#editing?.view !== view) {
@@ -2542,6 +2536,23 @@ export class Canvas {
       onChange: (note) => this.#options.onItemChange("notes", note),
       onRemove: (id) => this.#options.onItemRemove("notes", id),
     });
+  }
+
+  // Who signed a note, along its bottom, once anyone has. More sign it as
+  // they change it, and nobody's removed, so it's only ever added.
+  #showByline(view: NoteView): void {
+    const byline = getByline(view.item);
+    if (!byline) {
+      return;
+    }
+    if (!view.byline) {
+      view.byline = createElement("div", "canvas-note-byline");
+      view.element.toggleAttribute("data-signed", true);
+      // Straight after its text, so its ink stays above it, as exports draw
+      // it.
+      view.editor.element.after(view.byline);
+    }
+    view.byline.textContent = byline;
   }
 
   // A note being moved lines up with the notes on screen near it, unless

@@ -158,9 +158,13 @@ function readNote(value: unknown): Note | null {
     strokes,
     fills,
   };
-  // Notes saved before they could be signed have no author.
-  if (typeof saved.author === "string" && saved.author !== "") {
-    note.author = saved.author;
+  // Notes saved before they could be signed have no authors, and ones saved
+  // before more than one could sign have one `author`.
+  const authors = Array.isArray(saved.authors)
+    ? saved.authors.filter((name) => typeof name === "string" && name !== "")
+    : [saved.author].filter((name) => typeof name === "string" && name !== "");
+  if (authors.length > 0) {
+    note.authors = authors as string[];
   }
   return note;
 }

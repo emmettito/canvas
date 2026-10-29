@@ -18,6 +18,7 @@ import {
 import { type CustomColor, type ToolColor } from "../../models/color.model";
 import { type Drawing } from "../../models/drawing.model";
 import { type History } from "../../models/history.model";
+import { type Note } from "../../models/note.model";
 import { type Point } from "../../models/point.model";
 import {
   type ToolbarControl,
@@ -427,7 +428,7 @@ export function mountCanvas(
       update();
     },
     onItemChange: (kind, item) => {
-      history.updateItem(kind, item);
+      history.updateItem(kind, kind === "notes" ? sign(item as Note) : item);
       update();
     },
     onItemRemove: (kind, id) => {
@@ -1202,6 +1203,23 @@ export function mountCanvas(
     } else {
       tools = { ...tools, pencil: { ...tools.pencil, color } };
     }
+  }
+
+  // A note whose text changed, or that was drawn or filled on, is signed by
+  // whoever changed it too, after whoever signed it before, unless they
+  // already have. Moving or resizing it, or changing its color, doesn't.
+  function sign(note: Note): Note {
+    const before = history.drawing.notes.find(({ id }) => id === note.id);
+    if (!author || !before || note.authors?.includes(author)) {
+      return note;
+    }
+    const edited =
+      note.strokes.length !== before.strokes.length ||
+      note.fills.length !== before.fills.length ||
+      JSON.stringify(note.content) !== JSON.stringify(before.content);
+    return edited
+      ? { ...note, authors: [...(note.authors ?? []), author] }
+      : note;
   }
 
   // Text is in the pencil's color.

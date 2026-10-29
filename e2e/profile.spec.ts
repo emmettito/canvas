@@ -39,6 +39,34 @@ test("new notes are signed with the name, and old ones keep theirs", async ({
   await expect(bylines(page)).toHaveText(["Ada"]);
 });
 
+test("editing a note adds the name to its byline, once", async ({ page }) => {
+  await setName(page, "Ada");
+  await page.mouse.click(10, 10);
+  await addNote(page);
+  await setName(page, "Bo");
+  await page.getByRole("button", { name: "Move" }).click();
+  const note = page.locator(".canvas-note");
+
+  // Moving it doesn't sign it.
+  const box = (await note.boundingBox())!;
+  await page.mouse.move(box.x + 20, box.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 60, box.y + 60, { steps: 4 });
+  await page.mouse.up();
+  await expect(bylines(page)).toHaveText(["Ada"]);
+
+  // Typing in it does, once however often it's edited.
+  for (const text of ["Hi", " there"]) {
+    await note.dblclick();
+    await page.keyboard.type(text);
+    await page.keyboard.press("Escape");
+  }
+  await expect(bylines(page)).toHaveText(["Ada, Bo"]);
+
+  await page.reload();
+  await expect(bylines(page)).toHaveText(["Ada, Bo"]);
+});
+
 test("hiding names hides notes' bylines, and is remembered", async ({
   page,
 }) => {
