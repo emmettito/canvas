@@ -521,6 +521,28 @@
   cursor: default;
 }
 
+/* A note's colors, above its menu's actions. */
+.canvas-context-colors {
+  display: grid;
+  grid-template-columns: repeat(5, 24px);
+  gap: 6px;
+  padding: 6px 6px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--canvas-color-border);
+}
+
+.canvas-context-color.canvas-color-option {
+  width: 24px;
+  height: 24px;
+
+  &[aria-checked="true"] {
+    box-shadow:
+      inset 0 0 0 1px var(--canvas-color-swatch-outline),
+      0 0 0 2px var(--canvas-color-surface),
+      0 0 0 4px var(--canvas-color-accent);
+  }
+}
+
 /* Floats above the note or text being typed in. */
 .canvas-format-bar {
   position: absolute;

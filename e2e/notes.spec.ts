@@ -293,6 +293,46 @@ test("notes take a light shade of the chosen color", async ({ page }) => {
   );
 });
 
+test("a note's color can be changed from its menu, and undone", async ({
+  page,
+}) => {
+  await addNote(page, "Yellow");
+  const note = page.locator(".canvas-note");
+  const yellow = await note.evaluate(
+    (element) => getComputedStyle(element).backgroundColor
+  );
+
+  await note.click({ button: "right" });
+  // Its own color is marked.
+  await expect(
+    page.getByRole("menuitemradio", { name: "yellow" })
+  ).toHaveAttribute("aria-checked", "true");
+  await page.getByRole("menuitemradio", { name: "blue" }).click();
+  await expect(note).toHaveCSS("background-color", "rgb(171, 198, 255)");
+  await expect(getNotes(page)).toHaveText("Yellow");
+
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(note).toHaveCSS("background-color", yellow);
+});
+
+test("right-clicking a note being typed in opens its menu, and keeps the text", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Sticky note" }).click();
+  const box = (await page.locator("canvas").boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.type("Typing");
+
+  await getNotes(page).click({ button: "right" });
+  await expect(page.locator(".canvas-context-menu")).toBeVisible();
+  await page.getByRole("menuitemradio", { name: "green" }).click();
+  await expect(getNotes(page)).toHaveText("Typing");
+  await expect(page.locator(".canvas-note")).not.toHaveCSS(
+    "background-color",
+    "rgb(255, 255, 255)"
+  );
+});
+
 test("notes are restored after a reload", async ({ page }) => {
   await addNote(page, "Remember me");
 

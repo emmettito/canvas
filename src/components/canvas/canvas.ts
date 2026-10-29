@@ -1,3 +1,4 @@
+import { COLORS } from "../../constants/colors.const";
 import { DRAG_THRESHOLD } from "../../constants/drag-threshold.const";
 import { FILL_LAYOUT } from "../../constants/fill-layout.const";
 import { IMAGE_LAYOUT } from "../../constants/image-layout.const";
@@ -35,6 +36,7 @@ import { createId } from "../../utilities/create-id";
 import { drawFills } from "../../utilities/draw-fills";
 import { drawStroke } from "../../utilities/draw-stroke";
 import {
+  getColorName,
   isDarkColor,
   parseColor,
   resolveColor,
@@ -146,6 +148,15 @@ interface MenuAction {
   onSelect: () => void;
   // Shown, but it would do nothing.
   disabled?: boolean;
+}
+
+// A color a menu offers, as a swatch above its actions.
+interface MenuColor {
+  label: string;
+  // A resolved color value, as it's shown.
+  color: string;
+  selected: boolean;
+  onSelect: () => void;
 }
 
 interface ImageView extends ItemView<ImageItem> {
@@ -2030,7 +2041,8 @@ export class Canvas {
   }
 
   // An item's menu: to move it to the front or back of everything, or
-  // delete it. One being added has no place in the order yet.
+  // delete it, and a note's colors, to change it to. One being added has no
+  // place in the order yet.
   #openItemMenu(
     kind: ItemKind,
     view: ItemView<PlacedItem>,
@@ -2045,11 +2057,37 @@ export class Canvas {
       disabled: !placed || isAtEdge(this.#order, kind, id, to),
       onSelect: () => this.#options.onItemRestack(kind, id, to),
     });
-    this.#openMenu(point, [
-      restack("front", "Bring to front"),
-      restack("back", "Send to back"),
-      { label: "Delete", onSelect: () => this.#delete(kind, view) },
-    ]);
+    this.#openMenu(
+      point,
+      [
+        restack("front", "Bring to front"),
+        restack("back", "Send to back"),
+        { label: "Delete", onSelect: () => this.#delete(kind, view) },
+      ],
+      kind === "notes" ? this.#getNoteColors(view as NoteView) : []
+    );
+  }
+
+  // The light shades notes are made in, from the palette, with the note's
+  // own marked.
+  #getNoteColors(view: NoteView): MenuColor[] {
+    return COLORS.map((name) => {
+      const color = getNoteColor(resolveColor(this.#interfaceLayer, name));
+      return {
+        label: getColorName(name),
+        color,
+        selected: color === view.item.color,
+        onSelect: () => {
+          // It's read as the menu's chosen from, in case the note's changed
+          // since it opened, e.g. by someone drawing together with this
+          // canvas.
+          const note = this.#layers.notes.getView(view.item.id)?.item;
+          if (note && note.color !== color) {
+            this.#options.onItemChange("notes", { ...note, color });
+          }
+        },
+      };
+    });
   }
 
   // Items only take pointer input with the tools that move or open them, so
@@ -2079,11 +2117,39 @@ export class Canvas {
     ).remove(view.item.id);
   }
 
-  // Opens a menu of `actions` at `point` on screen, inside the canvas.
-  #openMenu(point: Point, actions: MenuAction[]): void {
+  // Opens a menu of `actions` at `point` on screen, inside the canvas, below
+  // any `colors` to pick from.
+  #openMenu(
+    point: Point,
+    actions: MenuAction[],
+    colors: MenuColor[] = []
+  ): void {
     this.#closeMenu();
     const menu = createElement("div", "canvas-menu canvas-context-menu");
     menu.setAttribute("role", "menu");
+    if (colors.length > 0) {
+      const swatches = createElement("div", "canvas-context-colors");
+      swatches.setAttribute("role", "group");
+      swatches.setAttribute("aria-label", "Color");
+      for (const { label, color, selected, onSelect } of colors) {
+        const swatch = createElement(
+          "button",
+          "canvas-color-option canvas-context-color"
+        );
+        swatch.type = "button";
+        swatch.setAttribute("role", "menuitemradio");
+        swatch.setAttribute("aria-checked", String(selected));
+        swatch.setAttribute("aria-label", label);
+        swatch.title = label;
+        swatch.style.backgroundColor = color;
+        swatch.addEventListener("click", () => {
+          this.#closeMenu();
+          onSelect();
+        });
+        swatches.append(swatch);
+      }
+      menu.append(swatches);
+    }
     for (const { label, onSelect, disabled = false } of actions) {
       const item = createElement("button", "canvas-menu-item");
       item.type = "button";
@@ -2123,7 +2189,9 @@ export class Canvas {
     );
     menu.style.left = px(Math.max(8, left));
     menu.style.top = px(Math.max(8, top));
-    menu.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    menu
+      .querySelector<HTMLButtonElement>(".canvas-menu-item:not(:disabled)")
+      ?.focus();
     document.addEventListener("pointerdown", this.#onDocumentPointerDown, true);
   }
 

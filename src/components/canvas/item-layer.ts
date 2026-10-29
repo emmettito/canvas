@@ -62,7 +62,8 @@ export interface ItemLayerOptions<T extends PlacedItem, V extends ItemView<T>> {
   // The item was pressed twice, or Enter was pressed on it, e.g. to type in
   // it. Without this, Enter presses it.
   onOpen?: (view: V) => void;
-  // The item was right-clicked or long-pressed, at `point` on screen.
+  // The item was right-clicked, even while it's typed in, or long-pressed,
+  // at `point` on screen.
   onMenu: (view: V, point: Point) => void;
   // Its element is removed, e.g. to stop what's in it.
   destroyView?: (view: V) => void;
@@ -355,16 +356,17 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
     }
   };
 
-  // While text is being typed in, the browser's own menu shows, e.g. to paste.
   #onContextMenu = (event: MouseEvent): void => {
     const target = event.target as Element;
     const element = target.closest<HTMLDivElement>(
       `.${this.#options.className}`
     );
     const view = element && this.#views.get(element.dataset.itemId!);
-    if (!view || this.#options.isPressForBrowser?.(view, target)) {
+    if (!view) {
       return;
     }
+    // Even in text being typed, it's the item's menu rather than the
+    // browser's, which would look out of place on the canvas.
     event.preventDefault();
     if (this.#openedByLongPress) {
       this.#openedByLongPress = false;

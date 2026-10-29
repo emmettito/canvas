@@ -197,7 +197,10 @@ With `move` picked:
 With `note` or `text` picked, notes or text can be moved and resized the same
 way, and clicking one types in it. Whichever tool is picked, right-click an
 item, or press and hold one on a touch screen with `move`, for a menu to bring
-it to the front, send it to the back, or delete it.
+it to the front, send it to the back, or delete it. A note's menu also has
+its colors, to change it to, with its own marked, which can be undone like
+any change. Right-clicking text being typed opens the same menu, rather than
+the browser's.
 
 **Text**: with `text` picked, clicking the canvas starts text there, in the
 pencil's color, at the size picked by clicking `text` again. Until it's typed
