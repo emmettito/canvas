@@ -75,3 +75,22 @@ test("hiding the toolbars closes an open menu", async ({ page }) => {
 
   await expect(page.locator(".canvas-menu")).toHaveCount(0);
 });
+
+test("pressing outside the File menu closes it, even on the canvas", async ({
+  page,
+}) => {
+  const file = page.getByRole("button", { name: "File", exact: true });
+  const menu = page.locator(".canvas-menu");
+  const viewport = page.viewportSize()!;
+
+  // With each tool, since some keep the press to themselves, e.g. to pan.
+  for (const tool of ["Move", "Pencil", "Eraser", "Dropper"]) {
+    await page.getByRole("button", { name: new RegExp(`^${tool}`) }).click();
+    await file.click();
+    await expect(menu).toBeVisible();
+
+    await page.mouse.click(viewport.width / 2, viewport.height / 2);
+
+    await expect(menu).toHaveCount(0);
+  }
+});

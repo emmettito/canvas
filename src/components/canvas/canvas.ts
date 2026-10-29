@@ -1297,6 +1297,37 @@ export class Canvas {
     }
   };
 
+  /**
+   * Pinching or Ctrl+scrolling over `element`, e.g. the toolbars around the
+   * canvas, zooms the drawing too, rather than the browser zooming the page,
+   * which can leave the toolbars off screen.
+   */
+  zoomOnPinch(element: HTMLElement): void {
+    // The drawing handles its own.
+    const isOutside = (event: Event) =>
+      !this.#surface.contains(event.target as Node);
+    element.addEventListener("gesturestart", (event) => {
+      if (isOutside(event)) {
+        this.#onGestureStart(event);
+      }
+    });
+    element.addEventListener("gesturechange", (event) => {
+      if (isOutside(event)) {
+        this.#onGestureChange(event);
+      }
+    });
+    // Plain scrolling is left alone, e.g. to scroll a menu.
+    element.addEventListener(
+      "wheel",
+      (event) => {
+        if (event.ctrlKey && isOutside(event)) {
+          this.#onWheel(event);
+        }
+      },
+      { passive: false }
+    );
+  }
+
   #onGestureStart = (event: Event): void => {
     event.preventDefault();
     this.#gestureZoom = this.#viewport.zoom;

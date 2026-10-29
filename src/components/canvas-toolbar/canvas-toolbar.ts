@@ -705,6 +705,8 @@ export class CanvasToolbar {
   }
 
   // Close the open popover on any press outside the toolbar, e.g. on the canvas.
+  // It listens before the press reaches the canvas, which keeps some to
+  // itself, e.g. to pan.
   #onDocumentPointerDown = (event: PointerEvent): void => {
     if (!this.element.contains(event.target as Node)) {
       this.#closePopover();
@@ -718,7 +720,11 @@ export class CanvasToolbar {
     this.#removePopover?.();
     this.#removePopover = null;
     this.#openPopover = null;
-    document.removeEventListener("pointerdown", this.#onDocumentPointerDown);
+    document.removeEventListener(
+      "pointerdown",
+      this.#onDocumentPointerDown,
+      true
+    );
     this.update(this.#state);
   }
 
@@ -740,7 +746,7 @@ export class CanvasToolbar {
       () => this.#closePopover(),
       takesFocus
     );
-    document.addEventListener("pointerdown", this.#onDocumentPointerDown);
+    document.addEventListener("pointerdown", this.#onDocumentPointerDown, true);
   }
 
   // The button `popover` appears beside. Only buttons on the toolbar open

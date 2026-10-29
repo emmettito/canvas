@@ -423,6 +423,7 @@ export function mountCanvas(
   const corner = createElement("div", "canvas-corner");
   corner.append(status);
   root.append(canvasWrapper, corner, fileInput);
+  canvas.zoomOnPinch(root);
   const hasControls = (groups: ToolbarControl[][]) =>
     groups.some((group) => group.length > 0);
   if (hasControls(topControls)) {
