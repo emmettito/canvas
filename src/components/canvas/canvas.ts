@@ -1,6 +1,7 @@
 import { DRAG_THRESHOLD } from "../../constants/drag-threshold.const";
 import { FILL_LAYOUT } from "../../constants/fill-layout.const";
 import { IMAGE_LAYOUT } from "../../constants/image-layout.const";
+import { LOUPE_LAYOUT } from "../../constants/loupe-layout.const";
 import { NOTE_LAYOUT } from "../../constants/note-layout.const";
 import { RESIZE_HANDLES } from "../../constants/resize-handles.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
@@ -67,6 +68,7 @@ import {
 } from "../../utilities/viewport";
 import { FormatBar } from "./format-bar";
 import { ItemLayer, type ItemView, type PlacedItem } from "./item-layer";
+import { Loupe } from "./loupe";
 
 import "./canvas.css";
 
@@ -259,6 +261,13 @@ export class Canvas {
     { canvas: createElement("canvas", "canvas-drawing"), painted: null },
   ];
   #cursor = createElement("div", "canvas-cursor");
+  // The dropper's magnifier, and where the pointer is, on screen. Since
+  // sampling takes a moment, whether it's being sampled, and whether it
+  // needs sampling again, e.g. as the pointer moved meanwhile.
+  #loupe = new Loupe();
+  #loupeAt: Point | null = null;
+  #sampling = false;
+  #loupeStale = false;
   // The drawing's strokes and items, stacked in its order, above the input
   // layer, so items can take pointer input themselves.
   #items = createElement("div", "canvas-items");
@@ -383,7 +392,7 @@ export class Canvas {
     );
     layer.addEventListener("contextmenu", this.#onLayerContextMenu);
     this.#surface.append(layer, this.#items, this.#cursor);
-    this.#overlay.append(this.#formatBar.element);
+    this.#overlay.append(this.#formatBar.element, this.#loupe.element);
     container.append(this.#surface, this.#overlay);
 
     const surface = this.#surface;
@@ -395,6 +404,7 @@ export class Canvas {
     surface.addEventListener("pointerdown", this.#onSurfaceDown, true);
     surface.addEventListener("pointerdown", this.#onPick, true);
     surface.addEventListener("pointermove", this.#onSurfaceMove, true);
+    surface.addEventListener("pointermove", this.#onLoupeMove, true);
     surface.addEventListener("pointerup", this.#onSurfaceUp, true);
     surface.addEventListener("pointercancel", this.#onSurfaceUp, true);
     surface.addEventListener("pointerenter", () => {
@@ -402,6 +412,7 @@ export class Canvas {
     });
     surface.addEventListener("pointerleave", () => {
       this.#hovered = false;
+      this.#hideLoupe();
     });
     document.addEventListener("keydown", this.#onSpace);
     document.addEventListener("keyup", this.#onSpace);
@@ -447,6 +458,9 @@ export class Canvas {
   setPicking(picking: boolean): void {
     this.#picking = picking;
     this.#surface.toggleAttribute("data-picking", picking);
+    if (!picking) {
+      this.#hideLoupe();
+    }
   }
 
   /** Whether pressing the drawing fills an area, with the paint bucket. */
@@ -595,7 +609,15 @@ export class Canvas {
    * if there is one, is kept in the file, except a JPEG.
    */
   async export(options: ExportOptions, author = ""): Promise<Blob | null> {
-    const { drawing, textStyle, files } = await this.#getRendering();
+    const drawing = this.#getDrawing();
+    const textStyle = this.#getTextStyle();
+    const files = new Map<string, Blob>();
+    for (const { id } of drawing.images) {
+      const file = await this.#options.getImage(id);
+      if (file) {
+        files.set(id, file);
+      }
+    }
     return exportDrawing(
       drawing,
       this.visibleArea,
@@ -608,24 +630,38 @@ export class Canvas {
   }
 
   // What drawing the drawing again needs: the drawing, how its text looks,
-  // which comes from CSS, and its images' files.
+  // which comes from CSS, and its images. They're the ones shown, which the
+  // browser has already decoded, so drawing again often, e.g. with the
+  // dropper, doesn't read and decode their files each time.
   async #getRendering() {
-    const textStyle = {
+    const textStyle = this.#getTextStyle();
+    const drawing = this.#getDrawing();
+    const images = new Map<string, CanvasImageSource>();
+    for (const { id } of drawing.images) {
+      // Its view shows the file once its URL is made.
+      const url = await this.#getImageUrl(id);
+      const image = this.#layers.images.getView(id)?.image;
+      if (url && image) {
+        try {
+          await image.decode();
+          images.set(id, image);
+        } catch {
+          // It can't be shown either, so it's left out.
+        }
+      }
+    }
+    return { drawing, textStyle, images };
+  }
+
+  // How text is drawn again, which comes from CSS.
+  #getTextStyle() {
+    return {
       noteColor: getCssVariable(
         this.#interfaceLayer,
         "--canvas-color-note-text"
       ),
       fontFamily: getComputedStyle(this.#items).fontFamily,
     };
-    const drawing = this.#getDrawing();
-    const files = new Map<string, Blob>();
-    for (const { id } of drawing.images) {
-      const file = await this.#options.getImage(id);
-      if (file) {
-        files.set(id, file);
-      }
-    }
-    return { drawing, textStyle, files };
   }
 
   // The drawing, as it's shown.
@@ -648,11 +684,19 @@ export class Canvas {
   // The color of the drawing at `point`, as it's drawn, including images,
   // notes and the background.
   async #sampleColor(point: Point): Promise<CustomColor | null> {
-    const { drawing, textStyle, files } = await this.#getRendering();
-    // One pixel, at the screen's zoom, so it's the color that's seen.
+    const data = await this.#samplePixels(point, 1);
+    return data && toHex([...data.data]);
+  }
+
+  // The drawing's pixels around `point`, `count` across, as they're drawn.
+  // The middle one is the color picked there.
+  async #samplePixels(point: Point, count: number): Promise<ImageData | null> {
+    const { drawing, textStyle, images } = await this.#getRendering();
+    // Screen pixels, at the screen's zoom, so they're the colors that are
+    // seen.
     const zoom = this.#viewport.zoom;
-    const size = 1 / zoom;
-    const image = await renderDrawing(
+    const size = count / zoom;
+    const image = renderDrawing(
       drawing,
       {
         x: point.x - size / 2,
@@ -663,13 +707,59 @@ export class Canvas {
       zoom,
       this.#background,
       textStyle,
-      files
+      images
     );
     const context = image?.getContext("2d");
-    if (!context) {
-      return null;
+    return context?.getImageData(0, 0, count, count) ?? null;
+  }
+
+  // With the dropper, the magnifier follows a mouse, showing what a press
+  // would pick. Touch and pen have no hover position.
+  #onLoupeMove = (event: PointerEvent): void => {
+    if (!this.#picking || event.pointerType !== "mouse" || !event.isPrimary) {
+      this.#hideLoupe();
+      return;
     }
-    return toHex([...context.getImageData(0, 0, 1, 1).data]);
+    this.#loupe.start();
+    this.#sampleLoupe({ x: event.clientX, y: event.clientY });
+  };
+
+  // Samples the pixels around `client`, a point on screen, for the
+  // magnifier. While one is being sampled, only the latest point is kept,
+  // so it never falls behind the pointer.
+  #sampleLoupe(client: Point): void {
+    this.#loupeAt = client;
+    this.#loupeStale = true;
+    if (this.#sampling) {
+      return;
+    }
+    this.#sampling = true;
+    void (async () => {
+      try {
+        while (this.#loupeStale && this.#loupeAt) {
+          this.#loupeStale = false;
+          const { x, y } = this.#loupeAt;
+          const point = this.getDrawingPoint(x, y);
+          const data = await this.#samplePixels(point, LOUPE_LAYOUT.pixels);
+          if (data && this.#loupe.active) {
+            const middle = Math.floor(LOUPE_LAYOUT.pixels / 2);
+            const index = (middle * LOUPE_LAYOUT.pixels + middle) * 4;
+            const color = toHex([...data.data.slice(index, index + 4)]);
+            await this.#loupe.show(data, color, this.#toCanvasPoint(x, y));
+            // The pointer is hidden once the magnifier's middle shows where
+            // it is.
+            this.#surface.toggleAttribute("data-loupe", this.#loupe.shown);
+          }
+        }
+      } finally {
+        this.#sampling = false;
+      }
+    })();
+  }
+
+  #hideLoupe(): void {
+    this.#loupe.hide();
+    this.#surface.toggleAttribute("data-loupe", false);
   }
 
   // With the dropper, pressing anywhere on the drawing picks its color, even
@@ -1008,12 +1098,13 @@ export class Canvas {
   #moveCursor(event: PointerEvent): void {
     const cursor = this.#cursor;
     // Touch and pen have no hover position, so the cursor only follows a
-    // mouse. Placing, moving and filling have no size to show.
+    // mouse. Placing, moving, filling and picking have no size to show.
     if (
       event.pointerType !== "mouse" ||
       this.#placing ||
       this.#moving ||
-      this.#filling
+      this.#filling ||
+      this.#picking
     ) {
       cursor.style.visibility = "hidden";
       return;
@@ -1183,14 +1274,14 @@ export class Canvas {
     );
     this.#findingFill = true;
     try {
-      const { drawing, textStyle, files } = await this.#getRendering();
-      const image = await renderDrawing(
+      const { drawing, textStyle, images } = await this.#getRendering();
+      const image = renderDrawing(
         drawing,
         area,
         scale,
         this.#background,
         textStyle,
-        files
+        images
       );
       const context = image?.getContext("2d");
       if (!image || !context) {
@@ -1315,6 +1406,10 @@ export class Canvas {
       this.#paintInk(note);
     }
     this.#placeFormatBar();
+    // What's under the pointer changes as the drawing scrolls and zooms.
+    if (this.#loupe.active && this.#loupeAt) {
+      this.#sampleLoupe(this.#loupeAt);
+    }
   }
 
   // A change the person made, e.g. by scrolling, which the host is told of.

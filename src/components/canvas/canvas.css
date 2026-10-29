@@ -55,10 +55,103 @@
   inset: 0;
 }
 
-/* The dropper picks from anything on the drawing. */
+/* The dropper picks from anything on the drawing, at its tip, which is
+ * outlined so it shows on any color. */
 .canvas-surface[data-picking],
 .canvas-surface[data-picking] * {
-  cursor: crosshair !important;
+  cursor:
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='-16 -16 288 288'><path d='M224,67.3a35.79,35.79,0,0,0-11.26-25.66c-14-13.28-36.72-12.78-50.62,1.13L138.8,66.2a24,24,0,0,0-33.14.77l-5,5a16,16,0,0,0,0,22.64l2,2.06-51,51a39.75,39.75,0,0,0-10.53,38l-8,18.41A13.68,13.68,0,0,0,36,219.3a15.92,15.92,0,0,0,17.71,3.35L71.23,215a39.89,39.89,0,0,0,37.06-10.75l51-51,2.06,2.06a16,16,0,0,0,22.62,0l5-5a24,24,0,0,0,.74-33.18l23.75-23.87A35.75,35.75,0,0,0,224,67.3ZM97,193a24,24,0,0,1-24,6,8,8,0,0,0-5.55.31l-18.1,7.91L57,189.41a8,8,0,0,0,.25-5.75A23.88,23.88,0,0,1,63,159l51-51,33.94,34Z' fill='black' stroke='white' stroke-width='24' stroke-linejoin='round' paint-order='stroke'/></svg>")
+      4 19,
+    crosshair !important;
+}
+
+/* With the dropper's magnifier showing, its middle is the pointer. */
+.canvas-surface[data-picking][data-loupe],
+.canvas-surface[data-picking][data-loupe] * {
+  cursor: none !important;
+}
+
+/* Centered on the pointer, above everything, and edged in the color it
+ * picks. */
+.canvas-loupe {
+  --canvas-loupe-size: calc(
+    var(--canvas-loupe-pixels) * var(--canvas-loupe-pixel)
+  );
+  --canvas-loupe-edge: 4px;
+  position: absolute;
+  /* Its pixels are as big as they're shown, inside its edge. */
+  width: calc(var(--canvas-loupe-size) + var(--canvas-loupe-edge) * 2);
+  height: calc(var(--canvas-loupe-size) + var(--canvas-loupe-edge) * 2);
+  border: var(--canvas-loupe-edge) solid var(--canvas-loupe-color, transparent);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.2),
+    inset 0 0 0 1px rgb(0 0 0 / 0.2),
+    0 4px 16px rgb(0 0 0 / 0.2);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+/* Each pixel a square, rather than blurred into the next. */
+.canvas-loupe-pixels {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 50%;
+  /* Opaque, so what's under it never shows through, unenlarged. */
+  background-color: var(--canvas-loupe-color, #ffffff);
+  background-size: 100% 100%;
+  image-rendering: pixelated;
+
+  /* Faint lines between the pixels. */
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(to right, rgb(128 128 128 / 0.2) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(128 128 128 / 0.2) 1px, transparent 1px);
+    background-size: var(--canvas-loupe-pixel) var(--canvas-loupe-pixel);
+  }
+
+  /* The one that's picked, outlined dark and light, so it shows on any
+   * color. */
+  &::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: calc(var(--canvas-loupe-pixel) + 2px);
+    height: calc(var(--canvas-loupe-pixel) + 2px);
+    border: 1px solid rgb(0 0 0 / 0.6);
+    box-shadow: inset 0 0 0 1px #ffffff;
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* The color's code, below it. */
+.canvas-loupe-code {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--canvas-color-tooltip-text);
+  background: var(--canvas-color-tooltip);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+
+  &:empty {
+    display: none;
+  }
 }
 
 /* On a dark background, the tool's size shows light. */

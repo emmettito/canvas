@@ -222,3 +222,40 @@ test("PNG exports include images", async ({ page }) => {
   );
   expect(color).toEqual([255, 0, 0, 255]);
 });
+
+test("the dropper picks from images", async ({ page }) => {
+  await insertImage(page, await createPng(page));
+  const box = (await getImages(page).boundingBox())!;
+  const middle = box.y + box.height / 2;
+
+  await page.getByRole("button", { name: "Dropper" }).click();
+  await page.mouse.click(box.x + box.width / 2 + 50, middle);
+  await expect(
+    page.getByRole("button", { name: "Color: #0000ff" })
+  ).toBeVisible();
+
+  // Again, from the image already shown, the other half: the palette's red.
+  await page.getByRole("button", { name: "Dropper" }).click();
+  await page.mouse.click(box.x + box.width / 2 - 50, middle);
+  await expect(page.getByRole("button", { name: "Color: red" })).toBeVisible();
+});
+
+test("the dropper's magnifier shows the color under the mouse", async ({
+  page,
+}) => {
+  await insertImage(page, await createPng(page));
+  const box = (await getImages(page).boundingBox())!;
+  const middle = box.y + box.height / 2;
+  const loupe = page.locator(".canvas-loupe");
+
+  await page.getByRole("button", { name: "Dropper" }).click();
+  await page.mouse.move(box.x + box.width / 2 + 50, middle);
+  await expect(loupe).toBeVisible();
+  await expect(loupe).toHaveText("#0000ff");
+  await page.mouse.move(box.x + box.width / 2 - 50, middle);
+  await expect(loupe).toHaveText("#ff0000");
+
+  // Picking goes back to the pencil, which has none.
+  await page.mouse.click(box.x + box.width / 2 - 50, middle);
+  await expect(loupe).toBeHidden();
+});

@@ -250,13 +250,20 @@ export async function exportDrawing(
     const svg = createSvg(drawing, area, scale, fill, textStyle, urls, author);
     return new Blob([svg], { type: "image/svg+xml" });
   }
+  const elements = new Map<string, CanvasImageSource>();
+  for (const [id, blob] of images) {
+    const element = await loadImage(blob);
+    if (element) {
+      elements.set(id, element);
+    }
+  }
   const image = await renderDrawing(
     drawing,
     area,
     scale,
     fill,
     textStyle,
-    images
+    elements
   );
   if (!image) {
     return null;
@@ -421,16 +428,18 @@ function drawNote(
 /**
  * Draws the part of the drawing in `area` onto a new canvas, `scale` pixels
  * per drawing unit, as exports do, e.g. to read a color from it. `fill` is
- * the background, or null for none. Null if the browser can't draw it.
+ * the background, or null for none. `images` are the images, decoded, by id,
+ * so drawing often doesn't decode them each time. An image without one is
+ * left out. Null if the browser can't draw it.
  */
-export async function renderDrawing(
+export function renderDrawing(
   drawing: Drawing,
   area: Box,
   scale: number,
   fill: string | null,
   textStyle: TextStyle,
-  files: Map<string, Blob>
-): Promise<HTMLCanvasElement | null> {
+  images: Map<string, CanvasImageSource>
+): HTMLCanvasElement | null {
   const { width, height } = getExportSize(area, scale);
   const image = document.createElement("canvas");
   image.width = width;
@@ -461,8 +470,7 @@ export async function renderDrawing(
         break;
       case "images": {
         const { item } = layer;
-        const file = files.get(item.id);
-        const element = file && (await loadImage(file));
+        const element = images.get(item.id);
         if (element) {
           context.drawImage(element, item.x, item.y, item.width, item.height);
         }

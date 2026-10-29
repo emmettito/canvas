@@ -238,7 +238,9 @@ and typing carries on. Where the browser can, e.g. Chrome and Edge,
 
 `dropper` picks a color from the drawing, wherever it's clicked, including
 images, notes and the background, then goes back to the tool before it. A
-color from the palette is kept as the palette's.
+color from the palette is kept as the palette's. With a mouse, a magnifier
+follows the pointer, showing the pixels around it and the color it would
+pick.
 
 Colors are kept as they're picked, whatever the theme.
 
