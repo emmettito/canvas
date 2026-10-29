@@ -46,11 +46,12 @@ test("a note can be added, typed in, and undone", async ({ page }) => {
   await expect(getNotes(page)).toHaveText("Buy milk");
 });
 
-test("a note left empty isn't kept", async ({ page }) => {
+test("a note left empty is kept", async ({ page }) => {
   await addNote(page, "");
 
-  await expect(getNotes(page)).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
+  await expect(getNotes(page)).toHaveCount(1);
+  await expect(getNotes(page)).toHaveText("");
+  await expect(page.getByRole("button", { name: "Undo" })).toBeEnabled();
 });
 
 test("clicking the canvas to stop typing doesn't add another note", async ({
@@ -63,6 +64,60 @@ test("clicking the canvas to stop typing doesn't add another note", async ({
   await page.mouse.click(box.x + box.width * 0.8, box.y + box.height * 0.5);
 
   await expect(getNotes(page)).toHaveCount(1);
+});
+
+test("clicking the canvas adds a note of the usual size, centered there", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Sticky note" }).click();
+  const canvas = (await page.locator("canvas").boundingBox())!;
+  const x = canvas.x + canvas.width / 2;
+  const y = canvas.y + canvas.height / 2;
+  await page.mouse.click(x, y);
+
+  const note = (await page.locator(".canvas-note").boundingBox())!;
+  expect(note.width).toBeCloseTo(160, 0);
+  expect(note.height).toBeCloseTo(160, 0);
+  expect(note.x + note.width / 2).toBeCloseTo(x, 0);
+  await expect(getNotes(page)).toBeFocused();
+});
+
+test("dragging on the canvas sizes a new note, in any direction", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Sticky note" }).click();
+  const canvas = (await page.locator("canvas").boundingBox())!;
+  const start = {
+    x: canvas.x + canvas.width / 2,
+    y: canvas.y + canvas.height / 2,
+  };
+  await drag(page, start, -240, 90);
+
+  const note = (await page.locator(".canvas-note").boundingBox())!;
+  expect(note.width).toBeCloseTo(240, 0);
+  expect(note.height).toBeCloseTo(90, 0);
+  // Its right side is where the drag started.
+  expect(note.x + note.width).toBeCloseTo(start.x, 0);
+  expect(note.y).toBeCloseTo(start.y, 0);
+  // It's opened for typing, and added once typing stops.
+  await expect(getNotes(page)).toBeFocused();
+  await page.keyboard.type("Wide");
+  await page.keyboard.press("Escape");
+  await expect(getNotes(page)).toHaveText("Wide");
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(getNotes(page)).toHaveCount(0);
+});
+
+test("a note dragged smaller than it can be is its smallest size", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Sticky note" }).click();
+  const canvas = (await page.locator("canvas").boundingBox())!;
+  await drag(page, { x: canvas.x + 200, y: canvas.y + 200 }, 10, 10);
+
+  const note = (await page.locator(".canvas-note").boundingBox())!;
+  expect(note.width).toBeCloseTo(48, 0);
+  expect(note.height).toBeCloseTo(48, 0);
 });
 
 test("dragging a note moves it, and the move can be undone", async ({
@@ -164,24 +219,24 @@ test("with the move tool, clicking a note picks it, and double-clicking opens it
   await expect(note).not.toHaveAttribute("data-editing");
 });
 
-test("emptying a note or deleting it from its menu removes it", async ({
+test("emptying a note keeps it, and deleting it from its menu removes it", async ({
   page,
 }) => {
-  await addNote(page, "One", 0.3);
-  await addNote(page, "Two", 0.7);
+  await addNote(page, "One");
 
-  await page.locator(".canvas-note").first().click();
+  await page.locator(".canvas-note").click();
   await page.keyboard.press("ControlOrMeta+a");
   await page.keyboard.press("Backspace");
   await page.keyboard.press("Escape");
   await expect(getNotes(page)).toHaveCount(1);
+  await expect(getNotes(page)).toHaveText("");
 
   await page.locator(".canvas-note").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Delete" }).click();
   await expect(getNotes(page)).toHaveCount(0);
 
   await page.getByRole("button", { name: "Undo" }).click();
-  await expect(getNotes(page)).toHaveText("Two");
+  await expect(getNotes(page)).toHaveCount(1);
 });
 
 test("notes take a light shade of the chosen color", async ({ page }) => {

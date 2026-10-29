@@ -1,11 +1,9 @@
+import { DRAG_THRESHOLD } from "../../constants/drag-threshold.const";
 import { type Point } from "../../models/point.model";
 import { type ResizeHandle } from "../../models/resize-handle.model";
 import { type Size } from "../../models/size.model";
 import { createElement } from "../../utilities/create-element";
 
-// How far, in screen pixels, an item has to be dragged before it moves rather
-// than counting as a press, e.g. to open a note for typing.
-const DRAG_THRESHOLD = 4;
 // How long, in milliseconds, a touch rests on an item to open its menu, like
 // a right-click.
 const LONG_PRESS = 500;
@@ -179,6 +177,15 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
     this.element.append(view.element);
     this.#options.render(view);
     return view;
+  }
+
+  /** Changes the draft, e.g. as it's sized by dragging. */
+  updateDraft(item: T): void {
+    const view = this.#views.get(item.id);
+    if (view && this.isDraft(item.id)) {
+      view.item = item;
+      this.#options.render(view);
+    }
   }
 
   isDraft(id: string): boolean {

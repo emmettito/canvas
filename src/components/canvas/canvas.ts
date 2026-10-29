@@ -1,3 +1,4 @@
+import { DRAG_THRESHOLD } from "../../constants/drag-threshold.const";
 import { FILL_LAYOUT } from "../../constants/fill-layout.const";
 import { IMAGE_LAYOUT } from "../../constants/image-layout.const";
 import { NOTE_LAYOUT } from "../../constants/note-layout.const";
@@ -283,9 +284,15 @@ export class Canvas {
   };
   // Images' files as object URLs, by id, once they're loaded.
   #imageUrls = new Map<string, Promise<string | null>>();
-  // Whether releasing the press places an item. Pressing the canvas to stop
-  // typing in one doesn't.
-  #placesOnRelease = false;
+  // The press that places an item on release: where it started, on screen
+  // and on the drawing, and the note it's sizing once it's dragged. Pressing
+  // the canvas to stop typing in an item doesn't place one.
+  #placingPress: {
+    pointerId: number;
+    client: Point;
+    start: Point;
+    note: NoteView | null;
+  } | null = null;
   // The note or text being typed in, which the format bar formats.
   // `from` is the item as typing started, to tell if it changed.
   #editing: {
@@ -518,6 +525,10 @@ export class Canvas {
 
   /** What pressing the canvas places, or null to draw with the tool. */
   setPlacing(placing: Placing | null): void {
+    // A note being sized goes if the note tool is put down mid-drag.
+    if (placing?.kind !== "notes" && this.#placingPress?.note) {
+      this.#cancelPlacing();
+    }
     this.#placing = placing;
     const surface = this.#surface;
     if (placing) {
@@ -994,8 +1005,16 @@ export class Canvas {
     // undone as the press moves focus.
     if (this.#placing) {
       const active = document.activeElement;
-      this.#placesOnRelease =
-        !this.#items.contains(active) && !this.#overlay.contains(active);
+      if (!this.#items.contains(active) && !this.#overlay.contains(active)) {
+        this.#placingPress = {
+          pointerId: event.pointerId,
+          client: { x: event.clientX, y: event.clientY },
+          start: this.#getPoint(event),
+          note: null,
+        };
+        // Capture keeps a note being sized if the pointer leaves the canvas.
+        this.#interfaceLayer.setPointerCapture(event.pointerId);
+      }
       return;
     }
     if (this.#filling) {
@@ -1045,6 +1064,10 @@ export class Canvas {
       return;
     }
     this.#moveCursor(event);
+    if (this.#placingPress?.pointerId === event.pointerId) {
+      this.#sizeNote(event);
+      return;
+    }
     const drawn = this.#drawn;
     if (!drawn) {
       return;
@@ -1059,9 +1082,16 @@ export class Canvas {
   };
 
   #onPointerUp = (event: PointerEvent): void => {
-    if (this.#placesOnRelease && event.isPrimary) {
-      this.#placesOnRelease = false;
-      if (event.type === "pointerup" && this.#placing) {
+    const press = this.#placingPress;
+    if (press?.pointerId === event.pointerId) {
+      this.#placingPress = null;
+      if (event.type !== "pointerup" || !this.#placing) {
+        if (press.note) {
+          this.#layers.notes.endDraft(false);
+        }
+      } else if (press.note) {
+        this.#startEditing("notes", press.note);
+      } else {
         this.#placeDraft(this.#getPoint(event), this.#placing);
       }
       return;
@@ -1420,7 +1450,7 @@ export class Canvas {
       if (this.#touches.size === 2) {
         this.#cancelStroke();
         this.#pan = null;
-        this.#placesOnRelease = false;
+        this.#cancelPlacing();
         for (const layer of Object.values(this.#layers)) {
           layer.cancelGesture();
         }
@@ -1517,29 +1547,85 @@ export class Canvas {
     }
   };
 
+  // With the note tool, dragging from where the canvas was pressed sizes a
+  // note between there and the pointer, from its smallest size up. It's
+  // opened for typing on release.
+  #sizeNote(event: PointerEvent): void {
+    const press = this.#placingPress!;
+    const placing = this.#placing;
+    if (placing?.kind !== "notes") {
+      return;
+    }
+    const dragged = Math.hypot(
+      event.clientX - press.client.x,
+      event.clientY - press.client.y
+    );
+    if (!press.note && dragged < DRAG_THRESHOLD) {
+      return;
+    }
+    const { start } = press;
+    const point = this.#getPoint(event);
+    const { minSize } = NOTE_LAYOUT;
+    const width = Math.max(Math.abs(point.x - start.x), minSize);
+    const height = Math.max(Math.abs(point.y - start.y), minSize);
+    const box = {
+      x: point.x < start.x ? start.x - width : start.x,
+      y: point.y < start.y ? start.y - height : start.y,
+      width,
+      height,
+    };
+    if (press.note) {
+      this.#layers.notes.updateDraft({ ...press.note.item, ...box });
+    } else {
+      press.note = this.#addNoteDraft(box, placing);
+    }
+  }
+
+  // Stops placing an item, e.g. once a second finger pinches, removing the
+  // note being sized.
+  #cancelPlacing(): void {
+    if (this.#placingPress?.note) {
+      this.#layers.notes.endDraft(false);
+    }
+    this.#placingPress = null;
+  }
+
+  // A note that isn't in the drawing yet, above everything, as it will be once
+  // it's added.
+  #addNoteDraft(
+    box: Box,
+    { color: toolColor }: Extract<Placing, { kind: "notes" }>
+  ): NoteView {
+    const color = resolveColor(this.#interfaceLayer, toolColor);
+    const view = this.#layers.notes.addDraft({
+      id: createId(),
+      ...box,
+      color: getNoteColor(color),
+      content: [{ runs: [] }],
+      strokes: [],
+      fills: [],
+    });
+    view.element.style.zIndex = String(this.#order.length + 1);
+    return view;
+  }
+
   // A note centered where the canvas was pressed, or text starting there,
   // ready to type in.
   #placeDraft(point: Point, placing: Placing): void {
-    const color = resolveColor(this.#interfaceLayer, placing.color);
-    // Above everything, as it will be once it's added.
-    const zIndex = String(this.#order.length + 1);
     if (placing.kind === "notes") {
       const { size } = NOTE_LAYOUT;
-      const view = this.#layers.notes.addDraft({
-        id: createId(),
+      const box = {
         x: point.x - size / 2,
         y: point.y - size / 2,
         width: size,
         height: size,
-        color: getNoteColor(color),
-        content: [{ runs: [] }],
-        strokes: [],
-        fills: [],
-      });
-      view.element.style.zIndex = zIndex;
-      this.#startEditing("notes", view);
+      };
+      this.#startEditing("notes", this.#addNoteDraft(box, placing));
       return;
     }
+    const color = resolveColor(this.#interfaceLayer, placing.color);
+    // Above everything, as it will be once it's added.
+    const zIndex = String(this.#order.length + 1);
     const { fontSize } = placing;
     const view = this.#layers.texts.addDraft({
       id: createId(),
@@ -1603,8 +1689,9 @@ export class Canvas {
     }
   }
 
-  // Keeps what was typed. A note or text left empty is removed, and a new
-  // one is only added once it has text, so a stray click doesn't leave one.
+  // Keeps what was typed. A note is kept even if it's empty. A text box left
+  // empty is removed, and a new one is only added once it has text, so a
+  // stray click doesn't leave one.
   #finishEditing(): void {
     const editing = this.#editing;
     if (!editing) {
@@ -1620,7 +1707,7 @@ export class Canvas {
     view.editor.element.scrollTop = 0;
     const layer = this.#getLayer(kind);
     const content = view.editor.content;
-    const blank = isBlank(content);
+    const blank = kind === "texts" && isBlank(content);
     const item = { ...view.item, content };
     if (layer.isDraft(item.id)) {
       layer.endDraft(!blank);
