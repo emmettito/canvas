@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   clampZoom,
   fitViewport,
+  getOpaqueBox,
   getStrokeBox,
   getVisibleArea,
   panBy,
@@ -101,5 +102,21 @@ describe("viewport", () => {
       y: 0,
       zoom: 1,
     });
+  });
+
+  it("finds the box around an image's opaque pixels", () => {
+    // 4 by 3, with a faint pixel at the top left, which doesn't count.
+    const data = new Uint8ClampedArray(4 * 3 * 4);
+    data[3] = 5;
+    data[(1 * 4 + 1) * 4 + 3] = 255;
+    data[(2 * 4 + 2) * 4 + 3] = 100;
+
+    expect(getOpaqueBox(data, 4, 3, 8)).toEqual({
+      x: 1,
+      y: 1,
+      width: 2,
+      height: 2,
+    });
+    expect(getOpaqueBox(new Uint8ClampedArray(16), 2, 2, 8)).toBeNull();
   });
 });

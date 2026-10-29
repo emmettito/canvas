@@ -130,3 +130,32 @@ export function fitViewport(box: Box | null, size: Size): Viewport {
     zoom,
   };
 }
+
+/**
+ * The box around the pixels of an RGBA image that are more opaque than
+ * `alpha`, out of 255, in pixels from its top left, or null if none are.
+ */
+export function getOpaqueBox(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  alpha: number
+): Box | null {
+  let left = width;
+  let top = height;
+  let right = -1;
+  let bottom = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (data[(y * width + x) * 4 + 3] > alpha) {
+        left = Math.min(left, x);
+        right = Math.max(right, x);
+        top = Math.min(top, y);
+        bottom = Math.max(bottom, y);
+      }
+    }
+  }
+  return right < 0
+    ? null
+    : { x: left, y: top, width: right - left + 1, height: bottom - top + 1 };
+}

@@ -10,4 +10,12 @@ export const ZOOM = {
   // Room left around the drawing when zooming to fit it, as a share of the
   // canvas's size.
   fitMargin: 0.1,
+  // Erased strokes are still there, so what's left of them is found by
+  // drawing them, with at most this many pixels, so a big drawing is drawn at
+  // a lower resolution rather than slowly.
+  fitMaxPixels: 1_000_000,
+  // How opaque a pixel must be, out of 255, to count as drawn, so the faint
+  // edges an eraser leaves don't. Colors are opaque, so even the thinnest
+  // stroke, drawn small, is more than this.
+  fitMinAlpha: 64,
 };

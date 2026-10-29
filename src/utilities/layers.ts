@@ -23,7 +23,7 @@ export type ResolvedLayer =
 /** Where something is moved to in the stacking order. */
 export type Restack = "front" | "back";
 
-function isEraser(stroke: Stroke): boolean {
+export function isEraser(stroke: Stroke): boolean {
   return stroke.color === undefined;
 }
 

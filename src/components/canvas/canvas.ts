@@ -53,12 +53,18 @@ import { getNoteColor } from "../../utilities/lighten-color";
 import { resizeBox, resizeBoxKeepingShape } from "../../utilities/resize-box";
 import { isField } from "../../utilities/is-field";
 import { snapBox, type SnapGuide } from "../../utilities/snap-box";
-import { isAtEdge, type Restack, resolveLayers } from "../../utilities/layers";
+import {
+  isAtEdge,
+  isEraser,
+  type Restack,
+  resolveLayers,
+} from "../../utilities/layers";
 import { isBlank } from "../../utilities/rich-text";
 import {
   DEFAULT_VIEWPORT,
   fitViewport,
   getFillBox,
+  getOpaqueBox,
   getStrokeBox,
   getVisibleArea,
   intersectBoxes,
@@ -515,10 +521,10 @@ export class Canvas {
   }
 
   /** Shows the whole drawing, as big as fits, or 100% if it's empty. */
-  zoomToFit(): void {
+  async zoomToFit(): Promise<void> {
+    const drawn = await this.#getDrawnBox();
     const boxes: Box[] = [
-      ...this.#strokes.flatMap((stroke) => getStrokeBox(stroke) ?? []),
-      ...this.#fills.flatMap((fill) => getFillBox(fill) ?? []),
+      ...(drawn ? [drawn] : []),
       ...this.#layers.images.items,
       ...this.#layers.notes.items,
       // Text's size is its text's, so it's measured.
@@ -533,6 +539,49 @@ export class Canvas {
         width: this.#width,
         height: this.#height,
       })
+    );
+  }
+
+  // The box around what's left of the strokes and fills, or null if nothing
+  // is. Erasing doesn't remove what's erased, so it's found by drawing them.
+  async #getDrawnBox(): Promise<Box | null> {
+    const area = unionBoxes([
+      ...this.#strokes.flatMap((stroke) =>
+        isEraser(stroke) ? [] : (getStrokeBox(stroke) ?? [])
+      ),
+      ...this.#fills.flatMap((fill) => getFillBox(fill) ?? []),
+    ]);
+    if (!area || !this.#strokes.some(isEraser)) {
+      return area;
+    }
+    const scale = Math.min(
+      1,
+      Math.sqrt(ZOOM.fitMaxPixels / (area.width * area.height))
+    );
+    // Only the strokes and fills, on nothing, so what's drawn is opaque.
+    const drawing = { ...this.#getDrawing(), images: [], texts: [], notes: [] };
+    const image = renderDrawing(
+      drawing,
+      area,
+      scale,
+      null,
+      this.#getTextStyle(),
+      new Map()
+    );
+    const context = image?.getContext("2d");
+    if (!image || !context) {
+      return area;
+    }
+    const { width, height } = image;
+    const { data } = context.getImageData(0, 0, width, height);
+    const box = getOpaqueBox(data, width, height, ZOOM.fitMinAlpha);
+    return (
+      box && {
+        x: area.x + box.x / scale,
+        y: area.y + box.y / scale,
+        width: box.width / scale,
+        height: box.height / scale,
+      }
     );
   }
 

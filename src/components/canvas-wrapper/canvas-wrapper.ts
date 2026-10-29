@@ -557,7 +557,7 @@ export function mountCanvas(
 
   function zoom(action: ZoomAction) {
     if (action === "fit") {
-      canvas.zoomToFit();
+      void canvas.zoomToFit();
     } else if (action === "reset") {
       canvas.zoomTo(1);
     } else {

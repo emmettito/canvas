@@ -150,6 +150,34 @@ test("keyboard shortcuts zoom, like Figma's", async ({ page }) => {
   expectNear(note.height, viewport.height * 0.8);
 });
 
+test("zooming to fit leaves out what's erased", async ({ page }) => {
+  await addNote(page);
+  // A dot, rubbed out by passes just above and below its middle, and a
+  // stroke of the eraser on nothing.
+  await page.mouse.click(1000, 150);
+  await page.getByRole("button", { name: "Eraser" }).click();
+  for (const y of [145, 155]) {
+    await page.mouse.move(960, y);
+    await page.mouse.down();
+    await page.mouse.move(1040, y, { steps: 10 });
+    await page.mouse.up();
+  }
+  await page.mouse.move(1000, 600);
+  await page.mouse.down();
+  await page.mouse.move(1200, 650, { steps: 10 });
+  await page.mouse.up();
+
+  // Only the note is fitted, as if nothing else were there.
+  await page.keyboard.press("Shift+Digit1");
+  const viewport = page.viewportSize()!;
+  await expect(async () => {
+    const note = await getNoteBox(page);
+    expectNear(note.x + note.width / 2, viewport.width / 2);
+    expectNear(note.y + note.height / 2, viewport.height / 2);
+    expectNear(note.height, viewport.height * 0.8);
+  }).toPass();
+});
+
 test("placing a note zoomed in puts it under the pointer", async ({ page }) => {
   await page.keyboard.press("ControlOrMeta+Equal");
   await page.keyboard.press("ControlOrMeta+Equal");
