@@ -1,4 +1,4 @@
-# Canvas
+# <img src="public/favicon.svg" alt="" width="32" height="32" align="top"> Canvas
 
 A simple art canvas. Draw with a pencil or eraser, fill areas with a paint
 bucket, pick
