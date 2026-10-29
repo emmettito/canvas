@@ -362,6 +362,7 @@
   height: 100%;
   pointer-events: none;
   user-select: none;
+  -webkit-user-select: none;
   -webkit-user-drag: none;
 
   [data-missing] > & {
@@ -400,6 +401,7 @@
   pointer-events: auto;
   cursor: default;
   user-select: none;
+  -webkit-user-select: none;
 
   &[hidden] {
     display: none;
