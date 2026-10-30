@@ -5,6 +5,7 @@ import { type Point } from "../models/point.model";
 import { type Size } from "../models/size.model";
 import { type Stroke } from "../models/stroke.model";
 import { type Viewport } from "../models/viewport.model";
+import { getStrokeReach } from "./stroke-pieces";
 
 /** The 100% view, with the drawing's origin at the top left. */
 export const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1 };
@@ -73,10 +74,12 @@ export function unionBoxes(boxes: Box[]): Box | null {
 }
 
 /** The box around a stroke, including its width. */
-export function getStrokeBox({ points, size }: Stroke): Box | null {
+export function getStrokeBox(stroke: Stroke): Box | null {
+  const { points } = stroke;
   if (points.length === 0) {
     return null;
   }
+  const size = getStrokeReach(stroke);
   const xs = points.map(({ x }) => x);
   const ys = points.map(({ y }) => y);
   const left = Math.min(...xs) - size;

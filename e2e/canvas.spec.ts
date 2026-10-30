@@ -199,6 +199,105 @@ test("the eraser offers the pencil's sizes", async ({ page }) => {
   expect(await sizeNames("Eraser")).toEqual(pencil);
 });
 
+test("the highlighter draws see-through, in a color of its own", async ({
+  page,
+}) => {
+  await page.keyboard.press("h");
+  await expect(
+    page.getByRole("button", { name: "Color: yellow" })
+  ).toBeVisible();
+  // Along a line and back over it, which isn't darker where it overlaps.
+  const box = (await page.locator("canvas").boundingBox())!;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + box.width / 4, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + (box.width * 3) / 4, y, { steps: 10 });
+  await page.mouse.move(box.x + box.width / 4, y + 2, { steps: 10 });
+  await page.mouse.up();
+
+  const alpha = await page
+    .locator("canvas")
+    .evaluate(
+      (canvas: HTMLCanvasElement) =>
+        canvas
+          .getContext("2d")!
+          .getImageData(canvas.width / 2, canvas.height / 2, 1, 1).data[3]
+    );
+  expect(alpha).toBeGreaterThan(80);
+  expect(alpha).toBeLessThan(130);
+  // The pencil keeps its own color.
+  await page.keyboard.press("p");
+  await expect(
+    page.getByRole("button", { name: "Color: black" })
+  ).toBeVisible();
+});
+
+test("a pen draws wider where it presses harder", async ({ page }) => {
+  // Playwright has no pen, so its events are made by hand. The browser
+  // won't capture a pointer it didn't make, which doesn't matter here.
+  const strokes = await page.evaluate(() => {
+    Element.prototype.setPointerCapture = () => {};
+    const layer = document.querySelector(".canvas-input-layer")!;
+    const box = layer.getBoundingClientRect();
+    const y = box.top + box.height / 2;
+    const send = (type: string, x: number, pressure: number) =>
+      layer.dispatchEvent(
+        new PointerEvent(type, {
+          pointerId: 7,
+          pointerType: "pen",
+          isPrimary: true,
+          button: 0,
+          buttons: type === "pointerup" ? 0 : 1,
+          pressure,
+          clientX: box.left + x,
+          clientY: y,
+          bubbles: true,
+        })
+      );
+    send("pointerdown", 100, 0.1);
+    for (let step = 1; step <= 20; step++) {
+      send("pointermove", 100 + step * 20, 0.1 + step * 0.04);
+    }
+    send("pointerup", 500, 0.9);
+    return Object.entries(localStorage)
+      .filter(([key]) => key.endsWith(":strokes"))
+      .flatMap(([, value]) => JSON.parse(value));
+  });
+
+  const pressures = strokes[0].points.map(
+    ({ pressure }: { pressure: number }) => pressure
+  );
+  expect(pressures[0]).toBe(0.1);
+  expect(pressures.at(-1)).toBeCloseTo(0.9);
+  // Thin where it pressed lightly, at the start, and wide at the end.
+  const box = (await page.locator("canvas").boundingBox())!;
+  const y = box.y + box.height / 2;
+  const getThickness = (x: number) =>
+    page.locator("canvas").evaluate(
+      (canvas: HTMLCanvasElement, [x, y]) => {
+        const box = canvas.getBoundingClientRect();
+        const scale = canvas.width / box.width;
+        const context = canvas.getContext("2d")!;
+        const column = context.getImageData(
+          Math.round((x - box.left) * scale),
+          Math.round((y - box.top - 30) * scale),
+          1,
+          Math.round(60 * scale)
+        ).data;
+        let drawn = 0;
+        for (let index = 3; index < column.length; index += 4) {
+          drawn += column[index] > 128 ? 1 : 0;
+        }
+        return drawn / scale;
+      },
+      [x, y]
+    );
+  const thin = await getThickness(box.x + 120);
+  const wide = await getThickness(box.x + 490);
+  expect(thin).toBeGreaterThan(0);
+  expect(wide).toBeGreaterThanOrEqual(thin * 3);
+});
+
 test("[ and ] step through the pencil's sizes", async ({ page }) => {
   const pencil = page.getByRole("button", { name: "Pencil" });
   const sizes = page.getByRole("group", { name: "Pencil size" });
@@ -615,14 +714,14 @@ test("tabbing to a button shows its name", async ({ page, browserName }) => {
     "Like Safari, WebKit doesn't move focus to buttons with Tab by default."
   );
   const pencil = page.getByRole("button", { name: "Pencil" });
-  const eraser = page.getByRole("button", { name: "Eraser" });
+  const highlighter = page.getByRole("button", { name: "Highlighter" });
   await pencil.focus();
 
   await page.keyboard.press("Tab");
 
-  await expect(eraser).toBeFocused();
+  await expect(highlighter).toBeFocused();
   const tooltip = page.locator(".canvas-tooltip:visible");
-  await expect(tooltip).toHaveText("Eraser E");
+  await expect(tooltip).toHaveText("Highlighter H");
 });
 
 test("the file menu opens below its button, lined up with it", async ({

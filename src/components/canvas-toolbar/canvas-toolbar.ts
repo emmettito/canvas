@@ -2,6 +2,7 @@ import { COLORS } from "../../constants/colors.const";
 import { EXPORT_FORMATS } from "../../constants/export-formats.const";
 import { EXPORT_SCALES } from "../../constants/export-scales.const";
 import { FILE_MENU_ITEMS } from "../../constants/file-menu-items.const";
+import { HIGHLIGHTER } from "../../constants/highlighter.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
 import { TIMER_LAYOUT } from "../../constants/timer-layout.const";
 import { TIMER_SOUNDS } from "../../constants/timer-sounds.const";
@@ -45,6 +46,9 @@ type ControlName = ToolbarControl["action"];
 // A button, or an item in the file menu.
 type ActionName = ControlName | FileMenuItem;
 
+/** Whose color the color control picks. */
+export type ColorTarget = "pencil" | "highlighter" | "note";
+
 // Which edge of the canvas the toolbar sits on. Its popovers and tooltips
 // open away from the canvas, e.g. below a toolbar at the top.
 export type ToolbarPosition = "top" | "bottom";
@@ -70,6 +74,7 @@ const ACTION_LABELS: Record<ToolbarAction, string> = {
   export: "Export",
   move: "Move",
   pencil: "Pencil",
+  highlighter: "Highlighter",
   eraser: "Eraser",
   bucket: "Paint bucket",
   note: "Sticky note",
@@ -98,6 +103,7 @@ type SizedTool = Exclude<Tool, "move" | "bucket" | "note" | "dropper">;
 const TOOL_LABELS: Record<SizedTool, string> = {
   eraser: ACTION_LABELS.eraser,
   pencil: ACTION_LABELS.pencil,
+  highlighter: ACTION_LABELS.highlighter,
   text: ACTION_LABELS.text,
 };
 
@@ -107,6 +113,7 @@ const ANCHORED: ControlName[] = [
   "history",
   "export",
   "pencil",
+  "highlighter",
   "eraser",
   "text",
   "color",
@@ -156,8 +163,8 @@ export interface CanvasToolbarState {
   tools: Record<StrokeTool, ToolState>;
   noteColor: ToolColor;
   // Which color the color control picks: the pencil's, which text uses too,
-  // or new notes'.
-  colorTarget: "pencil" | "note";
+  // the highlighter's, or new notes'.
+  colorTarget: ColorTarget;
   // Custom colors picked, most recent first.
   recentColors: CustomColor[];
   textSize: number;
@@ -369,7 +376,7 @@ function getColor(state: CanvasToolbarState): ToolColor {
   if (state.colorTarget === "note") {
     return state.noteColor;
   }
-  return state.tools.pencil.color ?? COLORS[0];
+  return state.tools[state.colorTarget].color ?? COLORS[0];
 }
 
 /** The controls the host page asked for, in the groups it listed them in. */
@@ -683,6 +690,7 @@ export class CanvasToolbar {
       ...fileActions,
       move: () => this.#onToolClick("move"),
       pencil: () => this.#onToolClick("pencil"),
+      highlighter: () => this.#onToolClick("highlighter"),
       eraser: () => this.#onToolClick("eraser"),
       bucket: () => this.#onToolClick("bucket"),
       note: () => this.#onToolClick("note"),
@@ -854,11 +862,12 @@ export class CanvasToolbar {
   // Picking a color while erasing goes back to the pencil.
   #onColorClick(color: ToolColor): void {
     this.#closePopover();
-    if (this.#state.colorTarget === "note") {
+    const target = this.#state.colorTarget;
+    if (target === "note") {
       this.#actions.onUpdateNoteColor(color);
       return;
     }
-    this.#actions.onUpdateTool("pencil", { color });
+    this.#actions.onUpdateTool(target, { color });
     if (this.#state.activeTool === "eraser") {
       this.#actions.onSelectTool("pencil");
     }
@@ -878,14 +887,16 @@ export class CanvasToolbar {
     return slider;
   }
 
-  // The pencil's and eraser's sizes, each shown as the dot it draws, at the
-  // size it draws it, in the pencil's color or as the eraser's outline. The
-  // one picked is ringed, and picking one closes it, like picking a color.
+  // The stroke tools' sizes, each shown as the dot it draws, at the size it
+  // draws it, in the tool's color, as see-through as it draws, or as the
+  // eraser's outline. The one picked is ringed, and picking one closes it,
+  // like picking a color.
   #createSizePicker(tool: StrokeTool): HTMLDivElement {
     const picker = createElement("div", "canvas-size-picker");
     picker.setAttribute("role", "group");
     picker.setAttribute("aria-label", `${TOOL_LABELS[tool]} size`);
     const { size: current, color } = this.#state.tools[tool];
+    const opacity = tool === "highlighter" ? String(HIGHLIGHTER.opacity) : "";
     const shown = color === undefined ? null : toCss(color);
     for (const size of TOOL_SIZES) {
       const option = createButton("canvas-size-option");
@@ -896,6 +907,7 @@ export class CanvasToolbar {
       dot.style.setProperty("--canvas-size", `${width}px`);
       if (shown) {
         dot.style.backgroundColor = shown;
+        dot.style.opacity = opacity;
       } else {
         dot.toggleAttribute("data-erases", true);
       }

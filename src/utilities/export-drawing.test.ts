@@ -110,9 +110,50 @@ describe("createSvg", () => {
     const svg = toSvg({ strokes: [DOT, LINE] });
 
     expect(svg).toContain('<circle cx="10" cy="20" r="5" fill="#ff0000"/>');
-    expect(svg).toContain('d="M0 0L10.12 5"');
+    expect(svg).toContain('d="M0 0L5.06 2.5L10.12 5"');
     expect(svg).toContain('stroke="#0000ff" stroke-width="8"');
     expect(svg).toContain('stroke-linecap="round"');
+  });
+
+  it("curves lines through the middle of each pair of points", () => {
+    const svg = toSvg({
+      strokes: [
+        {
+          ...LINE,
+          points: [
+            { x: 0, y: 0 },
+            { x: 10, y: 0 },
+            { x: 20, y: 10 },
+          ],
+        },
+      ],
+    });
+
+    expect(svg).toContain('d="M0 0L5 0Q10 0 15 5L20 10"');
+  });
+
+  it("draws a pen's pieces each as wide as it pressed", () => {
+    const svg = toSvg({
+      strokes: [
+        {
+          ...LINE,
+          points: [
+            { x: 0, y: 0, pressure: 0 },
+            { x: 10, y: 0, pressure: 1 },
+          ],
+        },
+      ],
+    });
+
+    expect(svg.match(/<path /g)).toHaveLength(2);
+    expect(svg).toContain('stroke-width="5"');
+    expect(svg).toContain('stroke-width="11"');
+  });
+
+  it("draws a see-through stroke see-through as a whole", () => {
+    const svg = toSvg({ strokes: [{ ...LINE, opacity: 0.4 }] });
+
+    expect(svg).toMatch(/<g opacity="0.4"><path [^>]*stroke="#0000ff"/);
   });
 
   it("opens at the chosen size, and keeps the drawing's units inside", () => {

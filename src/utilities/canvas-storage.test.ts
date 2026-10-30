@@ -12,6 +12,7 @@ const SETTINGS: ToolSettings = {
   tools: {
     eraser: { color: undefined, size: 20 },
     pencil: { color: "--canvas-color-red", size: 10 },
+    highlighter: { color: "#ffee00", size: 20 },
   },
   noteColor: "#ff8800",
   textSize: 32,
@@ -21,6 +22,9 @@ const SETTINGS: ToolSettings = {
 
 const STROKES: Stroke[] = [
   { color: "#ff0000", points: [{ x: 1, y: 2 }], size: 5 },
+  // A pen's, and the highlighter's.
+  { color: "#00ff00", points: [{ x: 1, y: 2, pressure: 0.3 }], size: 5 },
+  { color: "#ffee00", points: [{ x: 1, y: 2 }], size: 5, opacity: 0.4 },
   // An eraser stroke, which has no color.
   { points: [{ x: 3, y: 4 }], size: 5 },
 ];
@@ -94,6 +98,15 @@ describe("CanvasStorage", () => {
     expect(restored.loadItems("a", "notes")).toEqual(NOTES);
     expect(restored.loadItems("a", "texts")).toEqual(TEXTS);
     expect(restored.loadItems("a", "images")).toEqual(IMAGES);
+  });
+
+  it("ignores strokes pressed harder than a pen can", () => {
+    localStorage.setItem(
+      "test:canvas:a:strokes",
+      JSON.stringify([{ ...STROKES[0], points: [{ x: 0, y: 0, pressure: 2 }] }])
+    );
+
+    expect(new CanvasStorage("test").loadStrokes("a")).toBeNull();
   });
 
   it("restores which canvas was open", () => {
@@ -304,6 +317,19 @@ describe("CanvasStorage export options", () => {
       textSize: 24,
       recentColors: [],
       rulers: false,
+    });
+  });
+
+  it("gives settings saved before the highlighter its defaults", () => {
+    const { highlighter: _, ...tools } = SETTINGS.tools;
+    localStorage.setItem(
+      "test:settings",
+      JSON.stringify({ ...SETTINGS, tools })
+    );
+
+    expect(new CanvasStorage("test").loadToolSettings()?.tools).toEqual({
+      ...tools,
+      highlighter: { color: "--canvas-color-yellow", size: 10 },
     });
   });
 

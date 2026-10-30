@@ -2,6 +2,7 @@ import { COLORS } from "../../constants/colors.const";
 import { DEFAULT_EXPORT_OPTIONS } from "../../constants/default-export-options.const";
 import { DEFAULT_NOTE_COLOR } from "../../constants/default-note-color.const";
 import { DEFAULT_TOOL_SIZES } from "../../constants/default-tool-sizes.const";
+import { HIGHLIGHTER } from "../../constants/highlighter.const";
 import { IMAGE_LAYOUT } from "../../constants/image-layout.const";
 import { ITEM_KINDS } from "../../constants/item-kinds.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
@@ -68,6 +69,7 @@ import { DEFAULT_VIEWPORT } from "../../utilities/viewport";
 import {
   CanvasToolbar,
   type CanvasToolbarActions,
+  type ColorTarget,
   getToolbarActions,
   validateToolbar,
 } from "../canvas-toolbar/canvas-toolbar";
@@ -85,6 +87,10 @@ function createEntry(): CanvasEntry {
 
 function isImage(file: File): boolean {
   return file.type.startsWith("image/");
+}
+
+function isStrokeTool(tool: Tool): tool is StrokeTool {
+  return tool === "pencil" || tool === "highlighter" || tool === "eraser";
 }
 
 // What canvases saved before they had their own background were drawn on.
@@ -350,6 +356,10 @@ export function mountCanvas(
           ...saved.tools.pencil,
           size: getNearestSize(saved.tools.pencil.size),
         },
+        highlighter: {
+          ...saved.tools.highlighter,
+          size: getNearestSize(saved.tools.highlighter.size),
+        },
       }
     : {
         eraser: {
@@ -359,6 +369,10 @@ export function mountCanvas(
         pencil: {
           color: COLORS[0],
           size: DEFAULT_TOOL_SIZES.pencil,
+        },
+        highlighter: {
+          color: HIGHLIGHTER.color,
+          size: DEFAULT_TOOL_SIZES.highlighter,
         },
       };
   // Most recently edited first.
@@ -808,10 +822,9 @@ export function mountCanvas(
         : null;
   }
 
-  // The pencil's or eraser's next size, if one's picked, as long as there's
-  // one that way.
+  // The picked stroke tool's next size, as long as there's one that way.
   function stepToolSize(step: -1 | 1) {
-    if (activeTool !== "pencil" && activeTool !== "eraser") {
+    if (!isStrokeTool(activeTool)) {
       return;
     }
     const index = TOOL_SIZES.indexOf(tools[activeTool].size) + step;
@@ -983,11 +996,12 @@ export function mountCanvas(
   }
 
   // The note and text tools draw nothing, so the canvas keeps the pencil's
-  // settings while they're active.
+  // settings while they're active. The highlighter's strokes are see-through.
   function getStrokeToolState(): ToolState {
-    return tools[
-      activeTool === "pencil" || activeTool === "eraser" ? activeTool : "pencil"
-    ];
+    if (activeTool === "highlighter") {
+      return { ...tools.highlighter, opacity: HIGHLIGHTER.opacity };
+    }
+    return tools[isStrokeTool(activeTool) ? activeTool : "pencil"];
   }
 
   // The background new canvases start with, from the page's CSS, so a dark
@@ -1341,11 +1355,11 @@ export function mountCanvas(
     }
   }
 
-  // Whose color the color control and the dropper set: new notes', or the
-  // pencil's, which text uses too.
-  function getColorTarget(): "pencil" | "note" {
+  // Whose color the color control and the dropper set: new notes', the
+  // highlighter's, or the pencil's, which text uses too.
+  function getColorTarget(): ColorTarget {
     const tool = activeTool === "dropper" ? previousTool : activeTool;
-    return tool === "note" ? "note" : "pencil";
+    return tool === "note" || tool === "highlighter" ? tool : "pencil";
   }
 
   // A custom color that's the palette's, e.g. "red" typed, is kept as the
@@ -1366,10 +1380,11 @@ export function mountCanvas(
 
   function useColor(picked: ToolColor) {
     const color = keepColor(picked);
-    if (getColorTarget() === "note") {
+    const target = getColorTarget();
+    if (target === "note") {
       noteColor = color;
     } else {
-      tools = { ...tools, pencil: { ...tools.pencil, color } };
+      tools = { ...tools, [target]: { ...tools[target], color } };
     }
   }
 

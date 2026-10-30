@@ -56,6 +56,7 @@ export function createActivitySender(
       note,
       ...(stroke.color !== undefined && { color: stroke.color }),
       size: stroke.size,
+      ...(stroke.opacity !== undefined && { opacity: stroke.opacity }),
       from,
       points: stroke.points.slice(from),
     });
@@ -141,6 +142,10 @@ export function isSharedActivity(value: unknown): value is SharedActivity {
         (value.color === undefined || typeof value.color === "string") &&
         isNumber(value.size) &&
         value.size > 0 &&
+        (value.opacity === undefined ||
+          (isNumber(value.opacity) &&
+            value.opacity >= 0 &&
+            value.opacity <= 1)) &&
         Number.isInteger(value.from) &&
         (value.from as number) >= 0 &&
         Array.isArray(value.points) &&
@@ -184,12 +189,17 @@ export function receiveActivity(
   if (shared?.type !== "stroke") {
     return shared;
   }
-  const { note, color, size, from, points } = shared;
+  const { note, color, size, opacity, from, points } = shared;
   if (from === 0) {
     return {
       type: "stroke",
       note,
-      stroke: { ...(color !== undefined && { color }), points, size },
+      stroke: {
+        ...(color !== undefined && { color }),
+        points,
+        size,
+        ...(opacity !== undefined && { opacity }),
+      },
     };
   }
   if (before?.type === "stroke" && before.stroke.points.length === from) {

@@ -69,11 +69,12 @@ mountCanvas(document.getElementById("drawing")!, {
 | `export`           | Export as PNG, JPEG or SVG (see below)            |
 | `move`             | Move, resize and pick what's placed (see below)   |
 | `pencil`, `eraser` | Pick the tool, or its size if already picked      |
+| `highlighter`      | The same, drawing see-through (see below)         |
 | `bucket`           | Fill areas with the pencil's color (see below)    |
 | `text`             | Add text, or pick its size if already picked      |
 | `note`             | Add sticky notes                                  |
 | `image`            | Insert images from files                          |
-| `color`            | Pick the pencil's or notes' color (no icon)       |
+| `color`            | Pick the drawing tools' or notes' color (no icon) |
 | `dropper`          | Pick a color from the drawing                     |
 | `zoom`             | Show the zoom, with a menu to change it (no icon) |
 | `timer`            | A timer, showing how long's left (no icon)        |
@@ -142,16 +143,28 @@ without an icon, before anything is
 added to the page.
 
 Each tool has a key, shown in its button's tooltip, which picks it while the
-canvas is in use and nothing's being typed: V for `move`, P for `pencil`, E
-for `eraser`, G for `bucket`, N for `note`, T for `text` and I for `dropper`. Only tools on a
-toolbar have one.
+canvas is in use and nothing's being typed: V for `move`, P for `pencil`, H
+for `highlighter`, E for `eraser`, G for `bucket`, N for `note`, T for
+`text` and I for `dropper`. Only tools on a toolbar have one.
 
-Clicking `pencil` or `eraser` again shows its sizes, each as the dot it
-draws, at the size it draws it, with its width in pixels below, and the one
-picked ringed, like the color picked. Both offer the same sizes: 2, 5, 10, 20
-and 40 pixels wide. [ and ] pick the next size down or up, like Photoshop's. A size is on screen, not on
-the drawing, so a stroke looks the size picked at any zoom: zoomed in, it's
-finer on the drawing, for detail.
+Clicking `pencil`, `highlighter` or `eraser` again shows its sizes, each as
+the dot it draws, at the size it draws it, with its width in pixels below,
+and the one picked ringed, like the color picked. They offer the same sizes:
+2, 5, 10, 20 and 40 pixels wide. [ and ] pick the next size down or up, like
+Photoshop's. A size is on screen, not on the drawing, so a stroke looks the
+size picked at any zoom: zoomed in, it's finer on the drawing, for detail.
+
+Strokes curve smoothly through the points the pointer passed, rather than
+turning sharply at each. Drawn with a pen, e.g. an Apple Pencil or a
+graphics tablet's, a stroke is wider where the pen pressed harder: from a
+quarter of the size picked, pressing lightly, to nearly twice it, pressing
+hard. A mouse or a finger draws at the size picked throughout.
+
+The highlighter draws in a color of its own, yellow to start with, which
+`color` picks while it's picked. Its strokes are see-through, so what's under
+them shows through, and a stroke isn't any darker where it crosses itself.
+Like the pencil's, they're stacked with everything else, so one drawn over
+text tints it, and one drawn under a note is hidden by it.
 
 ### Filling
 

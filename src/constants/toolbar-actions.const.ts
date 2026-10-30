@@ -9,6 +9,7 @@ export const TOOLBAR_ACTIONS: ToolbarAction[] = [
   "export",
   "move",
   "pencil",
+  "highlighter",
   "eraser",
   "bucket",
   "note",

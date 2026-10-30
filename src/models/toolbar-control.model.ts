@@ -8,6 +8,7 @@ export type ToolbarAction =
   | "export"
   | "move"
   | "pencil"
+  | "highlighter"
   | "eraser"
   | "bucket"
   | "note"

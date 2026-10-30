@@ -267,6 +267,10 @@ function startsWith<T>(strokes: T[], prefix: T[]): boolean {
 // stays within what browsers can draw on one canvas.
 const MAX_INK_PIXELS = 16_000_000;
 
+// How far, in screen pixels, the pointer moves before a stroke gets another
+// point, so a hand's tremble doesn't add a crowd of tiny pieces.
+const MIN_POINT_GAP = 0.5;
+
 /**
  * Puts a canvas among the items, which are zoomed and panned, over `area` of
  * the screen, in pixels from the canvas's top left. It's laid out at the
@@ -371,6 +375,9 @@ export class Canvas {
   #moving = false;
   #options: CanvasOptions;
   #drawn: Drawn | null = null;
+  // A see-through stroke being drawn shows on a canvas of its own until it's
+  // done (see `#paintPreview`).
+  #preview: HTMLCanvasElement | null = null;
   #viewport: Viewport = DEFAULT_VIEWPORT;
   #background = "#ffffff";
   // Whether signed notes show who signed them, on the canvas and as it's
@@ -958,8 +965,10 @@ export class Canvas {
     }
     // Keep a stroke in progress, e.g. if the window resizes mid-stroke.
     if (drawn && !drawn.note) {
-      for (const context of this.#getDrawnContexts(drawn)) {
-        drawStroke(context, drawn.stroke);
+      if (drawn.stroke.opacity === undefined) {
+        this.#drawLive(drawn);
+      } else {
+        this.#paintPreview(drawn);
       }
     }
   }
@@ -1134,12 +1143,7 @@ export class Canvas {
   // As few pixels as look sharp at the zoom, within what a browser can draw.
   #paintInk(view: NoteView): void {
     const { item, editor } = view;
-    const scale = Math.min(
-      this.#viewport.zoom * (window.devicePixelRatio || 1),
-      Math.sqrt(MAX_INK_PIXELS / (item.width * item.height))
-    );
-    const width = Math.max(1, Math.round(item.width * scale));
-    const height = Math.max(1, Math.round(item.height * scale));
+    const { width, height } = this.#getInkSize(item);
     const inked: Inked = {
       strokes: item.strokes,
       fills: item.fills,
@@ -1165,6 +1169,19 @@ export class Canvas {
       view.filled = inked;
       this.#paintNoteCanvas(view.fillCanvas, item, inked, before, "fills");
     }
+  }
+
+  // How many pixels a note's own canvases have: as few as look sharp at the
+  // zoom, within what a browser can draw.
+  #getInkSize(note: Note): Size {
+    const scale = Math.min(
+      this.#viewport.zoom * (window.devicePixelRatio || 1),
+      Math.sqrt(MAX_INK_PIXELS / (note.width * note.height))
+    );
+    return {
+      width: Math.max(1, Math.round(note.width * scale)),
+      height: Math.max(1, Math.round(note.height * scale)),
+    };
   }
 
   // Draws a note's strokes, or its fills, on one of its canvases, from its
@@ -1219,12 +1236,118 @@ export class Canvas {
   // The eraser erases fills too.
   #getDrawnContexts({ stroke, run, note }: Drawn): CanvasRenderingContext2D[] {
     const erasing = stroke.color === undefined;
-    const canvases = note
-      ? [note.ink, erasing ? note.fillCanvas : null]
-      : run === null
-        ? [...this.#runs.map(({ canvas }) => canvas), this.#fillCanvas]
-        : [this.#runs[run]?.canvas];
+    const canvases =
+      stroke.opacity !== undefined
+        ? [this.#preview]
+        : note
+          ? [note.ink, erasing ? note.fillCanvas : null]
+          : run === null
+            ? [...this.#runs.map(({ canvas }) => canvas), this.#fillCanvas]
+            : [this.#runs[run]?.canvas];
     return canvases.flatMap((canvas) => canvas?.getContext("2d") ?? []);
+  }
+
+  // Draws the stroke being drawn where it shows as it's drawn, or only
+  // `range` of its pieces, e.g. what a point just added adds. A see-through
+  // one is solid on its preview, which is as see-through as it'll be.
+  #drawLive(drawn: Drawn, range?: { from: number; end: boolean }): void {
+    const stroke =
+      drawn.stroke.opacity === undefined
+        ? drawn.stroke
+        : { ...drawn.stroke, opacity: undefined };
+    for (const context of this.#getDrawnContexts(drawn)) {
+      drawStroke(context, stroke, range);
+    }
+  }
+
+  // A see-through stroke shows on a canvas of its own while it's drawn, just
+  // above where it'll be: on its note, or the run it's part of. The canvas
+  // is see-through and the stroke solid on it, so where its pieces overlap
+  // as they're added isn't any darker. Once it's done, it's drawn with the
+  // rest, all at once.
+  #paintPreview(drawn: Drawn): void {
+    const { stroke, note, run } = drawn;
+    const below = note
+      ? (note.ink ?? note.byline ?? note.editor.element)
+      : run === null
+        ? null
+        : this.#runs[run]?.canvas;
+    if (!below || stroke.opacity === undefined) {
+      return;
+    }
+    const canvas =
+      this.#preview ??
+      createElement("canvas", note ? "canvas-note-ink" : "canvas-drawing");
+    this.#preview = canvas;
+    canvas.style.opacity = String(stroke.opacity);
+    if (below.nextSibling !== canvas) {
+      below.after(canvas);
+    }
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return;
+    }
+    if (note) {
+      const { width, height } = this.#getInkSize(note.item);
+      canvas.width = width;
+      canvas.height = height;
+      context.setTransform(
+        width / note.item.width,
+        0,
+        0,
+        height / note.item.height,
+        0,
+        0
+      );
+    } else {
+      const width = this.#width;
+      const height = this.#height;
+      const pixelRatio = window.devicePixelRatio || 1;
+      const viewport = this.#viewport;
+      canvas.style.zIndex = below.style.zIndex;
+      placeOnScreen(canvas, viewport, { x: 0, y: 0, width, height });
+      canvas.width = Math.round(width * pixelRatio);
+      canvas.height = Math.round(height * pixelRatio);
+      const scale = pixelRatio * viewport.zoom;
+      context.setTransform(
+        scale,
+        0,
+        0,
+        scale,
+        -viewport.x * scale,
+        -viewport.y * scale
+      );
+    }
+    this.#drawLive(drawn);
+  }
+
+  #removePreview(): void {
+    this.#preview?.remove();
+    this.#preview = null;
+  }
+
+  // Adds where the pointer is to the stroke being drawn, from its note's top
+  // left corner on one, with how hard a pen pressed, unless it's too close to
+  // the last point to change the stroke. A see-through stroke is one width
+  // throughout, so it's drawn all at once. Whether it was added.
+  #addPoint(drawn: Drawn, event: PointerEvent): boolean {
+    const { stroke, note } = drawn;
+    const point = this.#getPoint(event);
+    const origin = note?.item ?? { x: 0, y: 0 };
+    const x = point.x - origin.x;
+    const y = point.y - origin.y;
+    const last = stroke.points.at(-1);
+    const zoom = this.#viewport.zoom;
+    if (last && Math.hypot(x - last.x, y - last.y) * zoom < MIN_POINT_GAP) {
+      return false;
+    }
+    const pressed = event.pointerType === "pen" && stroke.opacity === undefined;
+    stroke.points.push({
+      x,
+      y,
+      ...(pressed && { pressure: Math.round(event.pressure * 100) / 100 }),
+    });
+    return true;
   }
 
   #getPoint(event: PointerEvent): Point {
@@ -1279,20 +1402,19 @@ export class Canvas {
       void this.#fillAt(event.clientX, event.clientY);
       return;
     }
-    const { color, size } = this.#toolState;
-    const point = this.#getPoint(event);
+    const { color, size, opacity } = this.#toolState;
     // A stroke started on a note is drawn on it, from its top left corner.
     const note = this.#getNoteAt(event.clientX, event.clientY);
-    const origin = note?.item ?? { x: 0, y: 0 };
     const stroke: Stroke = {
       color:
         color === undefined
           ? undefined
           : resolveColor(this.#interfaceLayer, color),
-      points: [{ x: point.x - origin.x, y: point.y - origin.y }],
+      points: [],
       // The size picked is on screen, so the stroke looks it at any zoom,
       // and is thinner on the drawing the further in it's zoomed.
       size: size / this.#viewport.zoom,
+      ...(opacity !== undefined && color !== undefined && { opacity }),
     };
     // A stroke on the drawing is part of the run of strokes on top, or
     // starts one above everything.
@@ -1303,6 +1425,7 @@ export class Canvas {
       run: note || stroke.color === undefined ? null : onTop ? runs - 1 : runs,
       note,
     };
+    this.#addPoint(drawn, event);
     this.#drawn = drawn;
     if (note && !note.ink) {
       // Its first stroke, which needs a canvas.
@@ -1314,8 +1437,10 @@ export class Canvas {
     }
     // Capture keeps the stroke going if the pointer leaves the canvas.
     this.#interfaceLayer.setPointerCapture(event.pointerId);
-    for (const context of this.#getDrawnContexts(drawn)) {
-      drawStroke(context, stroke);
+    if (stroke.opacity === undefined) {
+      this.#drawLive(drawn);
+    } else {
+      this.#paintPreview(drawn);
     }
     this.#shareStroke(drawn);
   };
@@ -1333,14 +1458,17 @@ export class Canvas {
     if (!drawn) {
       return;
     }
-    const { stroke, note } = drawn;
-    const point = this.#getPoint(event);
-    const origin = note?.item ?? { x: 0, y: 0 };
-    stroke.points.push({ x: point.x - origin.x, y: point.y - origin.y });
-    for (const context of this.#getDrawnContexts(drawn)) {
-      drawStroke(context, stroke, stroke.points.length - 2);
+    // Every point the pointer passed since the last event, where the browser
+    // has them, so a fast stroke stays smooth.
+    const from = drawn.stroke.points.length;
+    const coalesced = event.getCoalescedEvents?.() ?? [];
+    for (const each of coalesced.length > 0 ? coalesced : [event]) {
+      this.#addPoint(drawn, each);
     }
-    this.#shareStroke(drawn);
+    if (drawn.stroke.points.length > from) {
+      this.#drawLive(drawn, { from, end: false });
+      this.#shareStroke(drawn);
+    }
   };
 
   #onPointerUp = (event: PointerEvent): void => {
@@ -1364,21 +1492,27 @@ export class Canvas {
     }
     this.#drawn = null;
     const { stroke, run, note } = drawn;
+    // Its end waited for a point that might curve it.
+    this.#drawLive(drawn, { from: stroke.points.length, end: true });
+    // A see-through one is drawn again, all at once, once it's added.
+    const drawnAlready = stroke.opacity === undefined;
     if (note) {
       const strokes = [...note.item.strokes, stroke];
       // It's already drawn, so it isn't drawn again once it's added.
-      if (note.inked) {
+      if (note.inked && drawnAlready) {
         note.inked = { ...note.inked, strokes };
       }
       this.#options.onItemChange("notes", { ...note.item, strokes });
+      this.#removePreview();
       this.#options.onActivity?.(null);
       return;
     }
     const painted = run === null ? null : this.#runs[run]?.painted;
-    if (painted) {
+    if (painted && drawnAlready) {
       painted.strokes = [...painted.strokes, stroke];
     }
     this.#options.onStrokeComplete(stroke);
+    this.#removePreview();
     this.#options.onActivity?.(null);
   };
 
@@ -1694,6 +1828,7 @@ export class Canvas {
       return;
     }
     this.#drawn = null;
+    this.#removePreview();
     this.#options.onActivity?.(null);
     if (drawn.note) {
       drawn.note.inked = null;
@@ -2519,7 +2654,11 @@ export class Canvas {
         if (shiftX === 0 && shiftY === 0) {
           return { ...note, ...box };
         }
-        const shift = ({ x, y }: Point) => ({ x: x + shiftX, y: y + shiftY });
+        const shift = <P extends Point>(point: P): P => ({
+          ...point,
+          x: point.x + shiftX,
+          y: point.y + shiftY,
+        });
         return {
           ...note,
           ...box,

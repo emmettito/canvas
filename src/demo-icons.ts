@@ -11,6 +11,7 @@ import history from "@phosphor-icons/core/regular/clock-counter-clockwise.svg?ra
 import exportIcon from "@phosphor-icons/core/regular/download-simple.svg?raw";
 import move from "@phosphor-icons/core/regular/cursor.svg?raw";
 import pencil from "@phosphor-icons/core/regular/pencil-simple.svg?raw";
+import highlighter from "@phosphor-icons/core/regular/highlighter.svg?raw";
 import eraser from "@phosphor-icons/core/regular/eraser.svg?raw";
 import bucket from "@phosphor-icons/core/regular/paint-bucket.svg?raw";
 import note from "@phosphor-icons/core/regular/note.svg?raw";
@@ -31,6 +32,7 @@ const ICONS: Record<ToolbarAction, string> = {
   export: exportIcon,
   move,
   pencil,
+  highlighter,
   eraser,
   bucket,
   note,

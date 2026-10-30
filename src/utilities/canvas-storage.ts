@@ -1,6 +1,8 @@
 import { DEFAULT_NOTE_COLOR } from "../constants/default-note-color.const";
+import { DEFAULT_TOOL_SIZES } from "../constants/default-tool-sizes.const";
 import { EXPORT_FORMATS } from "../constants/export-formats.const";
 import { EXPORT_SCALES } from "../constants/export-scales.const";
+import { HIGHLIGHTER } from "../constants/highlighter.const";
 import { ITEM_KINDS } from "../constants/item-kinds.const";
 import { MAX_RECENT_COLORS } from "../constants/recent-colors.const";
 import { MAX_TOOL_SIZE } from "../constants/max-tool-size.const";
@@ -42,14 +44,25 @@ function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function isFraction(value: unknown): value is number {
+  return isNumber(value) && value >= 0 && value <= 1;
+}
+
+// Strokes saved before pens pressed or strokes could be see-through have no
+// pressure or opacity.
 function isStroke(value: unknown): value is Stroke {
   return (
     isObject(value) &&
     (value.color === undefined || typeof value.color === "string") &&
     isNumber(value.size) &&
+    (value.opacity === undefined || isFraction(value.opacity)) &&
     Array.isArray(value.points) &&
     value.points.every(
-      (point) => isObject(point) && isNumber(point.x) && isNumber(point.y)
+      (point) =>
+        isObject(point) &&
+        isNumber(point.x) &&
+        isNumber(point.y) &&
+        (point.pressure === undefined || isFraction(point.pressure))
     )
   );
 }
@@ -230,12 +243,15 @@ function isToolSize(value: unknown): value is number {
   return isNumber(value) && value >= MIN_TOOL_SIZE && value <= MAX_TOOL_SIZE;
 }
 
-// Settings saved before notes, text, custom colors and rulers have no note
-// color, text size, recent colors or rulers, so they're checked on their own.
+// Settings saved before notes, text, custom colors, rulers, the highlighter
+// and shapes have no note color, text size, recent colors, rulers,
+// highlighter or shape, so they're checked on their own.
 function isToolSettings(value: unknown): value is Omit<
   ToolSettings,
-  "noteColor" | "textSize" | "recentColors" | "rulers"
+  "tools" | "noteColor" | "textSize" | "shapeType" | "recentColors" | "rulers"
 > & {
+  tools: Omit<ToolSettings["tools"], "highlighter"> & { highlighter?: unknown };
+  shapeType?: unknown;
   noteColor?: unknown;
   textSize?: unknown;
   recentColors?: unknown;
@@ -353,10 +369,22 @@ export class CanvasStorage {
     }
     const { activeTool, tools, noteColor, textSize, recentColors, rulers } =
       settings;
+    const { highlighter } = tools;
     return {
       // The dropper is only picked for a moment, so it isn't kept.
       activeTool: activeTool === "dropper" ? "pencil" : activeTool,
-      tools,
+      tools: {
+        ...tools,
+        highlighter:
+          isObject(highlighter) &&
+          isToolColor(highlighter.color) &&
+          isToolSize(highlighter.size)
+            ? { color: highlighter.color, size: highlighter.size }
+            : {
+                color: HIGHLIGHTER.color,
+                size: DEFAULT_TOOL_SIZES.highlighter,
+              },
+      },
       noteColor: isToolColor(noteColor) ? noteColor : DEFAULT_NOTE_COLOR,
       textSize: isTextSize(textSize) ? textSize : TEXT_LAYOUT.defaultSize,
       recentColors: Array.isArray(recentColors)

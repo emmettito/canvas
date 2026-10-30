@@ -4,4 +4,5 @@ import { type StrokeTool } from "../models/tool.model";
 export const DEFAULT_TOOL_SIZES: Record<StrokeTool, number> = {
   pencil: 2.5,
   eraser: 10,
+  highlighter: 10,
 };

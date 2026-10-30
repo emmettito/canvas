@@ -1,6 +1,5 @@
 import { type DrawingItem, type ItemKind } from "./drawing.model";
-import { type Point } from "./point.model";
-import { type Stroke } from "./stroke.model";
+import { type Stroke, type StrokePoint } from "./stroke.model";
 
 /**
  * What someone's in the middle of on the canvas, before it's a change to the
@@ -41,6 +40,7 @@ export type SharedActivity =
       note: string | null;
       color?: string;
       size: number;
+      opacity?: number;
       from: number;
-      points: Point[];
+      points: StrokePoint[];
     };

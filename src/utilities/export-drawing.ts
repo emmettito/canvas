@@ -20,6 +20,12 @@ import { getByline } from "./get-byline";
 import { resolveLayers } from "./layers";
 import { addPngText } from "./png-text";
 import {
+  getDotSize,
+  getStrokePieces,
+  hasPressure,
+  type StrokePiece,
+} from "./stroke-pieces";
+import {
   layOutRichText,
   type PlacedSpan,
   type ResolvedStyle,
@@ -503,19 +509,36 @@ function escapeAttribute(value: string): string {
     .replace(/</g, "&lt;");
 }
 
-// The stroke as an SVG shape in `color`, drawn the way `drawStroke` draws it.
-function createShape({ points, size }: Stroke, color: string): string {
+// The stroke as an SVG shape in `color`, drawn the way `drawStroke` draws it:
+// one path, or a pen's pieces each as wide as it pressed. A see-through one
+// is see-through as a whole, so where it crosses itself isn't any darker.
+function createShape(stroke: Stroke, color: string): string {
+  const { points, opacity } = stroke;
   const paint = escapeAttribute(color);
+  let shape: string;
   if (points.length === 1) {
     const [{ x, y }] = points;
-    return `<circle cx="${round(x)}" cy="${round(y)}" r="${round(size)}" fill="${paint}"/>`;
+    shape = `<circle cx="${round(x)}" cy="${round(y)}" r="${round(getDotSize(stroke))}" fill="${paint}"/>`;
+  } else {
+    const toPath = (pieces: StrokePiece[]) =>
+      `M${round(pieces[0].from.x)} ${round(pieces[0].from.y)}` +
+      pieces
+        .map(({ control, to }) =>
+          control
+            ? `Q${round(control.x)} ${round(control.y)} ${round(to.x)} ${round(to.y)}`
+            : `L${round(to.x)} ${round(to.y)}`
+        )
+        .join("");
+    const toElement = (pieces: StrokePiece[]) =>
+      `<path d="${toPath(pieces)}" fill="none" stroke="${paint}" stroke-width="${round(pieces[0].size * 2)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+    const pieces = getStrokePieces(stroke);
+    shape = hasPressure(stroke)
+      ? pieces.map((piece) => toElement([piece])).join("")
+      : toElement(pieces);
   }
-  const path = points
-    .map(
-      ({ x, y }, index) => `${index === 0 ? "M" : "L"}${round(x)} ${round(y)}`
-    )
-    .join("");
-  return `<path d="${path}" fill="none" stroke="${paint}" stroke-width="${round(size * 2)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  return opacity === undefined
+    ? shape
+    : `<g opacity="${round(opacity)}">${shape}</g>`;
 }
 
 // Text as one `text` element, with a `tspan` for each span in its own place

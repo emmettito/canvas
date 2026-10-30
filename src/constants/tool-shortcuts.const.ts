@@ -4,6 +4,7 @@ import { type Tool } from "../models/tool.model";
 export const TOOL_SHORTCUTS: Record<Tool, string> = {
   move: "V",
   pencil: "P",
+  highlighter: "H",
   eraser: "E",
   // Like Photoshop's.
   bucket: "G",

@@ -1,15 +1,20 @@
 import { type Stroke } from "../models/stroke.model";
+import { getDotSize, getStrokePieces, hasPressure } from "./stroke-pieces";
 
 /**
- * Draws a stroke onto the canvas. Pass `startIndex` to draw only the segments
- * after that point, which is used to extend a stroke while it is in progress.
+ * Draws a stroke onto the canvas, smoothed through its points. Pass `from`
+ * and `end` to draw only some of its pieces (see `getStrokePieces`), e.g.
+ * what a point just added adds while it's drawn, and its end once it's done.
+ * A see-through stroke is drawn all at once, so where it crosses itself
+ * isn't any darker.
  */
 export function drawStroke(
   context: CanvasRenderingContext2D,
-  { color, points, size }: Stroke,
-  startIndex = 0
+  stroke: Stroke,
+  { from = 1, end = true }: { from?: number; end?: boolean } = {}
 ): void {
-  if (points.length === 0) {
+  const { color, points, opacity } = stroke;
+  if (points.length === 0 || (points.length === 1 && from > 1)) {
     return;
   }
 
@@ -18,23 +23,41 @@ export function drawStroke(
     color === undefined ? "destination-out" : "source-over";
   context.fillStyle = color ?? "#000000";
   context.strokeStyle = color ?? "#000000";
+  if (opacity !== undefined) {
+    context.save();
+    context.globalAlpha *= opacity;
+  }
 
   if (points.length === 1) {
     const [{ x, y }] = points;
     context.beginPath();
-    context.arc(x, y, size, 0, Math.PI * 2);
+    context.arc(x, y, getDotSize(stroke), 0, Math.PI * 2);
     context.fill();
-    return;
+  } else {
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    const pieces = getStrokePieces(stroke, from, end);
+    // A pen's pieces are each as wide as it pressed, and the rest are one
+    // line.
+    const separate = hasPressure(stroke);
+    pieces.forEach(({ from: start, control, to, size }, index) => {
+      if (separate || index === 0) {
+        context.beginPath();
+        context.lineWidth = size * 2;
+        context.moveTo(start.x, start.y);
+      }
+      if (control) {
+        context.quadraticCurveTo(control.x, control.y, to.x, to.y);
+      } else {
+        context.lineTo(to.x, to.y);
+      }
+      if (separate || index === pieces.length - 1) {
+        context.stroke();
+      }
+    });
   }
 
-  const start = Math.max(startIndex, 0);
-  context.lineCap = "round";
-  context.lineJoin = "round";
-  context.lineWidth = size * 2;
-  context.beginPath();
-  context.moveTo(points[start].x, points[start].y);
-  for (const { x, y } of points.slice(start + 1)) {
-    context.lineTo(x, y);
+  if (opacity !== undefined) {
+    context.restore();
   }
-  context.stroke();
 }
