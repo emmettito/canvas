@@ -73,6 +73,7 @@ mountCanvas(document.getElementById("drawing")!, {
 | `bucket`           | Fill areas with the pencil's color (see below)    |
 | `text`             | Add text, or pick its size if already picked      |
 | `note`             | Add sticky notes                                  |
+| `shape`            | Draw shapes, or pick the shape if already picked  |
 | `image`            | Insert images from files                          |
 | `color`            | Pick the drawing tools' or notes' color (no icon) |
 | `dropper`          | Pick a color from the drawing                     |
@@ -145,7 +146,8 @@ added to the page.
 Each tool has a key, shown in its button's tooltip, which picks it while the
 canvas is in use and nothing's being typed: V for `move`, P for `pencil`, H
 for `highlighter`, E for `eraser`, G for `bucket`, N for `note`, T for
-`text` and I for `dropper`. Only tools on a toolbar have one.
+`text`, I for `dropper`, and R, O, L and A for `shape`, with a rectangle,
+ellipse, line or arrow. Only tools on a toolbar have one.
 
 Clicking `pencil`, `highlighter` or `eraser` again shows its sizes, each as
 the dot it draws, at the size it draws it, with its width in pixels below,
@@ -185,12 +187,14 @@ not pixels, so they stay sharp at any zoom and export to SVG as shapes.
   and strokes, and moves and resizes with the note like its strokes.
 - The eraser erases fills made before it, like strokes. Clicking an image
   does nothing.
+- Inside a rectangle or ellipse, it fills the shape instead (see
+  [Shapes](#shapes)), which can be undone like any change.
 
 The area is found in what the canvas shows, and a little more on each side,
 so zoom out to fill something bigger than the window. A gap in a line lets
 the fill through, like any paint bucket's.
 
-### Text, images and sticky notes
+### Shapes, text, images and sticky notes
 
 Like strokes, these are saved with the canvas, can be undone and cleared, and
 are included in exports. Strokes and what's placed are stacked in one order,
@@ -215,6 +219,17 @@ it to the front, send it to the back, or delete it. A note's menu also has
 its colors, to change it to, with its own marked, which can be undone like
 any change. Right-clicking text being typed opens the same menu, rather than
 the browser's.
+
+**Shapes**: with `shape` picked, dragging on the canvas draws a rectangle,
+ellipse, line or arrow between where the drag started and the pointer, in the
+pencil's color, as wide as the pencil's size. Clicking `shape` again picks
+which, as do their keys. Hold Shift for a square or circle, or a line at an
+eighth of a turn. A shape is only pressed where it shows: along its line or
+outline, which is easy to press even when it's thin, or anywhere inside one
+filled with `bucket`. Its empty middle lets presses through, to what's under
+it. A rectangle or ellipse resizes from just outside its outline, and a line
+or arrow from its ends, which swing round each other. Shapes are SVG, so they
+stay sharp at any zoom, and export to SVG as paths.
 
 **Text**: with `text` picked, clicking the canvas starts text there, in the
 pencil's color, at the size picked by clicking `text` again. Until it's typed

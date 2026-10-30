@@ -7,6 +7,8 @@ import { ITEM_KINDS } from "../constants/item-kinds.const";
 import { MAX_RECENT_COLORS } from "../constants/recent-colors.const";
 import { MAX_TOOL_SIZE } from "../constants/max-tool-size.const";
 import { MIN_TOOL_SIZE } from "../constants/min-tool-size.const";
+import { SHAPE_LAYOUT } from "../constants/shape-layout.const";
+import { SHAPE_TYPES } from "../constants/shape-types.const";
 import { TEXT_LAYOUT } from "../constants/text-layout.const";
 import { TOOLS } from "../constants/tools.const";
 import { type CanvasEntry } from "../models/canvas-entry.model";
@@ -21,6 +23,7 @@ import { type ImageItem } from "../models/image-item.model";
 import { type Layer } from "../models/layer.model";
 import { type Note } from "../models/note.model";
 import { type RichText } from "../models/rich-text.model";
+import { type Shape, type ShapeType } from "../models/shape.model";
 import { type Stroke } from "../models/stroke.model";
 import { type TextBox } from "../models/text-box.model";
 import { type ToolSettings } from "../models/tool-settings.model";
@@ -194,6 +197,39 @@ function isLayer(value: unknown): value is Layer {
   );
 }
 
+function readShape(value: unknown): Shape | null {
+  if (
+    !isPlaced(value) ||
+    !SHAPE_TYPES.includes(value.type as ShapeType) ||
+    !isNumber(value.width) ||
+    !isNumber(value.height) ||
+    typeof value.color !== "string" ||
+    !isPositive(value.strokeWidth) ||
+    !(value.fill === null || typeof value.fill === "string")
+  ) {
+    return null;
+  }
+  const type = value.type as ShapeType;
+  // Only a line goes back the way it came.
+  if (
+    (type === "rectangle" || type === "ellipse") &&
+    (value.width < 0 || value.height < 0)
+  ) {
+    return null;
+  }
+  return {
+    id: value.id as string,
+    type,
+    x: value.x as number,
+    y: value.y as number,
+    width: value.width,
+    height: value.height,
+    color: value.color,
+    strokeWidth: value.strokeWidth,
+    fill: type === "line" || type === "arrow" ? null : value.fill,
+  };
+}
+
 // Each kind's items as they're used, or null if one isn't valid.
 const ITEM_READERS: {
   [K in ItemKind]: (value: unknown) => DrawingItem<K> | null;
@@ -210,6 +246,7 @@ const ITEM_READERS: {
       : null,
   texts: readTextBox,
   notes: readNote,
+  shapes: readShape,
 };
 
 // A CSS color, as the canvas saves them: "#rrggbb" or "rgb(...)".
@@ -367,8 +404,15 @@ export class CanvasStorage {
     if (!isToolSettings(settings)) {
       return null;
     }
-    const { activeTool, tools, noteColor, textSize, recentColors, rulers } =
-      settings;
+    const {
+      activeTool,
+      tools,
+      noteColor,
+      textSize,
+      shapeType,
+      recentColors,
+      rulers,
+    } = settings;
     const { highlighter } = tools;
     return {
       // The dropper is only picked for a moment, so it isn't kept.
@@ -387,6 +431,9 @@ export class CanvasStorage {
       },
       noteColor: isToolColor(noteColor) ? noteColor : DEFAULT_NOTE_COLOR,
       textSize: isTextSize(textSize) ? textSize : TEXT_LAYOUT.defaultSize,
+      shapeType: SHAPE_TYPES.includes(shapeType as ShapeType)
+        ? (shapeType as ShapeType)
+        : SHAPE_LAYOUT.defaultType,
       recentColors: Array.isArray(recentColors)
         ? recentColors.filter(isCustomColor).slice(0, MAX_RECENT_COLORS)
         : [],

@@ -3,6 +3,8 @@ import { EXPORT_FORMATS } from "../../constants/export-formats.const";
 import { EXPORT_SCALES } from "../../constants/export-scales.const";
 import { FILE_MENU_ITEMS } from "../../constants/file-menu-items.const";
 import { HIGHLIGHTER } from "../../constants/highlighter.const";
+import { SHAPE_SHORTCUTS } from "../../constants/shape-shortcuts.const";
+import { SHAPE_TYPES } from "../../constants/shape-types.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
 import { TIMER_LAYOUT } from "../../constants/timer-layout.const";
 import { TIMER_SOUNDS } from "../../constants/timer-sounds.const";
@@ -18,6 +20,7 @@ import {
   type ExportOptions,
   type ExportScale,
 } from "../../models/export-options.model";
+import { type ShapeType } from "../../models/shape.model";
 import { type Size } from "../../models/size.model";
 import { type TimerSound } from "../../models/timer.model";
 import {
@@ -56,6 +59,7 @@ export type ToolbarPosition = "top" | "bottom";
 // Each tool with a size has a slider for it.
 type ToolbarPopover =
   | SizedTool
+  | "shape"
   | "color"
   | "zoom"
   | "timer"
@@ -80,6 +84,7 @@ const ACTION_LABELS: Record<ToolbarAction, string> = {
   note: "Sticky note",
   dropper: "Dropper",
   text: "Text",
+  shape: "Shape",
   image: "Insert image",
 };
 
@@ -91,6 +96,13 @@ const FILE_MENU_LABELS: Record<FileMenuItem, string> = {
   export: ACTION_LABELS.export,
 };
 
+const SHAPE_TYPE_LABELS: Record<ShapeType, string> = {
+  rectangle: "Rectangle",
+  ellipse: "Ellipse",
+  line: "Line",
+  arrow: "Arrow",
+};
+
 const EXPORT_FORMAT_LABELS: Record<ExportFormat, string> = {
   png: "PNG",
   jpeg: "JPEG",
@@ -98,7 +110,10 @@ const EXPORT_FORMAT_LABELS: Record<ExportFormat, string> = {
 };
 
 // The tools with a size, which clicking them again picks.
-type SizedTool = Exclude<Tool, "move" | "bucket" | "note" | "dropper">;
+type SizedTool = Exclude<
+  Tool,
+  "move" | "bucket" | "note" | "shape" | "dropper"
+>;
 
 const TOOL_LABELS: Record<SizedTool, string> = {
   eraser: ACTION_LABELS.eraser,
@@ -116,6 +131,7 @@ const ANCHORED: ControlName[] = [
   "highlighter",
   "eraser",
   "text",
+  "shape",
   "color",
   "zoom",
   "timer",
@@ -168,6 +184,7 @@ export interface CanvasToolbarState {
   // Custom colors picked, most recent first.
   recentColors: CustomColor[];
   textSize: number;
+  shapeType: ShapeType;
   canUndo: boolean;
   canRedo: boolean;
   canClear: boolean;
@@ -208,6 +225,7 @@ export interface CanvasToolbarActions {
   onUpdateTool: (tool: StrokeTool, values: Partial<ToolState>) => void;
   onUpdateNoteColor: (color: ToolColor) => void;
   onUpdateTextSize: (size: number) => void;
+  onSelectShape: (type: ShapeType) => void;
   onInsertImage: () => void;
   onZoom: (action: ZoomAction) => void;
   onToggleRulers: () => void;
@@ -695,6 +713,7 @@ export class CanvasToolbar {
       bucket: () => this.#onToolClick("bucket"),
       note: () => this.#onToolClick("note"),
       text: () => this.#onToolClick("text"),
+      shape: () => this.#onToolClick("shape"),
       dropper: () => this.#onToolClick("dropper"),
       image: () => {
         this.#closePopover();
@@ -834,6 +853,18 @@ export class CanvasToolbar {
         return [opener, this.#createRenameForm()];
       case "export":
         return [opener, this.#createExportForm()];
+      case "shape":
+        return [
+          opener,
+          this.#createMenu(
+            SHAPE_TYPES.map((type) => ({
+              label: SHAPE_TYPE_LABELS[type],
+              hint: SHAPE_SHORTCUTS[type],
+              selected: type === this.#state.shapeType,
+              onSelect: () => this.#actions.onSelectShape(type),
+            }))
+          ),
+        ];
       default:
         return [
           opener,
@@ -844,8 +875,9 @@ export class CanvasToolbar {
     }
   }
 
-  // Clicking the active tool again opens its size slider. The move tool, the
-  // bucket and notes have no size, and the dropper goes back to the tool before it.
+  // Clicking the active tool again opens its size slider, or the shapes to
+  // pick from. The move tool, the bucket and notes have no size, and the
+  // dropper goes back to the tool before it.
   #onToolClick(tool: Tool): void {
     if (tool === this.#state.activeTool) {
       if (tool === "dropper") {

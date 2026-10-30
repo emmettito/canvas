@@ -3,6 +3,9 @@ import { DEFAULT_EXPORT_OPTIONS } from "../../constants/default-export-options.c
 import { DEFAULT_NOTE_COLOR } from "../../constants/default-note-color.const";
 import { DEFAULT_TOOL_SIZES } from "../../constants/default-tool-sizes.const";
 import { HIGHLIGHTER } from "../../constants/highlighter.const";
+import { SHAPE_LAYOUT } from "../../constants/shape-layout.const";
+import { SHAPE_SHORTCUTS } from "../../constants/shape-shortcuts.const";
+import { SHAPE_TYPES } from "../../constants/shape-types.const";
 import { IMAGE_LAYOUT } from "../../constants/image-layout.const";
 import { ITEM_KINDS } from "../../constants/item-kinds.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
@@ -26,6 +29,7 @@ import { type Drawing } from "../../models/drawing.model";
 import { type History } from "../../models/history.model";
 import { type Note } from "../../models/note.model";
 import { type Point } from "../../models/point.model";
+import { type ShapeType } from "../../models/shape.model";
 import {
   type ToolbarControl,
   type ZoomAction,
@@ -344,6 +348,7 @@ export function mountCanvas(
   // The tool the dropper goes back to, whose color it picks.
   let previousTool: Tool = activeTool;
   let textSize = saved?.textSize ?? TEXT_LAYOUT.defaultSize;
+  let shapeType: ShapeType = saved?.shapeType ?? SHAPE_LAYOUT.defaultType;
   // Sizes saved before the tools offered the same few are the nearest one
   // now.
   let tools: Record<StrokeTool, ToolState> = saved
@@ -587,6 +592,11 @@ export function mountCanvas(
       textSize = size;
       update();
     },
+    onSelectShape: (type) => {
+      shapeType = type;
+      activeTool = "shape";
+      update();
+    },
     onInsertImage: () => fileInput.click(),
     onZoom: zoom,
     onToggleRulers: () => {
@@ -777,6 +787,13 @@ export function mountCanvas(
       stepToolSize(step);
       return;
     }
+    // Each shape's key picks the shape tool with it, e.g. O for an ellipse.
+    const shape = getShapeShortcut(event);
+    if (shape && inUse && !canvas.isTyping) {
+      event.preventDefault();
+      toolbarActions.onSelectShape(shape);
+      return;
+    }
     // Tools' keys are letters, which type while text is typed in.
     const tool = getToolShortcut(event);
     if (tool && inUse && !canvas.isTyping) {
@@ -806,6 +823,24 @@ export function mountCanvas(
     return (
       shortcutTools.find(
         (tool) => TOOL_SHORTCUTS[tool] === event.key.toUpperCase()
+      ) ?? null
+    );
+  }
+
+  // A shape's key on its own, if the shape tool is on a toolbar.
+  function getShapeShortcut(event: KeyboardEvent): ShapeType | null {
+    if (
+      event.ctrlKey ||
+      event.metaKey ||
+      event.altKey ||
+      event.repeat ||
+      !shortcutTools.includes("shape")
+    ) {
+      return null;
+    }
+    return (
+      SHAPE_TYPES.find(
+        (type) => SHAPE_SHORTCUTS[type] === event.key.toUpperCase()
       ) ?? null
     );
   }
@@ -845,6 +880,7 @@ export function mountCanvas(
       images: storage.loadItems(id, "images") ?? [],
       texts: storage.loadItems(id, "texts") ?? [],
       notes: storage.loadItems(id, "notes") ?? [],
+      shapes: storage.loadItems(id, "shapes") ?? [],
     };
     // A canvas saved before it had a stacking order, or whose order doesn't
     // match, e.g. as part of it couldn't be saved, is stacked the way it used
@@ -1405,10 +1441,18 @@ export function mountCanvas(
       : note;
   }
 
-  // Text is in the pencil's color.
+  // Text is in the pencil's color, and shapes in its color and size.
   function getPlacing(): Placing | null {
     if (activeTool === "note") {
       return { kind: "notes", color: noteColor, author };
+    }
+    if (activeTool === "shape") {
+      return {
+        kind: "shapes",
+        type: shapeType,
+        color: tools.pencil.color ?? COLORS[0],
+        size: tools.pencil.size,
+      };
     }
     if (activeTool === "text") {
       return {
@@ -1428,6 +1472,7 @@ export function mountCanvas(
       colorTarget: getColorTarget(),
       recentColors,
       textSize,
+      shapeType,
       canUndo: history.canUndo,
       canRedo: history.canRedo,
       canClear: history.canClear,
@@ -1492,6 +1537,7 @@ export function mountCanvas(
       tools,
       noteColor,
       textSize,
+      shapeType,
       recentColors,
       rulers: rulers.shown,
     });

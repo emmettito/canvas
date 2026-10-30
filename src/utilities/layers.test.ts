@@ -21,6 +21,7 @@ function createDrawing(parts: Partial<Drawing>): Drawing {
     images: [],
     texts: [],
     notes: [],
+    shapes: [],
     order: [],
     ...parts,
   };

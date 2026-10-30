@@ -14,6 +14,7 @@ export const TOOLBAR_ACTIONS: ToolbarAction[] = [
   "bucket",
   "note",
   "text",
+  "shape",
   "dropper",
   "image",
 ];

@@ -87,6 +87,7 @@ const canvas = mountCanvas(document.getElementById("root")!, {
       button("bucket"),
       button("note"),
       button("text"),
+      button("shape"),
       { action: "color" },
       button("dropper"),
     ],

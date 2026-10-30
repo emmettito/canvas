@@ -13,6 +13,7 @@ export type ToolbarAction =
   | "bucket"
   | "note"
   | "text"
+  | "shape"
   | "dropper"
   | "image";
 

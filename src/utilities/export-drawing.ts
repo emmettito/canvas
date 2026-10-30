@@ -3,6 +3,7 @@ import { type Drawing } from "../models/drawing.model";
 import { type Fill } from "../models/fill.model";
 import { type ImageItem } from "../models/image-item.model";
 import { type Note } from "../models/note.model";
+import { type Shape } from "../models/shape.model";
 import { type Size } from "../models/size.model";
 import { type Stroke } from "../models/stroke.model";
 import { type TextBox } from "../models/text-box.model";
@@ -18,6 +19,7 @@ import { drawFills, getFillSteps } from "./draw-fills";
 import { drawStroke } from "./draw-stroke";
 import { getByline } from "./get-byline";
 import { resolveLayers } from "./layers";
+import { getShapePath } from "./shape-geometry";
 import { addPngText } from "./png-text";
 import {
   getDotSize,
@@ -433,6 +435,23 @@ function drawNote(
   context.restore();
 }
 
+// A shape's inside, if it's filled, then its outline or line over it.
+function drawShape(context: CanvasRenderingContext2D, shape: Shape): void {
+  const path = new Path2D(getShapePath(shape));
+  context.save();
+  context.globalCompositeOperation = "source-over";
+  if (shape.fill !== null) {
+    context.fillStyle = shape.fill;
+    context.fill(path);
+  }
+  context.strokeStyle = shape.color;
+  context.lineWidth = shape.strokeWidth;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.stroke(path);
+  context.restore();
+}
+
 /**
  * Draws the part of the drawing in `area` onto a new canvas, `scale` pixels
  * per drawing unit, as exports do, e.g. to read a color from it. `fill` is
@@ -489,6 +508,9 @@ export function renderDrawing(
         break;
       case "notes":
         drawNote(context, layer.item, textStyle, measurer);
+        break;
+      case "shapes":
+        drawShape(context, layer.item);
         break;
     }
   }
@@ -565,6 +587,12 @@ function createText(spans: PlacedSpan[]): string {
     .join("");
   // `xml:space` keeps runs of spaces, as the canvas does.
   return tspans ? `<text xml:space="preserve">${tspans}</text>` : "";
+}
+
+// A shape as one path, drawn the way `drawShape` draws it.
+function createShapeElement(shape: Shape): string {
+  const fill = shape.fill === null ? "none" : escapeAttribute(shape.fill);
+  return `<path d="${getShapePath(shape)}" fill="${fill}" stroke="${escapeAttribute(shape.color)}" stroke-width="${round(shape.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
 function createImageElement(
@@ -738,6 +766,9 @@ export function createSvg(
         break;
       case "notes":
         content += createNote(layer.item, notes++, textStyle, measurer, masks);
+        break;
+      case "shapes":
+        content += createShapeElement(layer.item);
         break;
     }
   }

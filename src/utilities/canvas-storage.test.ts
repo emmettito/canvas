@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { type CanvasEntry } from "../models/canvas-entry.model";
 import { type ImageItem } from "../models/image-item.model";
 import { type Note } from "../models/note.model";
+import { type Shape } from "../models/shape.model";
 import { type Stroke } from "../models/stroke.model";
 import { type TextBox } from "../models/text-box.model";
 import { type ToolSettings } from "../models/tool-settings.model";
@@ -16,6 +17,7 @@ const SETTINGS: ToolSettings = {
   },
   noteColor: "#ff8800",
   textSize: 32,
+  shapeType: "arrow",
   recentColors: ["#ff8800", "#123456"],
   rulers: true,
 };
@@ -27,6 +29,32 @@ const STROKES: Stroke[] = [
   { color: "#ffee00", points: [{ x: 1, y: 2 }], size: 5, opacity: 0.4 },
   // An eraser stroke, which has no color.
   { points: [{ x: 3, y: 4 }], size: 5 },
+];
+
+const SHAPES: Shape[] = [
+  {
+    id: "r",
+    type: "rectangle",
+    x: 0,
+    y: 0,
+    width: 40,
+    height: 30,
+    color: "#000000",
+    strokeWidth: 2,
+    fill: "#ff0000",
+  },
+  // A line pointing up and left, back the way it came.
+  {
+    id: "a",
+    type: "arrow",
+    x: 50,
+    y: 50,
+    width: -20,
+    height: -10,
+    color: "#000000",
+    strokeWidth: 2,
+    fill: null,
+  },
 ];
 
 const NOTES: Note[] = [
@@ -90,6 +118,7 @@ describe("CanvasStorage", () => {
     expect(storage.saveItems("a", "notes", NOTES)).toBe(true);
     expect(storage.saveItems("a", "texts", TEXTS)).toBe(true);
     expect(storage.saveItems("a", "images", IMAGES)).toBe(true);
+    expect(storage.saveItems("a", "shapes", SHAPES)).toBe(true);
 
     const restored = new CanvasStorage("test");
     expect(restored.loadToolSettings()).toEqual(SETTINGS);
@@ -98,6 +127,19 @@ describe("CanvasStorage", () => {
     expect(restored.loadItems("a", "notes")).toEqual(NOTES);
     expect(restored.loadItems("a", "texts")).toEqual(TEXTS);
     expect(restored.loadItems("a", "images")).toEqual(IMAGES);
+    expect(restored.loadItems("a", "shapes")).toEqual(SHAPES);
+  });
+
+  it("ignores shapes that aren't any", () => {
+    for (const shape of [
+      { ...SHAPES[0], type: "star" },
+      { ...SHAPES[0], width: -10 },
+      { ...SHAPES[0], strokeWidth: 0 },
+      { ...SHAPES[0], fill: 7 },
+    ]) {
+      localStorage.setItem("test:canvas:a:shapes", JSON.stringify([shape]));
+      expect(new CanvasStorage("test").loadItems("a", "shapes")).toBeNull();
+    }
   });
 
   it("ignores strokes pressed harder than a pen can", () => {
@@ -170,7 +212,7 @@ describe("CanvasStorage", () => {
     for (const order of [
       [{ kind: "strokes", count: 0 }],
       [{ kind: "strokes", count: 1.5 }],
-      [{ kind: "shapes", id: "s" }],
+      [{ kind: "videos", id: "v" }],
       { kind: "strokes", count: 1 },
     ]) {
       localStorage.setItem("test:canvas:a:order", JSON.stringify(order));

@@ -31,6 +31,7 @@ function createDrawing(strokes: Stroke[] = []): Drawing {
     images: [],
     texts: [],
     notes: [],
+    shapes: [],
     order:
       strokes.length > 0 ? [{ kind: "strokes", count: strokes.length }] : [],
   };

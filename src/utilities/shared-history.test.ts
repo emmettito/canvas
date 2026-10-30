@@ -35,6 +35,7 @@ const BLANK: Drawing = {
   images: [],
   texts: [],
   notes: [],
+  shapes: [],
   order: [],
 };
 
