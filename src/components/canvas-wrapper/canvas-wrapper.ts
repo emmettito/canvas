@@ -25,7 +25,12 @@ import {
   type CollaborationConnection,
 } from "../../models/collaboration.model";
 import { type CustomColor, type ToolColor } from "../../models/color.model";
-import { type Drawing } from "../../models/drawing.model";
+import { type DrawingChange } from "../../models/drawing-change.model";
+import {
+  type Drawing,
+  type DrawingItem,
+  type ItemKind,
+} from "../../models/drawing.model";
 import { type History } from "../../models/history.model";
 import { type Note } from "../../models/note.model";
 import { type Point } from "../../models/point.model";
@@ -39,7 +44,7 @@ import { type Timer, type TimerSound } from "../../models/timer.model";
 import { type TextEditorFactory } from "../../models/text-editor.model";
 import { type StrokeTool, type Tool } from "../../models/tool.model";
 import { type Viewport } from "../../models/viewport.model";
-import { CanvasStorage } from "../../utilities/canvas-storage";
+import { CanvasStorage, readItem } from "../../utilities/canvas-storage";
 import { createElement } from "../../utilities/create-element";
 import { createId } from "../../utilities/create-id";
 import { downloadBlob } from "../../utilities/download-blob";
@@ -77,7 +82,7 @@ import {
   getToolbarActions,
   validateToolbar,
 } from "../canvas-toolbar/canvas-toolbar";
-import { Canvas, type Placing } from "../canvas/canvas";
+import { Canvas, type ItemRef, type Placing } from "../canvas/canvas";
 import { plainTextEditor } from "../canvas/plain-text-editor";
 import { Presence } from "../presence/presence";
 import { Rulers } from "../rulers/rulers";
@@ -155,6 +160,60 @@ function getHistoryShortcut(event: KeyboardEvent): "undo" | "redo" | null {
       return event.shiftKey ? "redo" : "undo";
     case "y":
       return event.shiftKey ? null : "redo";
+    default:
+      return null;
+  }
+}
+
+// What's picked, on the clipboard, which only canvases read.
+const CLIPBOARD_TYPE = "application/x-canvas-items+json";
+
+// Items copied, as they were, and the canvas they were copied from, whose
+// images' files they need.
+interface CopiedItems {
+  canvas: string;
+  items: { kind: ItemKind; item: DrawingItem<ItemKind> }[];
+}
+
+// Items copied, from the clipboard, which may have come from another page,
+// so each is checked like one read from storage. Null if there are none.
+function readCopiedItems(data: string | undefined): CopiedItems | null {
+  let value: unknown;
+  try {
+    value = data ? JSON.parse(data) : null;
+  } catch {
+    return null;
+  }
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("canvas" in value) ||
+    typeof value.canvas !== "string" ||
+    !("items" in value) ||
+    !Array.isArray(value.items)
+  ) {
+    return null;
+  }
+  const items = value.items.flatMap((each: unknown) => {
+    const { kind, item } = (each ?? {}) as { kind?: unknown; item?: unknown };
+    const read =
+      ITEM_KINDS.includes(kind as ItemKind) && readItem(kind as ItemKind, item);
+    return read ? [{ kind: kind as ItemKind, item: read }] : [];
+  });
+  return items.length > 0 ? { canvas: value.canvas, items } : null;
+}
+
+// Ctrl+A (Cmd on a Mac) to pick everything, and Ctrl+D to copy what's
+// picked.
+function getPickShortcut(event: KeyboardEvent): "all" | "duplicate" | null {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) {
+    return null;
+  }
+  switch (event.key.toLowerCase()) {
+    case "a":
+      return "all";
+    case "d":
+      return "duplicate";
     default:
       return null;
   }
@@ -436,6 +495,9 @@ export function mountCanvas(
   // Where the pointer last was over the canvas, so a pasted image goes there.
   // Null while it's elsewhere.
   let pointer: Point | null = null;
+  // How many times what was copied last has been pasted, so each paste goes
+  // a little further on.
+  let pastes = 0;
 
   const canvasWrapper = createElement("div", "canvas-wrapper");
   // Only shown when a change couldn't be saved, e.g. because storage is full.
@@ -478,6 +540,10 @@ export function mountCanvas(
     onNothingToFill: () => toast.show("Nothing closed to fill"),
     onItemRestack: (kind, id, to) => {
       history.restackItem(kind, id, to);
+      update();
+    },
+    onBatch: (changes) => {
+      history.batch(changes);
       update();
     },
     getImage: (id) => imageStore.get(open.id, id),
@@ -720,13 +786,66 @@ export function mountCanvas(
     );
   });
 
-  // A pasted image goes where the pointer is, if it's over the canvas, or in
-  // the middle if the canvas has focus.
+  // Whether copying, cutting or pasting is for the canvas: with the pointer
+  // over it or focus in it, and nothing being typed.
+  function isClipboardForCanvas(event: ClipboardEvent): boolean {
+    return (
+      !isField(event.target) &&
+      !canvas.isTyping &&
+      (pointer !== null || root.contains(document.activeElement))
+    );
+  }
+
+  // What's picked, as it is, from this canvas, for pasting.
+  function getPicked(): CopiedItems | null {
+    const items = canvas.selection.flatMap(({ kind, id }) => {
+      const item = (history.drawing[kind] as DrawingItem<ItemKind>[]).find(
+        (each) => each.id === id
+      );
+      return item ? [{ kind, item }] : [];
+    });
+    return items.length > 0 ? { canvas: open.id, items } : null;
+  }
+
+  // What's picked is copied to the clipboard, to paste on this canvas or
+  // another, even in another tab.
+  function onCopy(event: ClipboardEvent) {
+    const picked = isClipboardForCanvas(event) && getPicked();
+    if (!picked || !event.clipboardData) {
+      return;
+    }
+    event.preventDefault();
+    event.clipboardData.setData(CLIPBOARD_TYPE, JSON.stringify(picked));
+    pastes = 0;
+  }
+  document.addEventListener("copy", onCopy);
+
+  function onCut(event: ClipboardEvent) {
+    onCopy(event);
+    if (event.defaultPrevented) {
+      canvas.deleteSelection();
+    }
+  }
+  document.addEventListener("cut", onCut);
+
+  // Items pasted go a little further down and right each time, so they don't
+  // hide what they were copied from, or each other, and are picked, to move
+  // them. A pasted image goes where the pointer is, if it's over the canvas,
+  // or in the middle if the canvas has focus.
   function onPaste(event: ClipboardEvent) {
     if (
       isField(event.target) ||
       (pointer === null && !root.contains(document.activeElement))
     ) {
+      return;
+    }
+    const copied = readCopiedItems(
+      event.clipboardData?.getData(CLIPBOARD_TYPE)
+    );
+    if (copied && !canvas.isTyping) {
+      event.preventDefault();
+      pastes++;
+      void pasteItems(copied, IMAGE_LAYOUT.offset * pastes);
       return;
     }
     const files = [...(event.clipboardData?.files ?? [])].filter(isImage);
@@ -737,6 +856,57 @@ export function mountCanvas(
     void insertImages(files, pointer ?? undefined);
   }
   document.addEventListener("paste", onPaste);
+
+  // Adds copies of `copied`'s items, `offset` further down and right, above
+  // everything, as one change, with new ids, and picks them, with the move
+  // tool if there is one. An image's file comes from the canvas it was
+  // copied from, and one that can't be found is left out.
+  async function pasteItems(copied: CopiedItems, offset: number) {
+    const changes: DrawingChange[] = [];
+    const pasted: ItemRef[] = [];
+    for (const { kind, item } of copied.items) {
+      const id = createId();
+      if (kind === "images") {
+        const file = await imageStore.get(copied.canvas, item.id);
+        if (!file || !(await shareImageFile(id, file))) {
+          continue;
+        }
+      }
+      changes.push({
+        type: "add-item",
+        kind,
+        item: { ...item, id, x: item.x + offset, y: item.y + offset },
+      });
+      pasted.push({ kind, id });
+    }
+    if (changes.length === 0) {
+      return;
+    }
+    history.batch(changes);
+    if (shortcutTools.includes("move")) {
+      activeTool = "move";
+    }
+    update();
+    canvas.setSelection(pasted);
+  }
+
+  // Keeps an image's file, under `id`, and gives it to everyone drawing
+  // together, before the image, so it shows as soon as the image does.
+  // Whether it was kept.
+  async function shareImageFile(id: string, file: Blob): Promise<boolean> {
+    const saving = imageStore.put(open.id, id, file);
+    const data = session?.history && (await blobToDataUrl(file));
+    if (data) {
+      session?.connection.send({ type: "image", image: { id, data } });
+    }
+    void saving.then((saved) => {
+      if (!saved) {
+        imagesSaved = false;
+        save();
+      }
+    });
+    return true;
+  }
 
   function zoom(action: ZoomAction) {
     if (action === "fit") {
@@ -770,6 +940,24 @@ export function mountCanvas(
         toolbarActions.onUndo();
       } else {
         toolbarActions.onRedo();
+      }
+      return;
+    }
+    // Ctrl+A picks every item, and Ctrl+D copies what's picked, in place of
+    // the browser's selecting the page and bookmarking it.
+    const pickAction = getPickShortcut(event);
+    if (pickAction && inUse && !canvas.isTyping) {
+      if (pickAction === "all" && shortcutTools.includes("move")) {
+        event.preventDefault();
+        activeTool = "move";
+        update();
+        canvas.selectAll();
+      } else if (pickAction === "duplicate") {
+        const picked = getPicked();
+        if (picked) {
+          event.preventDefault();
+          void pasteItems(picked, IMAGE_LAYOUT.offset);
+        }
       }
       return;
     }
@@ -1657,6 +1845,8 @@ export function mountCanvas(
       save();
       observer.disconnect();
       document.removeEventListener("paste", onPaste);
+      document.removeEventListener("copy", onCopy);
+      document.removeEventListener("cut", onCut);
       document.removeEventListener("keydown", onKeyDown);
       for (const each of toolbars) {
         each.destroy();

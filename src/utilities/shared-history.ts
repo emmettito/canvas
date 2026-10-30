@@ -105,17 +105,44 @@ export class SharedHistory implements History {
 
   /** Only what's changed is sent, so someone else's changes to the rest stay. */
   updateItem<K extends ItemKind>(kind: K, item: DrawingItem<K>): void {
+    const change = this.#getUpdate(kind, item);
+    if (change) {
+      this.#change(change);
+    }
+  }
+
+  /** As with `updateItem`, only what's changed in each item is sent. */
+  batch(changes: DrawingChange[]): void {
+    this.#change({
+      type: "batch",
+      changes: changes.flatMap((change) =>
+        change.type === "update-item"
+          ? (this.#getUpdate(change.kind, {
+              ...change.fields,
+              id: change.id,
+            } as DrawingItem<ItemKind>) ?? [])
+          : [change]
+      ),
+    });
+  }
+
+  // The change that updates an item to `item`, with only the fields that
+  // differ, or null if there's no such item.
+  #getUpdate<K extends ItemKind>(
+    kind: K,
+    item: DrawingItem<K>
+  ): DrawingChange | null {
     const items = this.#drawing[kind] as DrawingItem<K>[];
     const current = items.find(({ id }) => id === item.id) as
       | Record<string, unknown>
       | undefined;
     if (!current) {
-      return;
+      return null;
     }
     const fields = Object.fromEntries(
       Object.entries(item).filter(([key, value]) => current[key] !== value)
     );
-    this.#change({ type: "update-item", kind, id: item.id, fields });
+    return { type: "update-item", kind, id: item.id, fields };
   }
 
   removeItem(kind: ItemKind, id: string): void {

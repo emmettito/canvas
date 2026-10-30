@@ -79,6 +79,10 @@ export class DrawingHistory implements History {
     this.#apply({ type: "set-background", color });
   }
 
+  batch(changes: DrawingChange[]): void {
+    this.#apply({ type: "batch", changes });
+  }
+
   /** Like adding a stroke, it can be undone. */
   clear(): void {
     this.#apply({ type: "clear" });

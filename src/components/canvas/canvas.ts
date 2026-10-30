@@ -17,6 +17,7 @@ import {
   type DrawingItem,
   type ItemKind,
 } from "../../models/drawing.model";
+import { type DrawingChange } from "../../models/drawing-change.model";
 import { type ExportOptions } from "../../models/export-options.model";
 import { type Fill } from "../../models/fill.model";
 import { type ImageItem } from "../../models/image-item.model";
@@ -105,6 +106,9 @@ export interface CanvasOptions {
   onItemRemove: (kind: ItemKind, id: string) => void;
   // An item was brought to the front, or sent to the back.
   onItemRestack: (kind: ItemKind, id: string, to: Restack) => void;
+  // Several items changed at once, e.g. everything picked was moved or
+  // deleted, as one change to undo.
+  onBatch: (changes: DrawingChange[]) => void;
   // An image's file, or null if it's missing.
   getImage: (id: string) => Promise<Blob | null>;
   // Makes the editor notes and text are shown and typed in with.
@@ -124,6 +128,25 @@ export interface CanvasOptions {
   // done, after the change it made, so everyone drawing together sees it as
   // it happens.
   onActivity?: (activity: Activity | null) => void;
+}
+
+/** An item, by its kind and id, e.g. one that's picked. */
+export interface ItemRef {
+  kind: ItemKind;
+  id: string;
+}
+
+function getKey({ kind, id }: ItemRef): string {
+  return `${kind}:${id}`;
+}
+
+function isOverlapping(a: DOMRect, b: Box): boolean {
+  return (
+    a.left <= b.x + b.width &&
+    a.right >= b.x &&
+    a.top <= b.y + b.height &&
+    a.bottom >= b.y
+  );
 }
 
 /** Someone drawing together with the canvas, as their activity shows. */
@@ -405,6 +428,23 @@ export class Canvas {
   #formatBar = new FormatBar((color) => this.#options.onCustomColor(color));
   // An item's menu, while it's open.
   #menu: HTMLElement | null = null;
+  // What's picked with the move tool, to move, delete or copy together, by
+  // `getKey`. The item with focus is always one of them.
+  #selection = new Map<string, ItemRef>();
+  // Set while focus moves to an item that's already picked, so it isn't
+  // then the only one.
+  #keepingSelection = false;
+  // How far the item being dragged has moved, with everything else picked
+  // moving along with it, until it's dropped.
+  #groupMove: (ItemRef & { dx: number; dy: number }) | null = null;
+  // A box dragged with Shift held, picking what it touches, on top of what
+  // was picked before.
+  #marquee: {
+    pointerId: number;
+    start: Point;
+    before: Map<string, ItemRef>;
+    element: HTMLElement;
+  } | null = null;
   #toolState: ToolState;
   #placing: Placing | null = null;
   // Whether pressing items moves them, with the move tool, rather than
@@ -487,6 +527,8 @@ export class Canvas {
       this.#layers.shapes.element
     );
     layer.addEventListener("contextmenu", this.#onLayerContextMenu);
+    this.#items.addEventListener("focusin", this.#onItemFocus);
+    this.#items.addEventListener("keydown", this.#onItemKeyDown);
     this.#peerInk.setAttribute("aria-hidden", "true");
     this.#surface.append(layer, this.#items, this.#cursor);
     this.#overlay.append(
@@ -577,6 +619,11 @@ export class Canvas {
   setMoving(moving: boolean): void {
     this.#moving = moving;
     this.#surface.toggleAttribute("data-moving", moving);
+    // Only the move tool picks.
+    if (!moving && this.#selection.size > 0) {
+      this.#selection.clear();
+      this.#showSelection();
+    }
   }
 
   /** Custom colors picked before, which the format bar offers again. */
@@ -723,6 +770,8 @@ export class Canvas {
       ItemView<DrawingItem<K>>
     >;
     layer.setItems(items);
+    // New views show they're picked too, e.g. ones just pasted.
+    this.#showSelection();
   }
 
   setToolState(toolState: ToolState): void {
@@ -750,7 +799,235 @@ export class Canvas {
 
   /** Picks an item, e.g. one just added, to move it or delete it. */
   select(kind: ItemKind, id: string): void {
-    this.#layers[kind].getView(id)?.element.focus();
+    this.setSelection([{ kind, id }]);
+  }
+
+  /** What's picked with the move tool, bottom to top. */
+  get selection(): ItemRef[] {
+    return this.#order.flatMap((layer) =>
+      layer.kind !== "strokes" && this.#selection.has(getKey(layer))
+        ? [{ kind: layer.kind, id: layer.id }]
+        : []
+    );
+  }
+
+  /** Picks `items`, e.g. ones just pasted, and gives the top one focus. */
+  setSelection(items: ItemRef[]): void {
+    this.#selection = new Map(items.map((item) => [getKey(item), item]));
+    this.#showSelection();
+    this.#focusSelection();
+  }
+
+  /** Picks every item. */
+  selectAll(): void {
+    this.setSelection(
+      this.#order.flatMap((layer) =>
+        layer.kind === "strokes" ? [] : [{ kind: layer.kind, id: layer.id }]
+      )
+    );
+  }
+
+  /** Deletes everything picked, as one change. */
+  deleteSelection(): void {
+    const selection = this.selection;
+    if (selection.length === 0) {
+      return;
+    }
+    // Deleting what's being typed in throws the typing away.
+    const editing = this.#editing;
+    if (
+      editing &&
+      selection.some(
+        ({ kind, id }) => kind === editing.kind && id === editing.view.item.id
+      )
+    ) {
+      this.#editing = null;
+      this.#formatBar.close();
+      this.#options.onActivity?.(null);
+    }
+    this.#selection.clear();
+    this.#options.onBatch(
+      selection.map(({ kind, id }) => ({ type: "remove-item", kind, id }))
+    );
+  }
+
+  // Marks what's picked, which shows outlined with the move tool.
+  #showSelection(): void {
+    for (const kind of Object.keys(this.#layers) as ItemKind[]) {
+      for (const view of this.#getAnyLayer(kind).views) {
+        view.element.toggleAttribute(
+          "data-selected",
+          this.#selection.has(getKey({ kind, id: view.item.id }))
+        );
+      }
+    }
+  }
+
+  // Gives the top item picked focus, so Delete deletes what's picked, or
+  // takes focus from an item once nothing is.
+  #focusSelection(): void {
+    const top = this.selection.at(-1);
+    const element = top && this.#layers[top.kind].getView(top.id)?.element;
+    if (element) {
+      this.#keepingSelection = true;
+      element.focus();
+      this.#keepingSelection = false;
+      return;
+    }
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && this.#items.contains(active)) {
+      active.blur();
+    }
+  }
+
+  // The item an element shows, if it's an item's own element, rather than
+  // what's in it, e.g. a note's text.
+  #getItemOf(element: EventTarget | null): ItemRef | null {
+    if (!(element instanceof HTMLElement) || !element.dataset.itemId) {
+      return null;
+    }
+    const kind = (Object.keys(this.#layers) as ItemKind[]).find(
+      (each) => this.#layers[each].element === element.parentElement
+    );
+    return kind ? { kind, id: element.dataset.itemId } : null;
+  }
+
+  // An item focused some other way than by pressing it, e.g. with Tab, is
+  // picked alone, unless it already is.
+  #onItemFocus = (event: FocusEvent): void => {
+    const item = this.#getItemOf(event.target);
+    if (item && !this.#keepingSelection && !this.#selection.has(getKey(item))) {
+      this.#selection = new Map([[getKey(item), item]]);
+      this.#showSelection();
+    }
+  };
+
+  // Escape on a picked item picks nothing.
+  #onItemKeyDown = (event: KeyboardEvent): void => {
+    if (
+      event.key === "Escape" &&
+      this.#selection.size > 0 &&
+      this.#getItemOf(event.target)
+    ) {
+      this.setSelection([]);
+    }
+  };
+
+  // With the move tool, pressing an item picks it alone, or, with Shift
+  // held, adds it to what's picked, or takes it away if it was picked.
+  #pressItem(
+    kind: ItemKind,
+    view: ItemView<PlacedItem>,
+    extend: boolean
+  ): void {
+    const item = { kind, id: view.item.id };
+    const key = getKey(item);
+    if (!extend) {
+      this.setSelection([item]);
+      return;
+    }
+    if (this.#selection.has(key)) {
+      this.#selection.delete(key);
+    } else {
+      this.#selection.set(key, item);
+    }
+    this.#showSelection();
+    this.#focusSelection();
+  }
+
+  // Everything else picked moves along with the picked item being dragged,
+  // as far as it's moved.
+  #moveSelectionWith(kind: ItemKind, item: PlacedItem, from: PlacedItem): void {
+    const dragged = { kind, id: item.id };
+    if (!this.#selection.has(getKey(dragged)) || this.#selection.size < 2) {
+      return;
+    }
+    const dx = item.x - from.x;
+    const dy = item.y - from.y;
+    this.#groupMove = { ...dragged, dx, dy };
+    for (const other of this.#selection.values()) {
+      if (getKey(other) !== getKey(dragged)) {
+        this.#getAnyLayer(other.kind).showMoved(other.id, dx, dy);
+      }
+    }
+  }
+
+  // An item was moved or resized. Moved with everything else picked, they
+  // all change together, as one change to undo.
+  #changeItem<K extends ItemKind>(kind: K, item: DrawingItem<K>): void {
+    const group = this.#groupMove;
+    this.#groupMove = null;
+    if (!group || group.kind !== kind || group.id !== item.id) {
+      this.#options.onItemChange(kind, item);
+      return;
+    }
+    const changes: DrawingChange[] = [
+      { type: "update-item", kind, id: item.id, fields: item },
+    ];
+    for (const other of this.#selection.values()) {
+      const shown = this.#getAnyLayer(other.kind).items.find(
+        ({ id }) => id === other.id
+      );
+      if (shown && getKey(other) !== getKey(group)) {
+        changes.push({
+          type: "update-item",
+          kind: other.kind,
+          id: other.id,
+          fields: { ...shown, x: shown.x + group.dx, y: shown.y + group.dy },
+        });
+      }
+    }
+    this.#options.onBatch(changes);
+  }
+
+  // Everything else picked goes back if the item being dragged with them
+  // was put back, e.g. as a second finger pinched.
+  #endGroupMove(): void {
+    const group = this.#groupMove;
+    this.#groupMove = null;
+    if (group) {
+      for (const other of this.#selection.values()) {
+        this.#getAnyLayer(other.kind).showMoved(other.id, 0, 0);
+      }
+    }
+  }
+
+  // Deleting a picked item deletes everything picked.
+  #deleteItem(kind: ItemKind, view: ItemView<PlacedItem>): void {
+    const key = getKey({ kind, id: view.item.id });
+    if (this.#selection.has(key) && this.#selection.size > 1) {
+      this.deleteSelection();
+    } else {
+      this.#delete(kind, view);
+    }
+  }
+
+  // Sizes the box dragged with Shift held, picking what it touches, as well
+  // as what was picked before.
+  #sizeMarquee(event: PointerEvent): void {
+    const { start, before, element } = this.#marquee!;
+    const box: Box = {
+      x: Math.min(start.x, event.clientX),
+      y: Math.min(start.y, event.clientY),
+      width: Math.abs(event.clientX - start.x),
+      height: Math.abs(event.clientY - start.y),
+    };
+    const bounds = this.#overlay.getBoundingClientRect();
+    element.style.left = px(box.x - bounds.left);
+    element.style.top = px(box.y - bounds.top);
+    element.style.width = px(box.width);
+    element.style.height = px(box.height);
+    this.#selection = new Map(before);
+    for (const layer of this.#order) {
+      if (layer.kind === "strokes") {
+        continue;
+      }
+      const view = this.#layers[layer.kind].getView(layer.id);
+      if (view && isOverlapping(view.element.getBoundingClientRect(), box)) {
+        this.#selection.set(getKey(layer), { kind: layer.kind, id: layer.id });
+      }
+    }
+    this.#showSelection();
   }
 
   /** Where a point on screen is on the drawing. */
@@ -1969,6 +2246,29 @@ export class Canvas {
         return;
       }
     }
+    // With the move tool, dragging anywhere but an item with Shift held
+    // picks what the box it drags out touches.
+    if (
+      event.button === 0 &&
+      event.shiftKey &&
+      this.#moving &&
+      !this.#spaceHeld &&
+      event.target === this.#interfaceLayer
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.#surface.setPointerCapture(event.pointerId);
+      const element = createElement("div", "canvas-marquee");
+      this.#overlay.append(element);
+      this.#marquee = {
+        pointerId: event.pointerId,
+        start: { x: event.clientX, y: event.clientY },
+        before: new Map(this.#selection),
+        element,
+      };
+      this.#sizeMarquee(event);
+      return;
+    }
     if (
       event.button === 1 ||
       (event.button === 0 && (this.#spaceHeld || this.#isMovePan(event)))
@@ -1984,16 +2284,13 @@ export class Canvas {
     }
   };
 
-  // With the move tool, dragging anywhere but an item pans, and leaves the
-  // item that was picked.
+  // With the move tool, dragging anywhere but an item pans, and picks
+  // nothing.
   #isMovePan(event: PointerEvent): boolean {
     if (!this.#moving || event.target !== this.#interfaceLayer) {
       return false;
     }
-    const active = document.activeElement;
-    if (active instanceof HTMLElement && this.#items.contains(active)) {
-      active.blur();
-    }
+    this.setSelection([]);
     return true;
   }
 
@@ -2023,6 +2320,11 @@ export class Canvas {
       this.#pinch = next;
       return;
     }
+    if (this.#marquee?.pointerId === event.pointerId) {
+      event.stopPropagation();
+      this.#sizeMarquee(event);
+      return;
+    }
     const pan = this.#pan;
     if (pan && event.pointerId === pan.pointerId) {
       event.stopPropagation();
@@ -2044,6 +2346,14 @@ export class Canvas {
       if (this.#touches.size === 0) {
         this.#pinch = null;
       }
+      return;
+    }
+    const marquee = this.#marquee;
+    if (marquee?.pointerId === event.pointerId) {
+      event.stopPropagation();
+      marquee.element.remove();
+      this.#marquee = null;
+      this.#focusSelection();
       return;
     }
     if (this.#pan?.pointerId === event.pointerId) {
@@ -2388,9 +2698,10 @@ export class Canvas {
 
   // Where an item is as it's moved or resized, for everyone drawing
   // together, until it's dropped.
+  // Everything else picked moves along with an item being moved.
   #gestureOptions<T extends PlacedItem>(kind: ItemKind) {
     return {
-      onGestureMove: ({ item }: ItemView<T>) => {
+      onGestureMove: ({ item }: ItemView<T>, from: T, resizing: boolean) => {
         const { x, y, width, height } = item as T & {
           width?: number | null;
           height?: number | null;
@@ -2401,8 +2712,16 @@ export class Canvas {
           id: item.id,
           box: { x, y, width, height },
         });
+        if (!resizing) {
+          this.#moveSelectionWith(kind, item, from);
+        }
       },
-      onGestureEnd: () => this.#options.onActivity?.(null),
+      onGestureEnd: () => {
+        this.#showSnapGuides([]);
+        this.#endGroupMove();
+        this.#options.onActivity?.(null);
+      },
+      onDelete: (view: ItemView<T>) => this.#deleteItem(kind, view),
     };
   }
 
@@ -2556,9 +2875,9 @@ export class Canvas {
     return {
       isPressForBrowser: (view: TypedView<T>, target: Element) =>
         view.editor.isEditable && view.editor.element.contains(target),
-      onPress: (view: TypedView<T>) => {
+      onPress: (view: TypedView<T>, extend: boolean) => {
         if (this.#moving) {
-          view.element.focus();
+          this.#pressItem(kind, view, extend);
         } else {
           this.#startEditing(kind, view);
         }
@@ -2592,7 +2911,7 @@ export class Canvas {
       [
         restack("front", "Bring to front"),
         restack("back", "Send to back"),
-        { label: "Delete", onSelect: () => this.#delete(kind, view) },
+        { label: "Delete", onSelect: () => this.#deleteItem(kind, view) },
       ],
       kind === "notes" ? this.#getNoteColors(view as NoteView) : []
     );
@@ -2816,12 +3135,8 @@ export class Canvas {
       }),
       snap: (_view, note, free) => this.#snapNote(note, free),
       ...this.#gestureOptions<Note>("notes"),
-      onGestureEnd: () => {
-        this.#showSnapGuides([]);
-        this.#options.onActivity?.(null);
-      },
       ...this.#typingOptions<Note>("notes"),
-      onChange: (note) => this.#options.onItemChange("notes", note),
+      onChange: (note) => this.#changeItem("notes", note),
       onRemove: (id) => this.#options.onItemRemove("notes", id),
     });
   }
@@ -2930,7 +3245,7 @@ export class Canvas {
       }),
       ...this.#typingOptions<TextBox>("texts"),
       ...this.#gestureOptions<TextBox>("texts"),
-      onChange: (box) => this.#options.onItemChange("texts", box),
+      onChange: (box) => this.#changeItem("texts", box),
       onRemove: (id) => this.#options.onItemRemove("texts", id),
     });
   }
@@ -2971,10 +3286,10 @@ export class Canvas {
         width: IMAGE_LAYOUT.minSize,
         height: IMAGE_LAYOUT.minSize,
       }),
-      onPress: ({ element }) => element.focus(),
+      onPress: (view, extend) => this.#pressItem("images", view, extend),
       onMenu: (view, point) => this.#openItemMenu("images", view, point),
       ...this.#gestureOptions<ImageItem>("images"),
-      onChange: (item) => this.#options.onItemChange("images", item),
+      onChange: (item) => this.#changeItem("images", item),
       onRemove: (id) => this.#options.onItemRemove("images", id),
     });
   }
@@ -3030,10 +3345,10 @@ export class Canvas {
         width: SHAPE_LAYOUT.minSize,
         height: SHAPE_LAYOUT.minSize,
       }),
-      onPress: ({ element }) => element.focus(),
+      onPress: (view, extend) => this.#pressItem("shapes", view, extend),
       onMenu: (view, point) => this.#openItemMenu("shapes", view, point),
       ...this.#gestureOptions<Shape>("shapes"),
-      onChange: (shape) => this.#options.onItemChange("shapes", shape),
+      onChange: (shape) => this.#changeItem("shapes", shape),
       onRemove: (id) => this.#options.onItemRemove("shapes", id),
     });
   }

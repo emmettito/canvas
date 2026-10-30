@@ -57,8 +57,9 @@ export interface ItemLayerOptions<T extends PlacedItem, V extends ItemView<T>> {
   // Whether pressing `target` is left to the browser, e.g. to move the caret
   // in text being typed.
   isPressForBrowser?: (view: V, target: Element) => boolean;
-  // The item was pressed without being dragged.
-  onPress?: (view: V) => void;
+  // The item was pressed without being dragged. `extend` is whether Shift
+  // was held, e.g. to add it to what's picked.
+  onPress?: (view: V, extend: boolean) => void;
   // The item was pressed twice, or Enter was pressed on it, e.g. to type in
   // it. Without this, Enter presses it.
   onOpen?: (view: V) => void;
@@ -70,12 +71,16 @@ export interface ItemLayerOptions<T extends PlacedItem, V extends ItemView<T>> {
   // Where the item goes as it's dragged to `item`, e.g. lined up with others
   // near it. `free` is whether Alt is held, to place it exactly.
   snap?: (view: V, item: T, free: boolean) => T;
-  // An item was dragged to where `view` shows it, as it's moved or resized.
-  onGestureMove?: (view: V) => void;
-  // An item stopped being moved or resized, kept or put back.
+  // An item was dragged to where `view` shows it, from `from`, as it's
+  // moved, or resized if `resizing`.
+  onGestureMove?: (view: V, from: T, resizing: boolean) => void;
+  // An item stopped being moved or resized, after the change if it was
+  // kept, or put back.
   onGestureEnd?: () => void;
   // It was moved or resized.
   onChange: (item: T) => void;
+  // Delete or Backspace was pressed on it. Without this, it's removed.
+  onDelete?: (view: V) => void;
   onRemove: (id: string) => void;
 }
 
@@ -239,6 +244,20 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
     }
   }
 
+  /**
+   * Shows an item `dx` and `dy` from where it is in the drawing, e.g. as
+   * it's moved along with another, until it's shown there again.
+   */
+  showMoved(id: string, dx: number, dy: number): void {
+    const view = this.#views.get(id);
+    const item =
+      this.#previews.get(id) ?? this.#items.find((each) => each.id === id);
+    if (view && item) {
+      view.item = { ...item, x: item.x + dx, y: item.y + dy };
+      this.#options.render(view);
+    }
+  }
+
   /** Removes an item, or discards it if it's the draft. */
   remove(id: string): void {
     if (!this.#views.has(id)) {
@@ -371,7 +390,7 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
       view.item = resize(from, gesture.size, handle, dx, dy, gesture.min);
     }
     this.#options.render(view);
-    this.#options.onGestureMove?.(view);
+    this.#options.onGestureMove?.(view, from, handle !== null);
   };
 
   #onPointerUp = (event: PointerEvent): void => {
@@ -381,11 +400,11 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
       return;
     }
     this.#gesture = null;
-    this.#options.onGestureEnd?.();
     const { view } = gesture;
     if (!gesture.moved) {
+      this.#options.onGestureEnd?.();
       if (event.type === "pointerup") {
-        this.#press(view, event.timeStamp);
+        this.#press(view, event.timeStamp, event.shiftKey);
       }
       return;
     }
@@ -393,6 +412,7 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
     if (!this.isDraft(view.item.id)) {
       this.#options.onChange(view.item);
     }
+    this.#options.onGestureEnd?.();
   };
 
   #onContextMenu = (event: MouseEvent): void => {
@@ -432,15 +452,24 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
     }
     if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
-      this.remove(view.item.id);
+      if (this.#options.onDelete && !this.isDraft(view.item.id)) {
+        this.#options.onDelete(view);
+      } else {
+        this.remove(view.item.id);
+      }
     } else if (event.key === "Enter") {
       event.preventDefault();
-      (this.#options.onOpen ?? this.#options.onPress)?.(view);
+      const { onOpen, onPress } = this.#options;
+      if (onOpen) {
+        onOpen(view);
+      } else {
+        onPress?.(view, false);
+      }
     }
   };
 
   // A second press soon after the first, on the same item, opens it.
-  #press(view: V, time: number): void {
+  #press(view: V, time: number, extend: boolean): void {
     const last = this.#lastPress;
     const { onOpen, onPress } = this.#options;
     if (
@@ -453,6 +482,6 @@ export class ItemLayer<T extends PlacedItem, V extends ItemView<T>> {
       return;
     }
     this.#lastPress = { id: view.item.id, time };
-    onPress?.(view);
+    onPress?.(view, extend);
   }
 }

@@ -186,6 +186,38 @@ describe("DrawingHistory", () => {
     expect(history.drawing.notes).toEqual([note]);
   });
 
+  it("makes a batch of changes as one, which undo and redo together", () => {
+    const history = createHistory();
+    history.addItem("notes", createNote("a"));
+    const image = { id: "b", x: 0, y: 0, width: 10, height: 10 };
+
+    history.batch([
+      {
+        type: "update-item",
+        kind: "notes",
+        id: "a",
+        fields: { ...createNote("a"), x: 50 },
+      },
+      { type: "add-item", kind: "images", item: image },
+    ]);
+    expect(history.drawing.notes[0].x).toBe(50);
+    expect(history.drawing.images).toEqual([image]);
+
+    history.undo();
+    expect(history.drawing.notes[0].x).toBe(0);
+    expect(history.drawing.images).toEqual([]);
+    history.redo();
+    expect(history.drawing.images).toEqual([image]);
+  });
+
+  it("has nothing to undo for a batch that changes nothing", () => {
+    const history = createHistory();
+
+    history.batch([{ type: "remove-item", kind: "notes", id: "a" }]);
+
+    expect(history.canUndo).toBe(false);
+  });
+
   it("only changes the kind of item it's given", () => {
     const history = createHistory();
     const image = { id: "a", x: 0, y: 0, width: 10, height: 10 };

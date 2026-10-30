@@ -249,6 +249,17 @@ const ITEM_READERS: {
   shapes: readShape,
 };
 
+/**
+ * An item of `kind` as it's used, or null if `value` isn't one, e.g. one
+ * pasted from another page.
+ */
+export function readItem<K extends ItemKind>(
+  kind: K,
+  value: unknown
+): DrawingItem<K> | null {
+  return ITEM_READERS[kind](value);
+}
+
 // A CSS color, as the canvas saves them: "#rrggbb" or "rgb(...)".
 function isBackground(value: unknown): value is string {
   return (

@@ -155,6 +155,42 @@ describe("SharedHistory", () => {
     expect(b.drawing).toEqual(a.drawing);
   });
 
+  it("sends only what a batch changes in each item, so others' changes stay", () => {
+    const room = createRoom();
+    const a = room.join().history;
+    const b = room.join().history;
+    a.addItem("notes", createNote("n"));
+    a.addItem("notes", createNote("m"));
+    room.flush();
+
+    a.batch([
+      {
+        type: "update-item",
+        kind: "notes",
+        id: "n",
+        fields: { ...createNote("n"), x: 50 },
+      },
+      {
+        type: "update-item",
+        kind: "notes",
+        id: "m",
+        fields: { ...createNote("m"), x: 50 },
+      },
+    ]);
+    b.updateItem("notes", { ...createNote("n"), content: fromPlainText("Hi") });
+    room.flush();
+
+    expect(a.drawing.notes).toEqual([
+      { ...createNote("n"), x: 50, content: fromPlainText("Hi") },
+      { ...createNote("m"), x: 50 },
+    ]);
+    expect(b.drawing).toEqual(a.drawing);
+
+    a.undo();
+    room.flush();
+    expect(a.drawing.notes.map(({ x }) => x)).toEqual([0, 0]);
+  });
+
   it("only erases fills with erasers drawn after them, wherever they land", () => {
     const room = createRoom();
     const a = room.join().history;

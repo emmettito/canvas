@@ -292,6 +292,45 @@ test("others see a note as it's moved, and as it's typed in", async ({
   expect((await note.boundingBox())!.y).toBeCloseTo(before.y + 60, -1);
 });
 
+test("others see shapes, and what's picked moving together", async ({
+  browser,
+}) => {
+  const { a, b } = await openTogether(browser);
+  const box = (await a.locator("canvas").first().boundingBox())!;
+  const drag = async (from: [number, number], to: [number, number]) => {
+    await a.mouse.move(box.x + from[0], box.y + from[1]);
+    await a.mouse.down();
+    await a.mouse.move(box.x + to[0], box.y + to[1], { steps: 6 });
+    await a.mouse.up();
+  };
+  await a.keyboard.press("r");
+  await drag([300, 300], [400, 400]);
+  await a.keyboard.press("o");
+  await drag([500, 300], [600, 400]);
+  const shapes = b.locator(".canvas-shape");
+  await expect(shapes).toHaveCount(2);
+
+  await a.keyboard.press("ControlOrMeta+a");
+  await drag([350, 300], [350, 250]);
+  await expect
+    .poll(() =>
+      shapes.evaluateAll((each) =>
+        each.map((shape) => (shape as HTMLElement).style.top)
+      )
+    )
+    .toEqual(["250px", "250px"]);
+
+  // One undo puts both back, for everyone.
+  await a.keyboard.press("ControlOrMeta+z");
+  await expect
+    .poll(() =>
+      shapes.evaluateAll((each) =>
+        each.map((shape) => (shape as HTMLElement).style.top)
+      )
+    )
+    .toEqual(["300px", "300px"]);
+});
+
 test("following someone shows what they see, until you move", async ({
   browser,
 }) => {

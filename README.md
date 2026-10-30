@@ -1,10 +1,10 @@
 # <img src="public/favicon.svg" alt="" width="32" height="32" align="top"> Canvas
 
-A simple art canvas. Draw with a pencil or eraser, fill areas with a paint
-bucket, pick
-from a color palette, adjust the size of each tool, add text, images and
-sticky notes, draw on the notes, move and stack it all, and undo or redo any
-of it, alone or live with others. The canvas fills the space it's
+A simple art canvas. Draw with a pencil, highlighter or eraser, fill areas
+with a paint bucket, pick from a color palette, adjust the size of each tool,
+add shapes, text, images and sticky notes, draw on the notes, pick several to
+move, copy or delete together, stack it all, and undo or redo any of it,
+alone or live with others. The canvas fills the space it's
 given, with its toolbars floating above it.
 
 **[Try the live demo](https://emmettito.github.io/canvas/)**
@@ -210,7 +210,20 @@ With `move` picked:
   across from the one dragged stays where it is.
 - Click it to pick it, then Delete or Backspace to delete it. Pressing Tab
   reaches it too, with any tool.
+- Shift-click others to pick them too, or Shift-click a picked one to leave
+  it out. Shift-drag anywhere else for a box that picks everything it
+  touches, as well as what's picked already. Ctrl+A (Cmd on a Mac) picks
+  everything, even with another tool, which picks `move`. Clicking anywhere
+  else, or Escape, picks nothing.
+- With several picked, dragging any of them moves them all, and Delete
+  deletes them all. Either is one change, which one undo puts back.
 - Double-click text or a note, or press Enter on it, to type in it.
+
+Ctrl+C copies what's picked, and Ctrl+X cuts it. Ctrl+V pastes it, on this
+canvas or another, even in another tab, a little further down and right each
+time it's pasted, so the copies don't hide each other. Ctrl+D copies what's
+picked straight away, in the same way. What's pasted is picked, with `move`,
+ready to move. Strokes can't be picked, so they're left where they are.
 
 With `note` or `text` picked, notes or text can be moved and resized the same
 way, and clicking one types in it. Whichever tool is picked, right-click an

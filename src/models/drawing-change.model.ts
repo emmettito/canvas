@@ -23,4 +23,7 @@ export type DrawingChange =
   | { type: "remove-item"; kind: ItemKind; id: string }
   | { type: "restack-item"; kind: ItemKind; id: string; to: Restack }
   | { type: "set-background"; color: string }
-  | { type: "clear" };
+  | { type: "clear" }
+  // Several at once, in turn, e.g. moving everything picked, which undo
+  // together.
+  | { type: "batch"; changes: DrawingChange[] };

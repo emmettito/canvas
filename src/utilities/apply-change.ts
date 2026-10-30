@@ -122,6 +122,10 @@ export function applyChange(drawing: Drawing, change: DrawingChange): Drawing {
             order: [],
           }
         : drawing;
+    case "batch":
+      return Array.isArray(change.changes)
+        ? change.changes.reduce(applyChange, drawing)
+        : drawing;
     // From someone else's newer version of the library, which this one
     // doesn't know how to make.
     default:

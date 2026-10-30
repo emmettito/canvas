@@ -1,4 +1,5 @@
 import { type Restack } from "../utilities/layers";
+import { type DrawingChange } from "./drawing-change.model";
 import { type Drawing, type DrawingItem, type ItemKind } from "./drawing.model";
 import { type Fill } from "./fill.model";
 import { type Stroke } from "./stroke.model";
@@ -25,6 +26,8 @@ export interface History {
   /** Moves an item to the front, above everything, or the back. */
   restackItem(kind: ItemKind, id: string, to: Restack): void;
   setBackground(color: string): void;
+  /** Makes several changes as one, which undo and redo together. */
+  batch(changes: DrawingChange[]): void;
   /** Removes everything but the background. */
   clear(): void;
   undo(): void;
