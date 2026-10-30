@@ -327,12 +327,15 @@ light one, so it shows.
 
 ### Signing notes
 
-Pass `author`, e.g. the name someone set, and each new note is signed with it
-in small, quieter type along its bottom, inside its padding, so its text has a
-line less room. Changing a note's text, or drawing or filling on it, adds the
-name after the names already there, e.g. "Ada, Bo", unless it's there
-already. Moving or resizing a note, or changing its color, doesn't. Exports draw the byline the same way, cut short with an
-ellipsis if it's too long. PNG and SVG exports also keep the name as their
+Pass `author`, the `firstName` and `lastName` someone set, and each new note is
+signed with it in small, quieter type along its bottom, inside its padding, so
+its text has a line less room. A byline shows first names, unless two people
+who signed notes on the canvas share one: then it's "Ada L." and "Ada K.", or
+the whole name if those match too. Changing a note's text, or drawing or
+filling on it, adds the name after the names already there, e.g. "Ada, Bo",
+unless it's there already. Notes saved with a whole name are split at its
+first space. Moving or resizing a note, or changing its color, doesn't. Exports draw the byline the same way, cut short with an
+ellipsis if it's too long. PNG and SVG exports also keep the whole name as their
 author: an `Author` iTXt chunk in a PNG, and Dublin Core's `dc:creator` in an
 SVG's metadata. JPEGs don't. Call `setAuthor` on the mounted canvas when the
 name changes. Notes already signed keep the names they were signed with, and
@@ -343,9 +346,9 @@ bylines again brings their names back.
 
 ```ts
 const canvas = mountCanvas(document.getElementById("drawing")!, {
-  author: "Ada",
+  author: { firstName: "Ada", lastName: "Lovelace" },
 });
-nameField.addEventListener("input", () => canvas.setAuthor(nameField.value));
+canvas.setAuthor({ firstName: first.value, lastName: last.value });
 ```
 
 ### Formatting text
@@ -444,7 +447,11 @@ other settings under `storageKey`.
 People can draw on one canvas together, live, through a server you run.
 Everyone's changes show as they're made, with each person's pointer and name
 in their own color, and a row of who's there, with their photos, at the start
-of the top right toolbar. It's added while anyone's there, even without
+of the top right toolbar. Each pointer looks like the tool it's pointing with:
+a ring as big as the pencil, highlighter or eraser draws, an I-beam for text,
+a crosshair for notes, shapes and the paint bucket, the dropper, or an arrow
+for the move tool. Its name is the first name, with more of it for two people
+here who share one, as bylines do, and the row shows whole names. It's added while anyone's there, even without
 `topRightToolbar`, and hidden with the toolbars. What they're in the middle of shows too: a stroke as it's drawn, an
 item as it's moved or resized, outlined in their color, and a note or text
 as it's typed, even a new one, before it's added. Undo only
@@ -487,7 +494,7 @@ const leave = canvas.collaborate(
       return () => socket.removeEventListener("message", onMessage);
     },
   },
-  { room: canvas.canvasId, onLeave: () => socket.close() }
+  { room: canvas.canvasId, onLeave: () => socket.close() },
 );
 ```
 
@@ -505,7 +512,7 @@ import { WebSocketServer } from "ws";
 const rooms = new CollaborationServer();
 new WebSocketServer({ port: 8080 }).on("connection", (socket) => {
   const connection = rooms.connect((message) =>
-    socket.send(JSON.stringify(message))
+    socket.send(JSON.stringify(message)),
   );
   socket.on("message", (data) => connection.receive(JSON.parse(String(data))));
   socket.on("close", () => connection.close());
@@ -617,8 +624,9 @@ New canvases start on the theme's background. System
 follows the system's light or dark mode, and is the default. The page
 remembers your choice. Below it, Canvas background picks the open canvas's
 background from a few swatches or any color, through `setBackground`. Above
-them, Profile's Name field signs new notes and exports, through `author` and
-`setAuthor`. The page remembers it. Its Photo is shown to everyone drawing
+them, Profile's First name and Last name fields sign new notes and exports,
+through `author` and `setAuthor`. The page remembers them, and splits a whole
+name it kept before into the two. Its Photo is shown to everyone drawing
 together with you, through `avatar` and `setAvatar`: the middle square of the
 picture picked, made 128 pixels across, which the page remembers too.
 Unchecking Show names on sticky notes hides bylines, through
@@ -656,10 +664,6 @@ devices ask for, with a web app manifest, in `public/`.
 Every push to `main` builds the demo page and publishes it to GitHub Pages (see
 `.github/workflows/deploy-demo.yml`). For that to work, set **Settings → Pages →
 Source** to **GitHub Actions** in the repository.
-
-## To-do list
-
-- [ ] Other canvas tools (eg. paint brushes & a ruler)
 
 ## License
 

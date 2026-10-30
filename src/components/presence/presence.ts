@@ -3,12 +3,20 @@ import {
   type PeerPointer,
   type PeerView,
 } from "../../collaboration-server";
+import { type PersonName } from "../../models/person-name.model";
 import { type Viewport } from "../../models/viewport.model";
 import { createElement } from "../../utilities/create-element";
+import { getFullName, getShortNames } from "../../utilities/person-names";
 import "./presence.css";
 
 // Shown for someone who hasn't set a name.
 const NO_NAME = "Guest";
+
+/** This canvas's own person in a room, as everyone else sees them. */
+export type Self = Pick<
+  Peer,
+  "id" | "firstName" | "lastName" | "avatar" | "color"
+>;
 
 export interface PresenceOptions {
   getViewport: () => Viewport;
@@ -20,24 +28,124 @@ export interface PresenceOptions {
   onRelease: (id: string) => void;
 }
 
-// An arrow, like the pointer's, with its tip at the top left.
-const CURSOR_PATH =
-  "M1 1 L1 15 L5 11.5 L7.8 17.5 L10.3 16.3 L7.6 10.6 L13 10.4 Z";
+// How someone's pointer looks, like the cursor of the tool they're pointing
+// with: a ring as big as a stroke tool draws or erases, an I-beam for text,
+// a crosshair for placing or filling, and the dropper. Anything else, e.g.
+// the move tool, is an arrow.
+type CursorKind =
+  | "arrow"
+  | "brush"
+  | "eraser"
+  | "text"
+  | "crosshair"
+  | "dropper";
+
+const CURSOR_KINDS: Record<string, CursorKind> = {
+  pencil: "brush",
+  highlighter: "brush",
+  eraser: "eraser",
+  text: "text",
+  note: "crosshair",
+  shape: "crosshair",
+  bucket: "crosshair",
+  dropper: "dropper",
+};
+
+// Each cursor's shape, with the point it's at, its hotspot, in its own
+// units, and how far its name is from that point, on screen. Lines are
+// drawn twice, white under their color, so they show on anything.
+const CURSOR_GLYPHS: Record<
+  Exclude<CursorKind, "brush" | "eraser">,
+  {
+    size: [number, number];
+    viewBox: string;
+    hotspot: [number, number];
+    label: number;
+    path: string;
+    lines?: boolean;
+  }
+> = {
+  // Like the pointer's, with its tip at the top left.
+  arrow: {
+    size: [16, 20],
+    viewBox: "0 0 16 20",
+    hotspot: [1, 1],
+    label: 14,
+    path: "M1 1 L1 15 L5 11.5 L7.8 17.5 L10.3 16.3 L7.6 10.6 L13 10.4 Z",
+  },
+  text: {
+    size: [10, 20],
+    viewBox: "0 0 10 20",
+    hotspot: [5, 10],
+    label: 10,
+    path: "M2 1.5h6M5 1.5v17M2 18.5h6",
+    lines: true,
+  },
+  // With a gap in the middle, so what's pointed at shows.
+  crosshair: {
+    size: [21, 21],
+    viewBox: "0 0 21 21",
+    hotspot: [10.5, 10.5],
+    label: 10,
+    path: "M10.5 1v7M10.5 13v7M1 10.5h7M13 10.5h7",
+    lines: true,
+  },
+  // Like the canvas's own, picking at its tip, at the bottom left.
+  dropper: {
+    size: [24, 24],
+    viewBox: "-16 -16 288 288",
+    hotspot: [4, 19],
+    label: 8,
+    path: "M224,67.3a35.79,35.79,0,0,0-11.26-25.66c-14-13.28-36.72-12.78-50.62,1.13L138.8,66.2a24,24,0,0,0-33.14.77l-5,5a16,16,0,0,0,0,22.64l2,2.06-51,51a39.75,39.75,0,0,0-10.53,38l-8,18.41A13.68,13.68,0,0,0,36,219.3a15.92,15.92,0,0,0,17.71,3.35L71.23,215a39.89,39.89,0,0,0,37.06-10.75l51-51,2.06,2.06a16,16,0,0,0,22.62,0l5-5a24,24,0,0,0,.74-33.18l23.75-23.87A35.75,35.75,0,0,0,224,67.3ZM97,193a24,24,0,0,1-24,6,8,8,0,0,0-5.55.31l-18.1,7.91L57,189.41a8,8,0,0,0,.25-5.75A23.88,23.88,0,0,1,63,159l51-51,33.94,34Z",
+  },
+};
+
+// The smallest a stroke tool's ring is, on screen, so it shows however
+// small the tool, or far out the zoom.
+const MIN_RING_SIZE = 8;
+// How far a ring's name is from its edge, on screen.
+const RING_LABEL_GAP = 4;
 
 function createCursor(): HTMLElement {
   const cursor = createElement("div", "canvas-peer-cursor");
-  const svgNs = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(svgNs, "svg");
-  svg.setAttribute("width", "16");
-  svg.setAttribute("height", "20");
-  svg.setAttribute("viewBox", "0 0 16 20");
-  const path = document.createElementNS(svgNs, "path");
-  path.setAttribute("d", CURSOR_PATH);
-  svg.append(path);
   const label = createElement("span", "canvas-peer-label");
   label.append(createElement("span", "canvas-peer-name"));
-  cursor.append(svg, label);
+  cursor.append(createElement("div", "canvas-peer-glyph"), label);
   return cursor;
+}
+
+// What `cursor` shows for `kind`, at its hotspot.
+function showCursorKind(cursor: HTMLElement, kind: CursorKind): void {
+  cursor.dataset.kind = kind;
+  let glyph: Element;
+  if (kind === "brush" || kind === "eraser") {
+    glyph = createElement("div", "canvas-peer-glyph canvas-peer-ring");
+  } else {
+    const { size, viewBox, hotspot, label, path, lines } = CURSOR_GLYPHS[kind];
+    const svgNs = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNs, "svg");
+    svg.classList.add("canvas-peer-glyph");
+    if (lines) {
+      svg.classList.add("canvas-peer-lines");
+    }
+    svg.setAttribute("width", String(size[0]));
+    svg.setAttribute("height", String(size[1]));
+    svg.setAttribute("viewBox", viewBox);
+    svg.style.left = `${-hotspot[0]}px`;
+    svg.style.top = `${-hotspot[1]}px`;
+    // A line's white edge is a wider copy of it, underneath.
+    for (const className of lines ? ["canvas-peer-halo", ""] : [""]) {
+      const shape = document.createElementNS(svgNs, "path");
+      shape.setAttribute("d", path);
+      if (className) {
+        shape.classList.add(className);
+      }
+      svg.append(shape);
+    }
+    glyph = svg;
+    cursor.style.setProperty("--canvas-peer-label-offset", `${label}px`);
+  }
+  cursor.querySelector(".canvas-peer-glyph")!.replaceWith(glyph);
 }
 
 // Their photo, if they've set one. One that doesn't load shows nothing, so
@@ -83,9 +191,12 @@ export class Presence {
   #options: PresenceOptions;
   #peers = new Map<string, Peer>();
   #cursors = new Map<string, HTMLElement>();
-  // Who this canvas follows, and its own id, once it's in a room.
+  // Who this canvas follows, and its own person, once it's in a room.
   #following: string | null = null;
-  #me: string | null = null;
+  #self: Self | null = null;
+  // How everyone's shown by their pointer, and as who's following who, as
+  // briefly as tells them apart, e.g. "Ada", or "Ada L." with another Ada.
+  #shortName: (name: PersonName) => string = getShortNames([]);
 
   constructor(options: PresenceOptions) {
     this.#options = options;
@@ -110,14 +221,24 @@ export class Presence {
 
   /**
    * Shows everyone in `peers`, instead of whoever was shown, to the canvas
-   * with id `me`, which follows nobody yet.
+   * that's `self`, which follows nobody yet. It's shown with them, in its
+   * color, so it can tell others which it is.
    */
-  setPeers(peers: Peer[], me: string | null = null): void {
+  setPeers(peers: Peer[], self: Self | null = null): void {
     this.#peers = new Map(peers.map((peer) => [peer.id, peer]));
-    this.#me = me;
+    this.#self = self;
     this.#following = null;
     this.#showPeople();
     this.refresh();
+  }
+
+  /** Shows this canvas's own new name or photo. */
+  setProfile({ firstName, lastName }: PersonName, avatar: string): void {
+    if (this.#self) {
+      this.#self = { ...this.#self, firstName, lastName, avatar };
+      this.#showPeople();
+      this.refresh();
+    }
   }
 
   /** Shows someone who's joined, or what they've changed, e.g. their name. */
@@ -126,14 +247,15 @@ export class Presence {
     this.#peers.set(peer.id, peer);
     if (
       !before ||
-      before.name !== peer.name ||
+      before.firstName !== peer.firstName ||
+      before.lastName !== peer.lastName ||
       before.avatar !== peer.avatar ||
       before.color !== peer.color
     ) {
       this.#showPeople();
-      // Their cursor's label is made again, with their new name.
-      this.#cursors.get(peer.id)?.remove();
-      this.#cursors.delete(peer.id);
+      this.#cursors
+        .get(peer.id)
+        ?.style.setProperty("--canvas-peer-color", peer.color);
     }
     this.refresh();
   }
@@ -158,7 +280,7 @@ export class Presence {
   /** Who `id` follows, which may be this canvas, or this canvas itself. */
   setFollowing(id: string, following: string | null): void {
     const peer = this.#peers.get(id);
-    if (id === this.#me) {
+    if (id === this.#self?.id) {
       this.#following = following;
     } else if (peer) {
       this.#peers.set(id, { ...peer, following });
@@ -166,6 +288,12 @@ export class Presence {
       return;
     }
     this.#showPeople();
+  }
+
+  /** How `id` is shown, as briefly as tells them apart from everyone here. */
+  getPeerName(id: string): string | undefined {
+    const peer = this.#peers.get(id);
+    return peer && this.#getShortName(peer);
   }
 
   getPeer(id: string): Peer | undefined {
@@ -182,7 +310,10 @@ export class Presence {
     }
   }
 
-  /** Moves the pointers to where they are on screen, e.g. once the view's changed. */
+  /**
+   * Moves the pointers to where they are on screen, and sizes them, e.g.
+   * once the view's changed, each looking like the tool it's pointing with.
+   */
   refresh(): void {
     const { x, y, zoom } = this.#options.getViewport();
     for (const [id, cursor] of this.#cursors) {
@@ -201,8 +332,27 @@ export class Presence {
         this.#cursors.set(peer.id, cursor);
         this.cursors.append(cursor);
         cursor.style.setProperty("--canvas-peer-color", peer.color);
-        cursor.querySelector(".canvas-peer-name")!.textContent =
-          peer.name || NO_NAME;
+      }
+      const name = cursor.querySelector(".canvas-peer-name")!;
+      const shown = this.#getShortName(peer);
+      if (name.textContent !== shown) {
+        name.textContent = shown;
+      }
+      const { tool, size = 0 } = peer.pointer;
+      const kind = (tool !== undefined && CURSOR_KINDS[tool]) || "arrow";
+      if (cursor.dataset.kind !== kind) {
+        showCursorKind(cursor, kind);
+      }
+      // As big as what it draws or erases, which is in drawing units, so it
+      // grows and shrinks with the zoom.
+      if (kind === "brush" || kind === "eraser") {
+        const ring = Math.max(MIN_RING_SIZE, size * 2 * zoom);
+        cursor.style.setProperty("--canvas-peer-ring", `${ring}px`);
+        // Off the ring's bottom right, the way the arrow's is off its tip.
+        cursor.style.setProperty(
+          "--canvas-peer-label-offset",
+          `${(ring / 2) * Math.SQRT1_2 + RING_LABEL_GAP}px`
+        );
       }
       const left = (peer.pointer.x - x) * zoom;
       const top = (peer.pointer.y - y) * zoom;
@@ -210,39 +360,46 @@ export class Presence {
     }
   }
 
+  // How `name` is shown briefly, among everyone here.
+  #getShortName(name: PersonName): string {
+    return this.#shortName(name) || NO_NAME;
+  }
+
   // Each person's photo, or initial, ringed in their color, with what
-  // clicking them does on hover: following them, or stopping. The row's
-  // hidden while nobody else is here.
+  // clicking them does on hover: following them, or stopping. This canvas's
+  // own is last, beside Follow me. The row's hidden while nobody else is here.
+  // Their whole names are shown here, so it's clear who each is.
   #showPeople(): void {
     const peers = [...this.#peers.values()];
-    this.element.hidden = peers.length === 0;
-    this.people.replaceChildren(
-      ...peers.map(({ id, name, avatar, color }) => {
-        const item = createElement("div", "canvas-person-item");
-        const shown = name || NO_NAME;
-        item.setAttribute("role", "listitem");
-        item.setAttribute("aria-label", shown);
-        const person = createButton("canvas-person");
-        const followed = id === this.#following;
-        const action = followed ? `Stop following ${shown}` : `Follow ${shown}`;
-        person.setAttribute("aria-label", action);
-        person.setAttribute("aria-pressed", String(followed));
-        person.style.setProperty("--canvas-peer-color", color);
-        person.addEventListener("click", () =>
-          this.#options.onFollow(followed ? null : id)
-        );
-        const initial = createElement("span", "canvas-person-initial");
-        initial.textContent = [...shown][0].toUpperCase();
-        initial.setAttribute("aria-hidden", "true");
-        person.dataset.tooltip = action;
-        person.append(initial);
-        if (avatar) {
-          initial.after(createAvatar(avatar, "canvas-person-avatar"));
-        }
-        item.append(person);
-        return item;
-      })
+    this.#shortName = getShortNames(
+      this.#self ? [...peers, this.#self] : peers
     );
+    this.element.hidden = peers.length === 0;
+    const items = peers.map((peer) => {
+      const { id, avatar, color } = peer;
+      const shown = getFullName(peer) || NO_NAME;
+      const followed = id === this.#following;
+      const action = followed ? `Stop following ${shown}` : `Follow ${shown}`;
+      const person = createButton("canvas-person");
+      person.setAttribute("aria-label", action);
+      person.setAttribute("aria-pressed", String(followed));
+      person.dataset.tooltip = action;
+      person.addEventListener("click", () =>
+        this.#options.onFollow(followed ? null : id)
+      );
+      return createPersonItem(person, shown, avatar, color);
+    });
+    if (this.#self) {
+      const { avatar, color } = this.#self;
+      const name = getFullName(this.#self);
+      // Not a button, since there's nothing to do with it.
+      const person = createElement("span", "canvas-person canvas-person-self");
+      person.dataset.tooltip = name ? `You (${name})` : "You";
+      items.push(
+        createPersonItem(person, name || NO_NAME, avatar, color, "You")
+      );
+    }
+    this.people.replaceChildren(...items);
     this.#showFollowing();
   }
 
@@ -258,14 +415,14 @@ export class Presence {
       stop.textContent = "Stop";
       stop.addEventListener("click", () => this.#options.onFollow(null));
       pills.push(
-        createPill(followed, `Following ${followed.name || NO_NAME}`, stop)
+        createPill(followed, `Following ${this.#getShortName(followed)}`, stop)
       );
     }
     for (const peer of this.#peers.values()) {
-      if (this.#me === null || peer.following !== this.#me) {
+      if (this.#self === null || peer.following !== this.#self.id) {
         continue;
       }
-      const name = peer.name || NO_NAME;
+      const name = this.#getShortName(peer);
       const release = createButton("canvas-follow-action");
       release.textContent = "Release";
       release.setAttribute("aria-label", `Release ${name}`);
@@ -274,6 +431,30 @@ export class Presence {
     }
     this.followBar.replaceChildren(...pills);
   }
+}
+
+// `person` in the row, showing `name`'s initial, or their photo, on their
+// color, read out as `label`.
+function createPersonItem(
+  person: HTMLElement,
+  name: string,
+  avatar: string,
+  color: string,
+  label = name
+): HTMLElement {
+  const item = createElement("div", "canvas-person-item");
+  item.setAttribute("role", "listitem");
+  item.setAttribute("aria-label", label);
+  person.style.setProperty("--canvas-peer-color", color);
+  const initial = createElement("span", "canvas-person-initial");
+  initial.textContent = [...name][0].toUpperCase();
+  initial.setAttribute("aria-hidden", "true");
+  person.append(initial);
+  if (avatar) {
+    initial.after(createAvatar(avatar, "canvas-person-avatar"));
+  }
+  item.append(person);
+  return item;
 }
 
 // A line in the follow bar, in `peer`'s color, saying `text`, with `action`.

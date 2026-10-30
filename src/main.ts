@@ -10,7 +10,7 @@ import { proseMirrorEditor } from "./prosemirror";
 import "./styles.css";
 import { setUpBackgroundPicker } from "./background-picker";
 import {
-  setUpNameField,
+  setUpNameFields,
   setUpPhotoField,
   setUpShowAuthorsField,
 } from "./profile";
@@ -29,8 +29,9 @@ const openSettings = setUpSettings(settings);
 setUpThemePicker(settings.querySelector(".demo-theme-picker")!);
 // Set up first, so the canvas starts with the saved name. Typing it in only
 // happens once the canvas is there.
-const name = setUpNameField(
-  settings.querySelector(".demo-name-field")!,
+const name = setUpNameFields(
+  settings.querySelector(".demo-first-name-field")!,
+  settings.querySelector(".demo-last-name-field")!,
   (value) => canvas.setAuthor(value)
 );
 const avatar = setUpPhotoField(
@@ -78,7 +79,7 @@ const canvas = mountCanvas(document.getElementById("root")!, {
     ],
   ],
   toolbar: [
-    [button("undo"), button("redo"), button("clear")],
+    [button("undo"), button("redo")],
     [
       button("move"),
       button("pencil"),

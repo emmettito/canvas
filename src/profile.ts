@@ -1,4 +1,9 @@
-const STORAGE_KEY = "name";
+import { type PersonName } from "./index";
+
+const FIRST_NAME_KEY = "first-name";
+const LAST_NAME_KEY = "last-name";
+// A whole name, kept before first and last names were apart.
+const LEGACY_NAME_KEY = "name";
 const AVATAR_KEY = "avatar";
 // How big a photo's kept, in pixels across, which is sharp enough for the
 // corner of the canvas on any screen, and small enough to send everyone.
@@ -7,44 +12,66 @@ const AVATAR_QUALITY = 0.85;
 // Saved only while they're hidden, since they're shown by default.
 const HIDE_AUTHORS_KEY = "hide-authors";
 
-// Empty if nothing's saved.
-function getSavedName(): string {
+// Empty if nothing's saved. A whole name saved before is split at its first
+// space, e.g. "Ada Lovelace" into "Ada" and "Lovelace".
+function getSavedName(): PersonName {
   try {
-    return localStorage.getItem(STORAGE_KEY) ?? "";
+    const firstName = localStorage.getItem(FIRST_NAME_KEY);
+    const lastName = localStorage.getItem(LAST_NAME_KEY);
+    if (firstName !== null || lastName !== null) {
+      return { firstName: firstName ?? "", lastName: lastName ?? "" };
+    }
+    const [first = "", ...rest] = (localStorage.getItem(LEGACY_NAME_KEY) ?? "")
+      .trim()
+      .split(/\s+/);
+    return { firstName: first, lastName: rest.join(" ") };
   } catch {
     // Storage can be unavailable, e.g. in some private windows.
-    return "";
+    return { firstName: "", lastName: "" };
   }
 }
 
-function saveName(name: string): void {
+function saveName({ firstName, lastName }: PersonName): void {
   try {
-    if (name) {
-      localStorage.setItem(STORAGE_KEY, name);
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
+    for (const [key, value] of [
+      [FIRST_NAME_KEY, firstName],
+      [LAST_NAME_KEY, lastName],
+    ]) {
+      if (value) {
+        localStorage.setItem(key, value);
+      } else {
+        localStorage.removeItem(key);
+      }
     }
+    localStorage.removeItem(LEGACY_NAME_KEY);
   } catch {
     // The name just won't be remembered.
   }
 }
 
 /**
- * Wires up the demo page's name field, which is saved as it's typed, and
- * calls `onChange` with it, trimmed. Returns the saved name, for the canvas
- * to start with.
+ * Wires up the demo page's first and last name fields, which are saved as
+ * they're typed, and calls `onChange` with both, trimmed. Returns the saved
+ * name, for the canvas to start with.
  */
-export function setUpNameField(
-  input: HTMLInputElement,
-  onChange: (name: string) => void
-): string {
+export function setUpNameFields(
+  first: HTMLInputElement,
+  last: HTMLInputElement,
+  onChange: (name: PersonName) => void
+): PersonName {
   const saved = getSavedName();
-  input.value = saved;
-  input.addEventListener("input", () => {
-    const name = input.value.trim();
-    saveName(name);
-    onChange(name);
-  });
+  first.value = saved.firstName;
+  last.value = saved.lastName;
+  for (const input of [first, last]) {
+    input.addEventListener("input", () => {
+      const name = {
+        firstName: first.value.trim(),
+        lastName: last.value.trim(),
+      };
+      saveName(name);
+      onChange(name);
+    });
+  }
   return saved;
 }
 

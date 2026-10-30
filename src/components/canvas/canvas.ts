@@ -23,6 +23,7 @@ import { type Fill } from "../../models/fill.model";
 import { type ImageItem } from "../../models/image-item.model";
 import { type Layer } from "../../models/layer.model";
 import { type Note } from "../../models/note.model";
+import { type PersonName } from "../../models/person-name.model";
 import { type Point } from "../../models/point.model";
 import { type RichText } from "../../models/rich-text.model";
 import { type Shape, type ShapeType } from "../../models/shape.model";
@@ -47,7 +48,7 @@ import {
   toHex,
 } from "../../utilities/colors";
 import { exportDrawing, renderDrawing } from "../../utilities/export-drawing";
-import { getByline } from "../../utilities/get-byline";
+import { getByline, getSignerNames } from "../../utilities/get-byline";
 import { getCssVariable } from "../../utilities/get-css-variable";
 import {
   floodFill,
@@ -161,7 +162,7 @@ export interface ActivityPeer {
  * out, `size` wide on screen, like a stroke.
  */
 export type Placing =
-  | { kind: "notes"; color: ToolColor; author: string }
+  | { kind: "notes"; color: ToolColor; author: PersonName | null }
   | { kind: "texts"; color: ToolColor; fontSize: number }
   | { kind: "shapes"; type: ShapeType; color: ToolColor; size: number };
 
@@ -364,6 +365,8 @@ export class Canvas {
     { canvas: createElement("canvas", "canvas-drawing"), painted: null },
   ];
   #cursor = createElement("div", "canvas-cursor");
+  // How each person who's signed a note is shown in its byline.
+  #signerName = getSignerNames([]);
   // The dropper's magnifier, and where the pointer is, on screen. Since
   // sampling takes a moment, whether it's being sampled, and whether it
   // needs sampling again, e.g. as the pointer moved meanwhile.
@@ -769,7 +772,17 @@ export class Canvas {
       DrawingItem<K>,
       ItemView<DrawingItem<K>>
     >;
+    if (kind === "notes") {
+      this.#signerName = getSignerNames(items as Note[]);
+    }
     layer.setItems(items);
+    // Someone new signing can change how others are shown, e.g. a second Ada
+    // makes the first "Ada L.", on notes that didn't change too.
+    if (kind === "notes") {
+      for (const view of this.#layers.notes.views) {
+        this.#showByline(view);
+      }
+    }
     // New views show they're picked too, e.g. ones just pasted.
     this.#showSelection();
   }
@@ -3144,7 +3157,7 @@ export class Canvas {
   // Who signed a note, along its bottom, once anyone has. More sign it as
   // they change it, and nobody's removed, so it's only ever added.
   #showByline(view: NoteView): void {
-    const byline = getByline(view.item);
+    const byline = getByline(view.item, this.#signerName);
     if (!byline) {
       return;
     }
@@ -3155,7 +3168,9 @@ export class Canvas {
       // it.
       view.editor.element.after(view.byline);
     }
-    view.byline.textContent = byline;
+    if (view.byline.textContent !== byline) {
+      view.byline.textContent = byline;
+    }
   }
 
   // A note being moved lines up with the notes on screen near it, unless

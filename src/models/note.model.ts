@@ -1,4 +1,5 @@
 import { type Fill } from "./fill.model";
+import { type PersonName } from "./person-name.model";
 import { type RichText } from "./rich-text.model";
 import { type Stroke } from "./stroke.model";
 
@@ -23,5 +24,5 @@ export interface Note {
   // Who wrote on it, first to last, shown along its bottom: whoever placed
   // it, then whoever changed its text, or drew or filled on it, since. Left
   // out of notes nobody signed, e.g. ones placed before a name was set.
-  authors?: string[];
+  authors?: PersonName[];
 }

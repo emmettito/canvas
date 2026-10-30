@@ -14,6 +14,7 @@ import { TOOL_SHORTCUTS } from "../../constants/tool-shortcuts.const";
 import { TOOL_SIZES } from "../../constants/tool-sizes.const";
 import { TOOLS } from "../../constants/tools.const";
 import {
+  type PeerPointer,
   type PeerView,
   type SharedImage,
   type SharedTimer,
@@ -33,6 +34,7 @@ import {
 } from "../../models/drawing.model";
 import { type History } from "../../models/history.model";
 import { type Note } from "../../models/note.model";
+import { type PersonName } from "../../models/person-name.model";
 import { type Point } from "../../models/point.model";
 import { type ShapeType } from "../../models/shape.model";
 import {
@@ -73,6 +75,11 @@ import {
   isSharedActivity,
   receiveActivity,
 } from "../../utilities/shared-activity";
+import {
+  getFullName,
+  isSameName,
+  trimName,
+} from "../../utilities/person-names";
 import { SharedHistory } from "../../utilities/shared-history";
 import { DEFAULT_VIEWPORT } from "../../utilities/viewport";
 import {
@@ -240,10 +247,10 @@ export interface MountedCanvas {
   setBackground: (color: string) => void;
   /**
    * Changes who new notes are signed by, and who exports say made them, e.g.
-   * once they've set their name. Notes already placed keep theirs. Empty for
-   * nobody.
+   * once they've set their name. Notes already placed keep theirs. Empty
+   * first and last names for nobody.
    */
-  setAuthor: (name: string) => void;
+  setAuthor: (name: PersonName) => void;
   /**
    * Changes the photo shown for whoever's drawing to everyone drawing
    * together with them, e.g. once they've picked one. Takes an image's data
@@ -338,11 +345,13 @@ export interface MountCanvasOptions {
    */
   textEditor?: TextEditorFactory;
   /**
-   * The name of whoever's drawing. New notes are signed with it, along their
-   * bottom, and PNG and SVG exports keep it as their author. Change it with
-   * `setAuthor`. Without one, nothing's signed.
+   * The first and last name of whoever's drawing. New notes are signed with
+   * it, along their bottom, by first name unless someone else who signed
+   * has it too, and PNG and SVG exports keep it whole as their author.
+   * Everyone drawing together sees it by their pointer the same way. Change
+   * it with `setAuthor`. Without one, nothing's signed.
    */
-  author?: string;
+  author?: PersonName;
   /**
    * The photo of whoever's drawing, shown to everyone drawing together with
    * them, as an image's data URL or an https address. Change it with
@@ -372,7 +381,7 @@ export function mountCanvas(
     onNameChange,
     onBackgroundChange,
     textEditor = plainTextEditor,
-    author: initialAuthor = "",
+    author: initialAuthor = { firstName: "", lastName: "" },
     avatar: initialAvatar = "",
     showAuthors = true,
   }: MountCanvasOptions = {}
@@ -398,7 +407,7 @@ export function mountCanvas(
   const storage = new CanvasStorage(storageKey);
   const imageStore = new ImageStore(storageKey);
   const saved = storage.loadToolSettings();
-  let author = initialAuthor.trim();
+  let author = trimName(initialAuthor);
   let avatar = initialAvatar;
   let exportOptions = storage.loadExportOptions() ?? DEFAULT_EXPORT_OPTIONS;
   let activeTool: Tool = saved?.activeTool ?? "pencil";
@@ -465,6 +474,8 @@ export function mountCanvas(
   } | null = null;
   // Set while where the pointer is is waiting to be shared.
   let pointerTimer: ReturnType<typeof setTimeout> | undefined;
+  // What the pointer was last shared pointing with.
+  let sharedTool: Pick<PeerPointer, "tool" | "size"> = {};
   // The same for what the canvas shows.
   let viewTimer: ReturnType<typeof setTimeout> | undefined;
   // The timer while it's going, which goes off for everyone drawing
@@ -696,7 +707,7 @@ export function mountCanvas(
       exportOptions = options;
       storage.saveExportOptions(options);
       updateToolbars();
-      const blob = await canvas.export(options, author);
+      const blob = await canvas.export(options, getFullName(author));
       if (blob) {
         downloadBlob(
           blob,
@@ -1217,6 +1228,12 @@ export function mountCanvas(
     for (const each of toolbars) {
       each.update(state);
     }
+    // Picking another tool, or sizing or zooming, changes how the pointer
+    // looks to everyone else.
+    const { tool, size } = getPointerTool();
+    if (pointer && (tool !== sharedTool.tool || size !== sharedTool.size)) {
+      sharePointer();
+    }
   }
 
   // The note and text tools draw nothing, so the canvas keeps the pencil's
@@ -1294,7 +1311,7 @@ export function mountCanvas(
     connection.send({
       type: "join",
       room,
-      name: author,
+      ...author,
       avatar,
       drawing: history.drawing,
     });
@@ -1367,7 +1384,12 @@ export function mountCanvas(
         );
         history = shared.history;
         shared.me = message.you;
-        presence.setPeers(message.peers, message.you);
+        presence.setPeers(message.peers, {
+          id: message.you,
+          ...author,
+          avatar,
+          color: message.color,
+        });
         receiveTimer(message.timer, false);
         fitPencilToBackground();
         update();
@@ -1484,8 +1506,24 @@ export function mountCanvas(
     }
     pointerTimer = setTimeout(() => {
       pointerTimer = undefined;
-      session?.connection.send({ type: "pointer", pointer });
+      sharedTool = getPointerTool();
+      session?.connection.send({
+        type: "pointer",
+        pointer: pointer && { ...pointer, ...sharedTool },
+      });
     }, POINTER_SHARE_DELAY);
+  }
+
+  // The tool the pointer's pointing with, so it looks like it to everyone
+  // else, and how far a stroke tool reaches, in drawing units, since that's
+  // on screen here, whatever the zoom.
+  function getPointerTool(): Pick<PeerPointer, "tool" | "size"> {
+    return isStrokeTool(activeTool)
+      ? {
+          tool: activeTool,
+          size: getStrokeToolState().size / canvas.viewport.zoom,
+        }
+      : { tool: activeTool };
   }
 
   // Tells everyone drawing together what the canvas shows, at most every so
@@ -1558,12 +1596,13 @@ export function mountCanvas(
   }
 
   function getPeerName(id: string): string {
-    return presence.getPeer(id)?.name || "Someone";
+    return presence.getPeerName(id) ?? "Someone";
   }
 
   // Tells everyone drawing together who this is, once it's changed.
   function shareProfile() {
-    session?.connection.send({ type: "profile", name: author, avatar });
+    presence.setProfile(author, avatar);
+    session?.connection.send({ type: "profile", ...author, avatar });
   }
 
   // The pencil stays visible on a new background: black becomes white on a
@@ -1617,7 +1656,11 @@ export function mountCanvas(
   // already have. Moving or resizing it, or changing its color, doesn't.
   function sign(note: Note): Note {
     const before = history.drawing.notes.find(({ id }) => id === note.id);
-    if (!author || !before || note.authors?.includes(author)) {
+    if (
+      !getFullName(author) ||
+      !before ||
+      note.authors?.some((name) => isSameName(name, author))
+    ) {
       return note;
     }
     const edited =
@@ -1632,7 +1675,11 @@ export function mountCanvas(
   // Text is in the pencil's color, and shapes in its color and size.
   function getPlacing(): Placing | null {
     if (activeTool === "note") {
-      return { kind: "notes", color: noteColor, author };
+      return {
+        kind: "notes",
+        color: noteColor,
+        author: getFullName(author) ? author : null,
+      };
     }
     if (activeTool === "shape") {
       return {
@@ -1823,7 +1870,7 @@ export function mountCanvas(
       setBackground(color);
     },
     setAuthor: (name) => {
-      author = name.trim();
+      author = trimName(name);
       canvas.setPlacing(getPlacing());
       shareProfile();
     },

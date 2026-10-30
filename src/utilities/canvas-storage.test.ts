@@ -404,20 +404,26 @@ describe("CanvasStorage export options", () => {
   });
 
   it("keeps who signed a note, and leaves out names that aren't any", () => {
+    const ada = { firstName: "Ada", lastName: "Lovelace" };
+    const grace = { firstName: "Grace", lastName: "" };
     localStorage.setItem(
       "test:canvas:a:notes",
       JSON.stringify([
-        { ...NOTES[0], authors: ["Ada", "Grace"] },
-        { ...NOTES[0], id: "b", authors: ["", 7, "Ada"] },
+        { ...NOTES[0], authors: [ada, grace] },
+        {
+          ...NOTES[0],
+          id: "b",
+          authors: [{ firstName: "", lastName: "" }, { firstName: 7 }, 7, ada],
+        },
         { ...NOTES[0], id: "c", authors: [] },
-        { ...NOTES[0], id: "d", authors: "Ada" },
+        { ...NOTES[0], id: "d", authors: ada },
       ])
     );
     const storage = new CanvasStorage("test");
 
     expect(storage.loadItems("a", "notes")).toEqual([
-      { ...NOTES[0], authors: ["Ada", "Grace"] },
-      { ...NOTES[0], id: "b", authors: ["Ada"] },
+      { ...NOTES[0], authors: [ada, grace] },
+      { ...NOTES[0], id: "b", authors: [ada] },
       { ...NOTES[0], id: "c" },
       { ...NOTES[0], id: "d" },
     ]);
@@ -435,9 +441,27 @@ describe("CanvasStorage export options", () => {
     const storage = new CanvasStorage("test");
 
     expect(storage.loadItems("a", "notes")).toEqual([
-      { ...NOTES[0], authors: ["Ada"] },
+      { ...NOTES[0], authors: [{ firstName: "Ada", lastName: "" }] },
       { ...NOTES[0], id: "b" },
       { ...NOTES[0], id: "c" },
+    ]);
+  });
+
+  it("splits whole names, saved before first and last names were apart", () => {
+    localStorage.setItem(
+      "test:canvas:a:notes",
+      JSON.stringify([{ ...NOTES[0], authors: ["Ada Lovelace", "", "Grace"] }])
+    );
+    const storage = new CanvasStorage("test");
+
+    expect(storage.loadItems("a", "notes")).toEqual([
+      {
+        ...NOTES[0],
+        authors: [
+          { firstName: "Ada", lastName: "Lovelace" },
+          { firstName: "Grace", lastName: "" },
+        ],
+      },
     ]);
   });
 

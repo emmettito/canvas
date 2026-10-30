@@ -470,29 +470,6 @@ test("the drawing and settings are restored after a reload", async ({
     .toBeGreaterThan(0);
 });
 
-test("clearing can be undone, and stays cleared after a reload", async ({
-  page,
-}) => {
-  const clear = page.getByRole("button", { name: "Clear" });
-  const undo = page.getByRole("button", { name: "Undo" });
-
-  await expect(clear).toBeDisabled();
-
-  // The line runs through the middle.
-  await drawLine(page);
-  await clear.click();
-  await expect(clear).toBeDisabled();
-  await expect.poll(() => isDrawnAt(page, 0.5, 0.5)).toBe(false);
-
-  await undo.click();
-  await expect.poll(() => isDrawnAt(page, 0.5, 0.5)).toBe(true);
-
-  await page.getByRole("button", { name: "Redo" }).click();
-  await page.reload();
-  await expect(page.locator("canvas")).toBeVisible();
-  await expect.poll(() => isDrawnAt(page, 0.5, 0.5)).toBe(false);
-});
-
 test("every change is kept in the history, to open again", async ({ page }) => {
   await renameCanvas(page, "Sunset");
   await drawLine(page);

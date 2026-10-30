@@ -341,14 +341,6 @@ test("notes are restored after a reload", async ({ page }) => {
   await expect(getNotes(page)).toHaveText("Remember me");
 });
 
-test("clearing removes notes", async ({ page }) => {
-  await addNote(page, "Gone");
-
-  await page.getByRole("button", { name: "Clear" }).click();
-
-  await expect(getNotes(page)).toHaveCount(0);
-});
-
 test("SVG exports include notes and their text", async ({ page }) => {
   await addNote(page, "Exported");
 

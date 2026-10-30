@@ -314,6 +314,17 @@ body {
   }
 }
 
+/* Text settings side by side, e.g. first and last names, sharing the row. */
+.demo-field-row {
+  display: flex;
+  gap: 12px;
+
+  .demo-field {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
 /* A text setting, with its label above it and a hint below. */
 .demo-field {
   display: flex;

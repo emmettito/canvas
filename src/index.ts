@@ -12,6 +12,7 @@ export {
   type CanvasServerMessage,
   type CollaborationConnection,
 } from "./models/collaboration.model";
+export { type PersonName } from "./models/person-name.model";
 export {
   type FileMenuItem,
   type ToolbarAction,

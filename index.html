@@ -50,17 +50,28 @@
         <section class="demo-settings-section">
           <h3>Profile</h3>
           <!-- New notes are signed with it, and exports keep it as their
-               author. The script wires it up. -->
-          <label class="demo-field">
-            Name
-            <input
-              class="demo-name-field"
-              type="text"
-              autocomplete="name"
-              maxlength="80"
-              placeholder="Your name"
-            />
-          </label>
+               author. Notes and pointers show the first name, unless
+               someone else has it too. The script wires it up. -->
+          <div class="demo-field-row">
+            <label class="demo-field">
+              First name
+              <input
+                class="demo-first-name-field"
+                type="text"
+                autocomplete="given-name"
+                maxlength="40"
+              />
+            </label>
+            <label class="demo-field">
+              Last name
+              <input
+                class="demo-last-name-field"
+                type="text"
+                autocomplete="family-name"
+                maxlength="40"
+              />
+            </label>
+          </div>
           <!-- Shown to everyone drawing together with you. It's made small
                and square before it's kept. The script wires it up. -->
           <div

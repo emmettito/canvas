@@ -42,9 +42,10 @@ async function openPage(browser: Browser, url = "/"): Promise<Page> {
   return page;
 }
 
-async function setName(page: Page, name: string) {
+async function setName(page: Page, firstName: string, lastName = "") {
   await page.getByRole("button", { name: "Settings" }).click();
-  await page.getByRole("textbox", { name: "Name" }).fill(name);
+  await page.getByRole("textbox", { name: "First name" }).fill(firstName);
+  await page.getByRole("textbox", { name: "Last name" }).fill(lastName);
   await page.keyboard.press("Escape");
 }
 
@@ -116,8 +117,10 @@ test("each person sees who else is here, and where they're pointing", async ({
 }) => {
   const { a, b } = await openTogether(browser);
   const people = a.getByRole("list", { name: "People here" });
-  await expect(people.getByRole("listitem")).toHaveCount(1);
-  await expect(people.getByRole("listitem")).toHaveAccessibleName("Bo");
+  // Bo, then Ada, who's shown as You.
+  await expect(people.getByRole("listitem")).toHaveCount(2);
+  await expect(people.getByRole("listitem").first()).toHaveAccessibleName("Bo");
+  await expect(people.getByRole("listitem").last()).toHaveAccessibleName("You");
 
   const box = (await b.locator("canvas").first().boundingBox())!;
   await b.mouse.move(box.x + 300, box.y + 200);
@@ -209,7 +212,7 @@ test("each person's photo shows in the corner, but not by their pointer", async 
 
   const person = a
     .getByRole("list", { name: "People here" })
-    .getByRole("listitem");
+    .getByRole("listitem", { name: "Bo" });
   const photo = person.locator(".canvas-person-avatar");
   await expect(photo).toHaveAttribute("src", /^data:image\/jpeg/);
   await expect
@@ -226,6 +229,121 @@ test("each person's photo shows in the corner, but not by their pointer", async 
   await expect(photo).toHaveCount(0);
   await expect(person).toHaveText(/^B/);
 });
+
+test("each person is the same color for everyone, themselves included", async ({
+  browser,
+}) => {
+  const { a, b } = await openTogether(browser);
+  const colorOf = (page: Page, name: string) =>
+    page
+      .getByRole("list", { name: "People here" })
+      .getByRole("listitem", { name, exact: true })
+      .locator(".canvas-person")
+      .evaluate((person) =>
+        getComputedStyle(person).getPropertyValue("--canvas-peer-color")
+      );
+
+  const adaColor = await colorOf(a, "You");
+  const boColor = await colorOf(b, "You");
+  expect(adaColor).not.toBe(boColor);
+  expect(await colorOf(b, "Ada")).toBe(adaColor);
+  expect(await colorOf(a, "Bo")).toBe(boColor);
+
+  // Bo's pointer, on Ada's canvas, is Bo's color too.
+  const box = (await b.locator("canvas").first().boundingBox())!;
+  await b.mouse.move(box.x + 300, box.y + 200);
+  await expect(a.locator(".canvas-peer-cursor")).toHaveCSS(
+    "--canvas-peer-color",
+    boColor
+  );
+});
+
+test("pointers show first names, and more once two people share one", async ({
+  browser,
+}) => {
+  const { a, b } = await openTogether(browser);
+  await setName(a, "Ada", "Lovelace");
+  const box = (await b.locator("canvas").first().boundingBox())!;
+  const cursor = a.locator(".canvas-peer-cursor");
+  // Settings covers the canvas, so Bo points again once it's closed.
+  const rename = async (firstName: string, lastName: string) => {
+    await setName(b, firstName, lastName);
+    await b.mouse.move(box.x + 300, box.y + 200);
+    await b.mouse.move(box.x + 310, box.y + 200);
+  };
+
+  await rename("Bo", "Diddley");
+  await expect(cursor).toHaveText("Bo");
+  // Their whole name's in the row.
+  await expect(
+    a.getByRole("list", { name: "People here" }).getByRole("listitem").first()
+  ).toHaveAccessibleName("Bo Diddley");
+
+  await rename("Ada", "King");
+  await expect(cursor).toHaveText("Ada K.");
+  await rename("Ada", "Lamb");
+  await expect(cursor).toHaveText("Ada Lamb");
+
+  // On Bo's canvas too, where the other Ada is Ada's.
+  const other = (await a.locator("canvas").first().boundingBox())!;
+  await a.mouse.move(other.x + 200, other.y + 100);
+  await expect(b.locator(".canvas-peer-cursor")).toHaveText("Ada Lovelace");
+});
+
+test("pointers look like the tool they're pointing with", async ({
+  browser,
+}) => {
+  const { a, b } = await openTogether(browser);
+  const box = (await b.locator("canvas").first().boundingBox())!;
+  const cursor = a.locator(".canvas-peer-cursor");
+  const point = async (x: number) => {
+    await b.mouse.move(box.x + x, box.y + 200);
+    await expect
+      .poll(async () => (await cursor.boundingBox())?.x)
+      .toBeCloseTo(box.x + x, -1);
+  };
+
+  await b.getByRole("button", { name: "Pencil" }).click();
+  await point(300);
+  await expect(cursor).toHaveAttribute("data-kind", "brush");
+  // As big as the pencil draws, since both are at the same zoom.
+  const size = await b
+    .locator(".canvas-cursor")
+    .evaluate((each) => each.getBoundingClientRect().width);
+  const ring = cursor.locator(".canvas-peer-ring");
+  await expect
+    .poll(() => ring.evaluate((each) => each.getBoundingClientRect().width))
+    .toBeCloseTo(Math.max(8, size), 0);
+
+  // Picking a tool by its key, while pointing, shows without moving.
+  for (const [key, kind] of [
+    ["e", "eraser"],
+    ["t", "text"],
+    ["n", "crosshair"],
+    ["i", "dropper"],
+    ["v", "arrow"],
+  ]) {
+    await b.keyboard.press(key);
+    await expect(cursor).toHaveAttribute("data-kind", kind);
+  }
+  // Still in their color.
+  await expect(cursor.locator(".canvas-peer-glyph")).toHaveCSS(
+    "fill",
+    await cursor
+      .evaluate((each) =>
+        getComputedStyle(each).getPropertyValue("--canvas-peer-color")
+      )
+      .then(hexToRgb)
+  );
+});
+
+// "#e5484d" as CSS computes it, "rgb(229, 72, 77)".
+function hexToRgb(hex: string): string {
+  const [r, g, b] = [1, 3, 5].map((at) =>
+    parseInt(hex.trim().slice(at, at + 2), 16)
+  );
+  return `rgb(${r}, ${g}, ${b})`;
+}
 
 test("others see a stroke as it's drawn, before it's finished", async ({
   browser,

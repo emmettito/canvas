@@ -17,7 +17,8 @@ function joinAll(server: CollaborationServer, count: number) {
     each.connection.receive({
       type: "join",
       room: "r",
-      name: "",
+      firstName: "",
+      lastName: "",
       avatar: "",
       drawing: 0,
     });
@@ -32,7 +33,8 @@ describe("CollaborationServer", () => {
     a.connection.receive({
       type: "join",
       room: "r",
-      name: "Ada",
+      firstName: "Ada",
+      lastName: "Lovelace",
       avatar: "",
       drawing: 1,
     });
@@ -44,7 +46,8 @@ describe("CollaborationServer", () => {
     b.connection.receive({
       type: "join",
       room: "r",
-      name: "Bo",
+      firstName: "Bo",
+      lastName: "",
       avatar: "",
       drawing: 2,
     });
@@ -53,13 +56,15 @@ describe("CollaborationServer", () => {
       {
         type: "welcome",
         you: "peer-2",
+        color: expect.any(String),
         drawing: 1,
         edits: [{ id: "e", author: "peer-1", type: "change", change: "x" }],
         images: [],
         peers: [
           {
             id: "peer-1",
-            name: "Ada",
+            firstName: "Ada",
+            lastName: "Lovelace",
             avatar: "",
             color: expect.any(String),
             pointer: null,
@@ -72,12 +77,42 @@ describe("CollaborationServer", () => {
     ]);
     // Told who's joined, in another color.
     const joined = a.received.at(-1);
-    expect(joined).toMatchObject({ type: "presence", peer: { name: "Bo" } });
+    expect(joined).toMatchObject({
+      type: "presence",
+      peer: { firstName: "Bo" },
+    });
     expect(joined).not.toMatchObject({
       peer: {
         color: (b.received[0] as { peers: { color: string }[] }).peers[0].color,
       },
     });
+  });
+
+  it("tells each person their color, the one everyone else sees them in", () => {
+    const server = new CollaborationServer();
+    const [a, b, c] = joinAll(server, 3);
+    const colorOf = (id: string, seenBy: typeof a) =>
+      seenBy.received.flatMap((message) =>
+        message.type === "welcome"
+          ? message.peers.filter((peer) => peer.id === id)
+          : message.type === "presence" && message.peer.id === id
+            ? [message.peer]
+            : []
+      )[0]?.color;
+
+    for (const [self, others] of [
+      [a, [b, c]],
+      [b, [a, c]],
+      [c, [a, b]],
+    ] as const) {
+      const welcome = self.received[0];
+      if (welcome.type !== "welcome") {
+        throw new Error("Not welcomed");
+      }
+      for (const other of others) {
+        expect(colorOf(welcome.you, other)).toBe(welcome.color);
+      }
+    }
   });
 
   it("sends each edit to everyone, including whoever made it", () => {
@@ -87,14 +122,16 @@ describe("CollaborationServer", () => {
     a.connection.receive({
       type: "join",
       room: "r",
-      name: "",
+      firstName: "",
+      lastName: "",
       avatar: "",
       drawing: 0,
     });
     b.connection.receive({
       type: "join",
       room: "r",
-      name: "",
+      firstName: "",
+      lastName: "",
       avatar: "",
       drawing: 0,
     });
@@ -107,32 +144,35 @@ describe("CollaborationServer", () => {
     expect(b.received.at(-1)).toEqual(sent);
   });
 
-  it("passes on where someone's pointing, and images, to everyone else", () => {
+  it("passes on where someone's pointing, with what, and images, to everyone else", () => {
     const server = new CollaborationServer();
     const a = connect(server);
     const b = connect(server);
     a.connection.receive({
       type: "join",
       room: "r",
-      name: "",
+      firstName: "",
+      lastName: "",
       avatar: "",
       drawing: 0,
     });
     b.connection.receive({
       type: "join",
       room: "r",
-      name: "",
+      firstName: "",
+      lastName: "",
       avatar: "",
       drawing: 0,
     });
     const before = b.received.length;
 
-    b.connection.receive({ type: "pointer", pointer: { x: 1, y: 2 } });
+    const pointer = { x: 1, y: 2, tool: "pencil", size: 1.5 };
+    b.connection.receive({ type: "pointer", pointer });
     const image = { id: "i", data: "data:image/png;base64,AA==" };
     b.connection.receive({ type: "image", image });
 
     expect(a.received.slice(-2)).toEqual([
-      { type: "pointer", id: "peer-2", pointer: { x: 1, y: 2 } },
+      { type: "pointer", id: "peer-2", pointer },
       { type: "image", image },
     ]);
     expect(b.received.length).toBe(before);
@@ -145,25 +185,33 @@ describe("CollaborationServer", () => {
     a.connection.receive({
       type: "join",
       room: "r",
-      name: "",
+      firstName: "",
+      lastName: "",
       avatar: "",
       drawing: 0,
     });
     b.connection.receive({
       type: "join",
       room: "r",
-      name: "",
+      firstName: "",
+      lastName: "",
       avatar: "",
       drawing: 0,
     });
 
     const avatar = "data:image/jpeg;base64,AA==";
-    b.connection.receive({ type: "profile", name: "Bo", avatar });
+    b.connection.receive({
+      type: "profile",
+      firstName: "Bo",
+      lastName: "Diddley",
+      avatar,
+    });
     expect(a.received.at(-1)).toEqual({
       type: "presence",
       peer: {
         id: "peer-2",
-        name: "Bo",
+        firstName: "Bo",
+        lastName: "Diddley",
         avatar,
         color: expect.any(String),
         pointer: null,
@@ -176,12 +224,16 @@ describe("CollaborationServer", () => {
     c.connection.receive({
       type: "join",
       room: "r",
-      name: "",
+      firstName: "",
+      lastName: "",
       avatar: "",
       drawing: 0,
     });
     expect(c.received[0]).toMatchObject({
-      peers: [{ name: "" }, { name: "Bo", avatar }],
+      peers: [
+        { firstName: "" },
+        { firstName: "Bo", lastName: "Diddley", avatar },
+      ],
     });
   });
 
@@ -192,14 +244,16 @@ describe("CollaborationServer", () => {
     a.connection.receive({
       type: "join",
       room: "r",
-      name: "",
+      firstName: "",
+      lastName: "",
       avatar: "",
       drawing: 0,
     });
     b.connection.receive({
       type: "join",
       room: "r",
-      name: "",
+      firstName: "",
+      lastName: "",
       avatar: "",
       drawing: 0,
     });
@@ -217,7 +271,8 @@ describe("CollaborationServer", () => {
     c.connection.receive({
       type: "join",
       room: "r",
-      name: "",
+      firstName: "",
+      lastName: "",
       avatar: "",
       drawing: 0,
     });
@@ -231,14 +286,16 @@ describe("CollaborationServer", () => {
     a.connection.receive({
       type: "join",
       room: "r",
-      name: "",
+      firstName: "",
+      lastName: "",
       avatar: "",
       drawing: 1,
     });
     b.connection.receive({
       type: "join",
       room: "r",
-      name: "",
+      firstName: "",
+      lastName: "",
       avatar: "",
       drawing: 1,
     });
@@ -251,7 +308,8 @@ describe("CollaborationServer", () => {
     c.connection.receive({
       type: "join",
       room: "r",
-      name: "",
+      firstName: "",
+      lastName: "",
       avatar: "",
       drawing: 2,
     });
@@ -265,7 +323,8 @@ describe("CollaborationServer", () => {
     b.connection.receive({
       type: "join",
       room: "r",
-      name: "",
+      firstName: "",
+      lastName: "",
       avatar: "",
       drawing: 0,
     });
@@ -281,8 +340,21 @@ describe("CollaborationServer", () => {
     b.connection.receive({ type: "edit", edit: { type: "change" } });
     b.connection.receive({ type: "image", image: { id: "i", data: "x" } });
     b.connection.receive({ type: "pointer", pointer: { x: "1" } });
+    b.connection.receive({
+      type: "pointer",
+      pointer: { x: 1, y: 2, tool: "x".repeat(33) },
+    });
+    b.connection.receive({
+      type: "pointer",
+      pointer: { x: 1, y: 2, tool: "pencil", size: -1 },
+    });
     // Only an image's data URL, or an address on the web, is a photo.
-    b.connection.receive({ type: "profile", name: "", avatar: "javascript:" });
+    b.connection.receive({
+      type: "profile",
+      firstName: "",
+      lastName: "",
+      avatar: "javascript:",
+    });
     b.connection.receive({ type: "activity" });
 
     expect(a.received).toEqual([]);

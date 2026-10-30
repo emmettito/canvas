@@ -30,6 +30,7 @@ import { type ToolSettings } from "../models/tool-settings.model";
 import { type Tool } from "../models/tool.model";
 import { type Viewport } from "../models/viewport.model";
 import { isCustomColor, isToolColor } from "./colors";
+import { getFullName, splitName } from "./person-names";
 import { fromPlainText, isRichText } from "./rich-text";
 import { clampZoom } from "./viewport";
 
@@ -175,12 +176,23 @@ function readNote(value: unknown): Note | null {
     fills,
   };
   // Notes saved before they could be signed have no authors, and ones saved
-  // before more than one could sign have one `author`.
-  const authors = Array.isArray(saved.authors)
-    ? saved.authors.filter((name) => typeof name === "string" && name !== "")
-    : [saved.author].filter((name) => typeof name === "string" && name !== "");
+  // before more than one could sign have one `author`. Ones saved before
+  // first and last names were apart have whole names.
+  const authors = (
+    Array.isArray(saved.authors) ? saved.authors : [saved.author]
+  ).flatMap((name: unknown) => {
+    const read =
+      typeof name === "string"
+        ? splitName(name)
+        : isObject(name) &&
+            typeof name.firstName === "string" &&
+            typeof name.lastName === "string"
+          ? { firstName: name.firstName, lastName: name.lastName }
+          : null;
+    return read && getFullName(read) ? [read] : [];
+  });
   if (authors.length > 0) {
-    note.authors = authors as string[];
+    note.authors = authors;
   }
   return note;
 }

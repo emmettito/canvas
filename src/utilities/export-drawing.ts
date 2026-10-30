@@ -17,7 +17,8 @@ import { NOTE_LAYOUT } from "../constants/note-layout.const";
 import { TEXT_LAYOUT } from "../constants/text-layout.const";
 import { drawFills, getFillSteps } from "./draw-fills";
 import { drawStroke } from "./draw-stroke";
-import { getByline } from "./get-byline";
+import { type PersonName } from "../models/person-name.model";
+import { getByline, getSignerNames } from "./get-byline";
 import { resolveLayers } from "./layers";
 import { getShapePath } from "./shape-geometry";
 import { addPngText } from "./png-text";
@@ -155,14 +156,15 @@ function fitText(
   return `${characters.join("")}…`;
 }
 
-// Who signed a note, on one line along its bottom, inside its padding. Null
-// if nobody did.
+// Who signed a note, each shown by `shortName`, on one line along its
+// bottom, inside its padding. Null if nobody did.
 function layOutByline(
   note: Note,
   { noteColor, fontFamily }: TextStyle,
-  measurer: TextMeasurer
+  measurer: TextMeasurer,
+  shortName: (name: PersonName) => string
 ): PlacedSpan | null {
-  const byline = getByline(note);
+  const byline = getByline(note, shortName);
   if (!byline) {
     return null;
   }
@@ -397,13 +399,14 @@ function drawFillLayer(
   context.restore();
 }
 
-// The note, its fills, its text, and the strokes drawn on it. Its fills and
-// strokes only show inside it.
+// The note, its fills, its text, the strokes drawn on it, and who signed
+// it, each shown by `shortName`. Its fills and strokes only show inside it.
 function drawNote(
   context: CanvasRenderingContext2D,
   note: Note,
   textStyle: TextStyle,
-  measurer: TextMeasurer
+  measurer: TextMeasurer,
+  shortName: (name: PersonName) => string
 ): void {
   const shape = new Path2D();
   shape.roundRect(
@@ -421,7 +424,7 @@ function drawNote(
   drawFillLayer(context, note.fills, note.strokes);
   context.restore();
   drawSpans(context, layOutNote(note, textStyle, measurer));
-  const byline = layOutByline(note, textStyle, measurer);
+  const byline = layOutByline(note, textStyle, measurer, shortName);
   if (byline) {
     context.save();
     context.globalAlpha = NOTE_LAYOUT.bylineOpacity;
@@ -483,6 +486,7 @@ export function renderDrawing(
   context.scale(scale, scale);
   context.translate(-area.x, -area.y);
   const measurer = createMeasurer();
+  const shortName = getSignerNames(drawing.notes);
   // Fills are below everything else.
   drawFillLayer(context, drawing.fills, drawing.strokes);
   // Bottom to top, the way the canvas shows them.
@@ -507,7 +511,7 @@ export function renderDrawing(
         drawSpans(context, layOutTextBox(layer.item, textStyle, measurer));
         break;
       case "notes":
-        drawNote(context, layer.item, textStyle, measurer);
+        drawNote(context, layer.item, textStyle, measurer, shortName);
         break;
       case "shapes":
         drawShape(context, layer.item);
@@ -671,18 +675,19 @@ function createFills(
 }
 
 // The note as an SVG rectangle, with its fills, its text and the strokes
-// drawn on it, clipped to it. `index` keeps its masks' and clip's names apart from other
-// notes'.
+// drawn on it, clipped to it, and who signed it, each shown by `shortName`.
+// `index` keeps its masks' and clip's names apart from other notes'.
 function createNote(
   note: Note,
   index: number,
   textStyle: TextStyle,
   measurer: TextMeasurer,
-  masks: string[]
+  masks: string[],
+  shortName: (name: PersonName) => string
 ): string {
   const shape = `width="${round(note.width)}" height="${round(note.height)}" rx="${NOTE_LAYOUT.cornerRadius}"`;
   const rect = `<rect x="${round(note.x)}" y="${round(note.y)}" ${shape} fill="${escapeAttribute(note.color)}"/>`;
-  const byline = layOutByline(note, textStyle, measurer);
+  const byline = layOutByline(note, textStyle, measurer, shortName);
   const text =
     createText(layOutNote(note, textStyle, measurer)) +
     (byline
@@ -734,6 +739,7 @@ export function createSvg(
   const bounds = `x="${x}" y="${y}" width="${width}" height="${height}"`;
   const masks: string[] = [];
   const measurer = createMeasurer();
+  const shortName = getSignerNames(drawing.notes);
   let notes = 0;
   // Fills are below everything else.
   let content = createFills(
@@ -765,7 +771,14 @@ export function createSvg(
         content += createText(layOutTextBox(layer.item, textStyle, measurer));
         break;
       case "notes":
-        content += createNote(layer.item, notes++, textStyle, measurer, masks);
+        content += createNote(
+          layer.item,
+          notes++,
+          textStyle,
+          measurer,
+          masks,
+          shortName
+        );
         break;
       case "shapes":
         content += createShapeElement(layer.item);

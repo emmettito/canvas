@@ -259,9 +259,12 @@ describe("createSvg with notes", () => {
   });
 });
 
+const ADA = { firstName: "Ada", lastName: "Lovelace" };
+const GRACE = { firstName: "Grace", lastName: "Hopper" };
+
 describe("createSvg with signed notes", () => {
   it("shows the author along the note's bottom, quieter than its text", () => {
-    const svg = toSvg({ notes: [{ ...NOTE, authors: ["Ada"] }] });
+    const svg = toSvg({ notes: [{ ...NOTE, authors: [ADA] }] });
 
     expect(svg).toMatch(
       /<g fill-opacity="0.6"><text xml:space="preserve"><tspan x="32" [^>]*font-size="11"[^>]*>Ada<\/tspan><\/text><\/g>/
@@ -277,14 +280,20 @@ describe("createSvg with signed notes", () => {
     };
 
     expect(toSvg({ notes: [small] })).toContain(">two<");
-    const svg = toSvg({ notes: [{ ...small, authors: ["Ada"] }] });
+    const svg = toSvg({ notes: [{ ...small, authors: [ADA] }] });
     expect(svg).toContain(">one<");
     expect(svg).not.toContain(">two<");
   });
 
   it("cuts a long author short with an ellipsis", () => {
     const svg = toSvg({
-      notes: [{ ...NOTE, width: 60, authors: ["Bartholomew Montgomery"] }],
+      notes: [
+        {
+          ...NOTE,
+          width: 60,
+          authors: [{ firstName: "Bartholomew Montgomery", lastName: "" }],
+        },
+      ],
     });
 
     expect(svg).toMatch(/>[^<>]+…<\/tspan>/);
@@ -293,10 +302,26 @@ describe("createSvg with signed notes", () => {
 
   it("names everyone who signed it, in the order they did", () => {
     const svg = toSvg({
-      notes: [{ ...NOTE, width: 400, authors: ["Ada", "Grace"] }],
+      notes: [{ ...NOTE, width: 400, authors: [ADA, GRACE] }],
     });
 
     expect(svg).toContain(">Ada, Grace</tspan>");
+  });
+
+  it("shows first names, unless another signer has the same one", () => {
+    const svg = toSvg({
+      notes: [
+        { ...NOTE, width: 400, authors: [ADA, GRACE] },
+        {
+          ...NOTE,
+          id: "other",
+          authors: [{ firstName: "Ada", lastName: "King" }],
+        },
+      ],
+    });
+
+    expect(svg).toContain(">Ada L., Grace</tspan>");
+    expect(svg).toContain(">Ada K.</tspan>");
   });
 
   it("leaves unsigned notes without one", () => {

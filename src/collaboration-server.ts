@@ -6,10 +6,16 @@
  * changes pass through it as they are, so it never needs to understand them.
  */
 
-/** A point on the drawing, in drawing units. */
+/**
+ * A point on the drawing, in drawing units, and the tool pointing there, e.g.
+ * "pencil", passed on as it is, so the cursor can look like it. `size` is how
+ * far the tool reaches from the point, in drawing units, if it has a size.
+ */
 export interface PeerPointer {
   x: number;
   y: number;
+  tool?: string;
+  size?: number;
 }
 
 /** The part of the drawing someone's canvas shows, in drawing units. */
@@ -23,8 +29,9 @@ export interface PeerView {
 /** Someone in a room. */
 export interface Peer {
   id: string;
-  // Empty if they haven't set one.
-  name: string;
+  // Each is empty if they haven't set it.
+  firstName: string;
+  lastName: string;
   // Their photo's URL, e.g. a data URL, or empty if they haven't set one.
   avatar: string;
   // Their cursor's color, e.g. "#e5484d", so each person stands out.
@@ -70,10 +77,17 @@ export interface SharedImage {
 /** What a canvas sends its room. */
 export type ClientMessage<D = unknown, C = unknown, A = unknown> =
   // Joins `room`, which starts from `drawing` if nobody's in it yet.
-  | { type: "join"; room: string; name: string; avatar: string; drawing: D }
+  | {
+      type: "join";
+      room: string;
+      firstName: string;
+      lastName: string;
+      avatar: string;
+      drawing: D;
+    }
   | { type: "edit"; edit: Edit<C> }
   | { type: "image"; image: SharedImage }
-  | { type: "profile"; name: string; avatar: string }
+  | { type: "profile"; firstName: string; lastName: string; avatar: string }
   | { type: "pointer"; pointer: PeerPointer | null }
   // What they're in the middle of, e.g. a stroke they're drawing, or null
   // once they've stopped. It's passed on as it is, and isn't kept.
@@ -93,10 +107,12 @@ export type ClientMessage<D = unknown, C = unknown, A = unknown> =
 /** What a room sends each canvas in it. */
 export type ServerMessage<D = unknown, C = unknown, A = unknown> =
   // Everything so far, once it's joined: the drawing the room started from,
-  // every edit since, in order, and who else is there.
+  // every edit since, in order, and who else is there. `color` is theirs,
+  // the same everyone else sees them in.
   | {
       type: "welcome";
       you: string;
+      color: string;
       drawing: D;
       edits: Edit<C>[];
       images: SharedImage[];
@@ -145,6 +161,8 @@ const MAX_AVATAR_LENGTH = 200_000;
 const MAX_TIMER_DURATION = 24 * 60 * 60 * 1000;
 // The longest name of a timer's sound.
 const MAX_SOUND_LENGTH = 32;
+// The longest name of the tool someone's pointing with.
+const MAX_TOOL_LENGTH = 32;
 
 interface Member {
   peer: Peer;
@@ -171,8 +189,20 @@ function isPointer(value: unknown): value is PeerPointer | null {
       typeof value.x === "number" &&
       Number.isFinite(value.x) &&
       typeof value.y === "number" &&
-      Number.isFinite(value.y))
+      Number.isFinite(value.y) &&
+      (value.tool === undefined ||
+        (typeof value.tool === "string" &&
+          value.tool.length <= MAX_TOOL_LENGTH)) &&
+      (value.size === undefined ||
+        (typeof value.size === "number" &&
+          Number.isFinite(value.size) &&
+          value.size >= 0)))
   );
+}
+
+// Empty if it isn't a name.
+function readName(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 // A data URL of an image, or an address on the web. Empty is no photo.
@@ -293,7 +323,8 @@ export class CollaborationServer {
     };
 
     const join = (
-      name: string,
+      firstName: string,
+      lastName: string,
       avatar: string,
       toRoom: string,
       drawing: unknown
@@ -320,7 +351,8 @@ export class CollaborationServer {
         PEER_COLORS[joined.members.size % PEER_COLORS.length];
       const peer: Peer = {
         id,
-        name,
+        firstName,
+        lastName,
         avatar,
         color,
         pointer: null,
@@ -330,6 +362,7 @@ export class CollaborationServer {
       send({
         type: "welcome",
         you: id,
+        color,
         drawing: joined.drawing,
         edits: joined.edits,
         images: [...joined.images.values()],
@@ -348,7 +381,8 @@ export class CollaborationServer {
         if (message.type === "join") {
           if (typeof message.room === "string" && "drawing" in message) {
             join(
-              typeof message.name === "string" ? message.name : "",
+              readName(message.firstName),
+              readName(message.lastName),
               isAvatar(message.avatar) ? message.avatar : "",
               message.room,
               message.drawing
@@ -375,10 +409,15 @@ export class CollaborationServer {
             }
             return;
           case "profile":
-            if (typeof message.name === "string" && isAvatar(message.avatar)) {
+            if (
+              typeof message.firstName === "string" &&
+              typeof message.lastName === "string" &&
+              isAvatar(message.avatar)
+            ) {
               member.peer = {
                 ...member.peer,
-                name: message.name,
+                firstName: message.firstName,
+                lastName: message.lastName,
                 avatar: message.avatar,
               };
               broadcast({ type: "presence", peer: member.peer }, id);

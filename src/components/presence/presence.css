@@ -12,34 +12,79 @@
   }
 }
 
-/* Its arrow's tip is where they're pointing. */
+/* At the point they're pointing at, which its glyph's hotspot is on, with
+ * their name off to the bottom right. */
 .canvas-peer-cursor {
+  --canvas-peer-label-offset: 14px;
   position: absolute;
   top: 0;
   left: 0;
-  display: flex;
-  align-items: flex-start;
   transition: transform 80ms linear;
-
-  svg {
-    flex: none;
-    fill: var(--canvas-peer-color);
-    stroke: #ffffff;
-    stroke-width: 1.2;
-    stroke-linejoin: round;
-  }
 
   @media (prefers-reduced-motion: reduce) {
     transition: none;
   }
 }
 
+.canvas-peer-glyph {
+  position: absolute;
+  overflow: visible;
+  fill: var(--canvas-peer-color);
+  stroke: #ffffff;
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+}
+
+/* The dropper's drawn much bigger than it shows, so its edge is too. */
+[data-kind="dropper"] .canvas-peer-glyph {
+  stroke-width: 24;
+  paint-order: stroke;
+}
+
+/* Lines, in their color over a wider white edge. */
+.canvas-peer-lines {
+  fill: none;
+  stroke: var(--canvas-peer-color);
+  stroke-width: 2;
+  stroke-linecap: round;
+
+  .canvas-peer-halo {
+    stroke: #ffffff;
+    stroke-width: 4;
+  }
+}
+
+/* As big as the stroke tool draws or erases, centered on the point, edged in
+ * white so it shows on their color. A pencil's or highlighter's is tinted
+ * with their color, and an eraser's left clear. */
+.canvas-peer-ring {
+  width: var(--canvas-peer-ring);
+  height: var(--canvas-peer-ring);
+  border: 2px solid var(--canvas-peer-color);
+  border-radius: 50%;
+  background-color: color-mix(
+    in srgb,
+    var(--canvas-peer-color) 20%,
+    transparent
+  );
+  box-shadow:
+    0 0 0 1px #ffffff,
+    inset 0 0 0 1px #ffffff;
+  transform: translate(-50%, -50%);
+}
+
+[data-kind="eraser"] .canvas-peer-ring {
+  background-color: rgb(255 255 255 / 0.4);
+}
+
 .canvas-peer-label {
+  position: absolute;
+  top: var(--canvas-peer-label-offset);
+  left: var(--canvas-peer-label-offset);
   display: flex;
   align-items: center;
   gap: 4px;
   max-width: 180px;
-  margin: 14px 0 0 -2px;
   padding: 2px 6px;
   border-radius: 6px;
   background-color: var(--canvas-peer-color);
@@ -109,6 +154,13 @@
     outline: 2px solid var(--canvas-color-accent);
     outline-offset: 2px;
   }
+}
+
+/* This canvas's own person, which does nothing when clicked, set apart from
+ * the others so it doesn't read as one of them. */
+.canvas-person-self {
+  margin-left: 2px;
+  cursor: default;
 }
 
 /* Over their initial, which shows if it doesn't load, ringed in their color
