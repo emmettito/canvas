@@ -3,7 +3,6 @@ import { type Drawing } from "../models/drawing.model";
 import { type Fill } from "../models/fill.model";
 import { type ImageItem } from "../models/image-item.model";
 import { type Note } from "../models/note.model";
-import { type Shape } from "../models/shape.model";
 import { type Size } from "../models/size.model";
 import { type Stroke } from "../models/stroke.model";
 import { type TextBox } from "../models/text-box.model";
@@ -20,10 +19,11 @@ import { drawStroke } from "./draw-stroke";
 import { type PersonName } from "../models/person-name.model";
 import { getByline, getSignerNames } from "./get-byline";
 import { resolveLayers } from "./layers";
-import { getShapePath } from "./shape-geometry";
 import { addPngText } from "./png-text";
+import { isLinkAddress } from "./rich-text";
 import {
   getDotSize,
+  getSquareOutlines,
   getStrokePieces,
   hasPressure,
   type StrokePiece,
@@ -177,6 +177,7 @@ function layOutByline(
     underline: false,
     strike: false,
     color: noteColor,
+    link: null,
   };
   const text = fitText(byline, note.width - padding * 2, style, measurer);
   const { ascent, descent } = measurer.metrics(style);
@@ -315,7 +316,7 @@ async function loadImage(blob: Blob): Promise<HTMLImageElement | null> {
 }
 
 // Draws text the way the canvas shows it, with its underlines and lines
-// through.
+// through. Links are underlined.
 function drawSpans(context: CanvasRenderingContext2D, spans: PlacedSpan[]) {
   context.textBaseline = "alphabetic";
   for (const { text, style, x, width, baseline } of spans) {
@@ -323,7 +324,7 @@ function drawSpans(context: CanvasRenderingContext2D, spans: PlacedSpan[]) {
     context.fillStyle = style.color;
     context.fillText(text, x, baseline);
     const thickness = style.size * DECORATION_THICKNESS;
-    if (style.underline) {
+    if (style.underline || style.link) {
       context.fillRect(
         x,
         baseline + style.size * UNDERLINE_OFFSET,
@@ -438,23 +439,6 @@ function drawNote(
   context.restore();
 }
 
-// A shape's inside, if it's filled, then its outline or line over it.
-function drawShape(context: CanvasRenderingContext2D, shape: Shape): void {
-  const path = new Path2D(getShapePath(shape));
-  context.save();
-  context.globalCompositeOperation = "source-over";
-  if (shape.fill !== null) {
-    context.fillStyle = shape.fill;
-    context.fill(path);
-  }
-  context.strokeStyle = shape.color;
-  context.lineWidth = shape.strokeWidth;
-  context.lineCap = "round";
-  context.lineJoin = "round";
-  context.stroke(path);
-  context.restore();
-}
-
 /**
  * Draws the part of the drawing in `area` onto a new canvas, `scale` pixels
  * per drawing unit, as exports do, e.g. to read a color from it. `fill` is
@@ -513,9 +497,6 @@ export function renderDrawing(
       case "notes":
         drawNote(context, layer.item, textStyle, measurer, shortName);
         break;
-      case "shapes":
-        drawShape(context, layer.item);
-        break;
     }
   }
   return image;
@@ -536,15 +517,33 @@ function escapeAttribute(value: string): string {
 }
 
 // The stroke as an SVG shape in `color`, drawn the way `drawStroke` draws it:
-// one path, or a pen's pieces each as wide as it pressed. A see-through one
+// one path, or a pen's pieces each as wide as it pressed, or a square-ended
+// one's outlines. A see-through one
 // is see-through as a whole, so where it crosses itself isn't any darker.
 function createShape(stroke: Stroke, color: string): string {
-  const { points, opacity } = stroke;
+  const { points, opacity, cap } = stroke;
   const paint = escapeAttribute(color);
   let shape: string;
   if (points.length === 1) {
     const [{ x, y }] = points;
-    shape = `<circle cx="${round(x)}" cy="${round(y)}" r="${round(getDotSize(stroke))}" fill="${paint}"/>`;
+    const radius = getDotSize(stroke);
+    shape =
+      cap === "square"
+        ? `<rect x="${round(x - radius)}" y="${round(y - radius)}" width="${round(radius * 2)}" height="${round(radius * 2)}" fill="${paint}"/>`
+        : `<circle cx="${round(x)}" cy="${round(y)}" r="${round(radius)}" fill="${paint}"/>`;
+  } else if (cap === "square") {
+    const path = getSquareOutlines(stroke)
+      .map(
+        (outline) =>
+          outline
+            .map(
+              ({ x, y }, index) =>
+                `${index === 0 ? "M" : "L"}${round(x)} ${round(y)}`
+            )
+            .join("") + "Z"
+      )
+      .join("");
+    shape = `<path d="${path}" fill="${paint}"/>`;
   } else {
     const toPath = (pieces: StrokePiece[]) =>
       `M${round(pieces[0].from.x)} ${round(pieces[0].from.y)}` +
@@ -573,11 +572,14 @@ function createText(spans: PlacedSpan[]): string {
   const tspans = spans
     .filter(({ text }) => text !== "")
     .map(({ text, style, x, baseline }) => {
+      // A peer's link could go anywhere, so only one that can is kept.
+      const link =
+        style.link && isLinkAddress(style.link) ? style.link : undefined;
       const decorations = [
-        style.underline && "underline",
+        (style.underline || link) && "underline",
         style.strike && "line-through",
       ].filter(Boolean);
-      return (
+      const tspan =
         `<tspan x="${round(x)}" y="${round(baseline)}" font-family="${escapeAttribute(style.family)}" font-size="${round(style.size)}"` +
         (style.bold ? ' font-weight="bold"' : "") +
         (style.italic ? ' font-style="italic"' : "") +
@@ -585,18 +587,13 @@ function createText(spans: PlacedSpan[]): string {
         (decorations.length > 0
           ? ` text-decoration="${decorations.join(" ")}"`
           : "") +
-        `>${escapeAttribute(text)}</tspan>`
-      );
+        `>${escapeAttribute(text)}</tspan>`;
+      // A link still goes where it did.
+      return link ? `<a href="${escapeAttribute(link)}">${tspan}</a>` : tspan;
     })
     .join("");
   // `xml:space` keeps runs of spaces, as the canvas does.
   return tspans ? `<text xml:space="preserve">${tspans}</text>` : "";
-}
-
-// A shape as one path, drawn the way `drawShape` draws it.
-function createShapeElement(shape: Shape): string {
-  const fill = shape.fill === null ? "none" : escapeAttribute(shape.fill);
-  return `<path d="${getShapePath(shape)}" fill="${fill}" stroke="${escapeAttribute(shape.color)}" stroke-width="${round(shape.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
 function createImageElement(
@@ -779,9 +776,6 @@ export function createSvg(
           masks,
           shortName
         );
-        break;
-      case "shapes":
-        content += createShapeElement(layer.item);
         break;
     }
   }

@@ -28,7 +28,10 @@ export interface History {
   setBackground(color: string): void;
   /** Makes several changes as one, which undo and redo together. */
   batch(changes: DrawingChange[]): void;
-  /** Removes everything but the background. */
+  /**
+   * Removes everything but the background, for good: it, and what came
+   * before it, can't be undone.
+   */
   clear(): void;
   undo(): void;
   redo(): void;

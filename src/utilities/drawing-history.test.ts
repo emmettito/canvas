@@ -31,7 +31,6 @@ function createDrawing(strokes: Stroke[] = []): Drawing {
     images: [],
     texts: [],
     notes: [],
-    shapes: [],
     order:
       strokes.length > 0 ? [{ kind: "strokes", count: strokes.length }] : [],
   };
@@ -94,19 +93,19 @@ describe("DrawingHistory", () => {
     expect(history.strokes).toBe(strokes);
   });
 
-  it("clears strokes, and undoes and redoes the clear", () => {
-    const stroke = createStroke(1);
+  it("clears strokes for good, so neither it nor what came before undoes", () => {
     const history = createHistory();
 
-    history.addStroke(stroke);
+    history.addStroke(createStroke(1));
+    history.addStroke(createStroke(2));
+    history.undo();
     history.clear();
     expect(history.strokes).toEqual([]);
     expect(history.canClear).toBe(false);
+    expect(history.canUndo).toBe(false);
+    expect(history.canRedo).toBe(false);
 
     history.undo();
-    expect(history.strokes).toEqual([stroke]);
-
-    history.redo();
     expect(history.strokes).toEqual([]);
   });
 
@@ -247,9 +246,7 @@ describe("DrawingHistory", () => {
     history.clear();
     expect(history.drawing).toEqual(createDrawing());
     expect(history.canClear).toBe(false);
-
-    history.undo();
-    expect(history.drawing.texts).toHaveLength(1);
+    expect(history.canUndo).toBe(false);
   });
 
   it("keeps the background when clearing", () => {

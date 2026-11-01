@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { type CanvasEntry } from "../models/canvas-entry.model";
 import { type ImageItem } from "../models/image-item.model";
 import { type Note } from "../models/note.model";
-import { type Shape } from "../models/shape.model";
 import { type Stroke } from "../models/stroke.model";
 import { type TextBox } from "../models/text-box.model";
 import { type ToolSettings } from "../models/tool-settings.model";
@@ -15,10 +14,17 @@ const SETTINGS: ToolSettings = {
     pencil: { color: "--canvas-color-red", size: 10 },
     highlighter: { color: "#ffee00", size: 20 },
   },
+  bucketColor: "--canvas-color-blue",
   noteColor: "#ff8800",
   textSize: 32,
-  shapeType: "arrow",
   recentColors: ["#ff8800", "#123456"],
+  colorFormats: {
+    pencil: "hsl",
+    highlighter: "rgb",
+    bucket: "hsb",
+    note: "hex",
+    text: "css",
+  },
   rulers: true,
 };
 
@@ -26,35 +32,15 @@ const STROKES: Stroke[] = [
   { color: "#ff0000", points: [{ x: 1, y: 2 }], size: 5 },
   // A pen's, and the highlighter's.
   { color: "#00ff00", points: [{ x: 1, y: 2, pressure: 0.3 }], size: 5 },
-  { color: "#ffee00", points: [{ x: 1, y: 2 }], size: 5, opacity: 0.4 },
+  {
+    color: "#ffee00",
+    points: [{ x: 1, y: 2 }],
+    size: 5,
+    opacity: 0.4,
+    cap: "square",
+  },
   // An eraser stroke, which has no color.
   { points: [{ x: 3, y: 4 }], size: 5 },
-];
-
-const SHAPES: Shape[] = [
-  {
-    id: "r",
-    type: "rectangle",
-    x: 0,
-    y: 0,
-    width: 40,
-    height: 30,
-    color: "#000000",
-    strokeWidth: 2,
-    fill: "#ff0000",
-  },
-  // A line pointing up and left, back the way it came.
-  {
-    id: "a",
-    type: "arrow",
-    x: 50,
-    y: 50,
-    width: -20,
-    height: -10,
-    color: "#000000",
-    strokeWidth: 2,
-    fill: null,
-  },
 ];
 
 const NOTES: Note[] = [
@@ -118,7 +104,6 @@ describe("CanvasStorage", () => {
     expect(storage.saveItems("a", "notes", NOTES)).toBe(true);
     expect(storage.saveItems("a", "texts", TEXTS)).toBe(true);
     expect(storage.saveItems("a", "images", IMAGES)).toBe(true);
-    expect(storage.saveItems("a", "shapes", SHAPES)).toBe(true);
 
     const restored = new CanvasStorage("test");
     expect(restored.loadToolSettings()).toEqual(SETTINGS);
@@ -127,19 +112,6 @@ describe("CanvasStorage", () => {
     expect(restored.loadItems("a", "notes")).toEqual(NOTES);
     expect(restored.loadItems("a", "texts")).toEqual(TEXTS);
     expect(restored.loadItems("a", "images")).toEqual(IMAGES);
-    expect(restored.loadItems("a", "shapes")).toEqual(SHAPES);
-  });
-
-  it("ignores shapes that aren't any", () => {
-    for (const shape of [
-      { ...SHAPES[0], type: "star" },
-      { ...SHAPES[0], width: -10 },
-      { ...SHAPES[0], strokeWidth: 0 },
-      { ...SHAPES[0], fill: 7 },
-    ]) {
-      localStorage.setItem("test:canvas:a:shapes", JSON.stringify([shape]));
-      expect(new CanvasStorage("test").loadItems("a", "shapes")).toBeNull();
-    }
   });
 
   it("ignores strokes pressed harder than a pen can", () => {
@@ -205,6 +177,23 @@ describe("CanvasStorage", () => {
 
     storage.deleteCanvas("a");
     expect(storage.loadOrder("a")).toBeNull();
+  });
+
+  it("stacks the rest of an order with shapes in it as it was", () => {
+    localStorage.setItem(
+      "test:canvas:a:order",
+      JSON.stringify([
+        { kind: "strokes", count: 1 },
+        { kind: "shapes", id: "s" },
+        { kind: "strokes", count: 2 },
+        { kind: "notes", id: "n" },
+      ])
+    );
+
+    expect(new CanvasStorage("test").loadOrder("a")).toEqual([
+      { kind: "strokes", count: 3 },
+      { kind: "notes", id: "n" },
+    ]);
   });
 
   it("ignores an order that isn't one", () => {
@@ -527,6 +516,18 @@ describe("CanvasStorage export options", () => {
     expect(new CanvasStorage("test").loadToolSettings()?.activeTool).toBe(
       "pencil"
     );
+  });
+
+  it("reopens a tool that's been removed, e.g. the shape tool, as the pencil", () => {
+    localStorage.setItem(
+      "test:settings",
+      JSON.stringify({ ...SETTINGS, activeTool: "shape", shapeType: "arrow" })
+    );
+
+    expect(new CanvasStorage("test").loadToolSettings()).toEqual({
+      ...SETTINGS,
+      activeTool: "pencil",
+    });
   });
 
   it("restores each canvas's background, and deletes it with the canvas", () => {

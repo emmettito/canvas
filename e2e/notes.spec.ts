@@ -16,8 +16,34 @@ async function addNote(page: Page, text: string, x = 0.5, y = 0.5) {
   await page.keyboard.press("Escape");
 }
 
+// The light shade notes take of the palette's `color`, as its swatch in the
+// note's options shows it. The note tool must be picked.
+function getShade(page: Page, color: string) {
+  return page
+    .getByRole("toolbar", { name: "Sticky note options" })
+    .getByRole("button", { name: color, exact: true })
+    .locator(".canvas-swatch-dot")
+    .evaluate((element) => getComputedStyle(element).backgroundColor);
+}
+
 function getNotes(page: Page) {
   return page.getByRole("textbox", { name: "Sticky note" });
+}
+
+// The first note's color, as "#rrggbb", the way the dropper and exports write
+// it.
+function getNoteHex(page: Page) {
+  return page
+    .locator(".canvas-note")
+    .first()
+    .evaluate((element) => {
+      const [r, g, b] = getComputedStyle(element)
+        .backgroundColor.match(/\d+/g)!
+        .map(Number);
+      return `#${[r, g, b]
+        .map((channel) => channel.toString(16).padStart(2, "0"))
+        .join("")}`;
+    });
 }
 
 // Drags from `from` by `dx` and `dy` pixels.
@@ -44,6 +70,20 @@ test("a note can be added, typed in, and undone", async ({ page }) => {
 
   await page.getByRole("button", { name: "Redo" }).click();
   await expect(getNotes(page)).toHaveText("Buy milk");
+});
+
+test("the text tool types in a note, rather than adding text over it", async ({
+  page,
+}) => {
+  await addNote(page, "Hello");
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  await getNotes(page).click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" there");
+  await page.keyboard.press("Escape");
+
+  await expect(getNotes(page)).toHaveText("Hello there");
+  await expect(page.locator(".canvas-text")).toHaveCount(0);
 });
 
 test("a note left empty is kept", async ({ page }) => {
@@ -275,10 +315,15 @@ test("emptying a note keeps it, and deleting it from its menu removes it", async
 test("notes take a light shade of the chosen color", async ({ page }) => {
   await page.getByRole("button", { name: "Sticky note" }).click();
   await expect(
-    page.getByRole("button", { name: "Color: yellow" })
+    page.getByRole("button", { name: "Color: Yellow", exact: true })
   ).toBeVisible();
-  await page.getByRole("button", { name: "Color: yellow" }).click();
-  await page.getByRole("button", { name: "blue", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Color: Yellow", exact: true })
+    .click();
+  await page
+    .locator(".canvas-popover")
+    .getByRole("button", { name: "Blue", exact: true })
+    .click();
   // The note tool stays chosen.
   await expect(
     page.getByRole("button", { name: "Sticky note" })
@@ -286,33 +331,166 @@ test("notes take a light shade of the chosen color", async ({ page }) => {
 
   await addNote(page, "Blue");
 
-  // 40% of #2c71ff, and the rest white.
+  const shade = await getShade(page, "Blue");
+  // Lighter than the palette's #2c71ff.
+  expect(shade).not.toBe("rgb(44, 113, 255)");
   await expect(page.locator(".canvas-note")).toHaveCSS(
     "background-color",
-    "rgb(171, 198, 255)"
+    shade
   );
 });
 
-test("a note's color can be changed from its menu, and undone", async ({
+test("the note's options offer light shades, and a custom color as it is", async ({
   page,
 }) => {
-  await addNote(page, "Yellow");
+  await page.getByRole("button", { name: "Sticky note" }).click();
+  const options = page.getByRole("toolbar", { name: "Sticky note options" });
+  const blue = options.getByRole("button", { name: "Blue", exact: true });
+  // The shade a note in it would be, lighter than the palette's #2c71ff.
+  const shade = await getShade(page, "Blue");
+  expect(shade).not.toBe("rgb(44, 113, 255)");
+  await blue.click();
+  await expect(blue).toHaveAttribute("aria-pressed", "true");
+  await addNote(page, "Blue");
+  await expect(page.locator(".canvas-note")).toHaveCSS(
+    "background-color",
+    shade
+  );
+
+  // A color from the picker isn't made lighter.
+  await options.getByRole("button", { name: /^Custom color: / }).click();
+  const code = page.getByRole("textbox", { name: "Color code" });
+  await code.fill("#2c71ff");
+  await code.press("Enter");
+  await page.keyboard.press("Escape");
+  await addNote(page, "Bright", 0.2, 0.3);
+  await expect(page.locator(".canvas-note").last()).toHaveCSS(
+    "background-color",
+    "rgb(44, 113, 255)"
+  );
+});
+
+test("the note's options keep their shades after a reload", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Sticky note" }).click();
+  const shade = await getShade(page, "Blue");
+  // The note tool is still picked, so its options are made as the page loads.
+  await page.reload();
+  await expect(
+    page.getByRole("toolbar", { name: "Sticky note options" })
+  ).toBeVisible();
+  expect(await getShade(page, "Blue")).toBe(shade);
+});
+
+test("picking a color in the note's options while typing in it recolors it, and is undone", async ({
+  page,
+}) => {
+  await addNote(page, "Hello");
   const note = page.locator(".canvas-note");
   const yellow = await note.evaluate(
     (element) => getComputedStyle(element).backgroundColor
   );
 
-  await note.click({ button: "right" });
-  // Its own color is marked.
-  await expect(
-    page.getByRole("menuitemradio", { name: "yellow" })
-  ).toHaveAttribute("aria-checked", "true");
-  await page.getByRole("menuitemradio", { name: "blue" }).click();
-  await expect(note).toHaveCSS("background-color", "rgb(171, 198, 255)");
-  await expect(getNotes(page)).toHaveText("Yellow");
+  await note.click();
+  await page
+    .getByRole("toolbar", { name: "Sticky note options" })
+    .getByRole("button", { name: "Green", exact: true })
+    .click();
+  await expect(note).not.toHaveCSS("background-color", yellow);
+  const green = await note.evaluate(
+    (element) => getComputedStyle(element).backgroundColor
+  );
+  // Typing goes on.
+  await expect(note).toHaveAttribute("data-editing");
+  await page.keyboard.press("Escape");
 
+  // One undo takes it back.
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(note).toHaveCSS("background-color", yellow);
+  await expect(getNotes(page)).toHaveText("Hello");
+  await page.getByRole("button", { name: "Redo" }).click();
+  await expect(note).toHaveCSS("background-color", green);
+});
+
+test("a note recolored while typing in it keeps what's typed after", async ({
+  page,
+}) => {
+  await addNote(page, "Hello");
+  const note = page.locator(".canvas-note");
+
+  await note.click();
+  await page
+    .getByRole("toolbar", { name: "Sticky note options" })
+    .getByRole("button", { name: "Green", exact: true })
+    .click();
+  await page.keyboard.type(" there");
+  await page.keyboard.press("Escape");
+
+  await expect(getNotes(page)).toHaveText("Hello there");
+  const green = await getShade(page, "Green");
+  await page.reload();
+  await expect(getNotes(page)).toHaveText("Hello there");
+  await expect(note).toHaveCSS("background-color", green);
+});
+
+test("the note tool shows where a note would go, under the mouse", async ({
+  page,
+}) => {
+  const ghost = page.locator(".canvas-note-ghost");
+  await page.getByRole("button", { name: "Sticky note" }).click();
+  await page.mouse.move(500, 300);
+  await page.mouse.move(520, 320);
+
+  await expect(ghost).toBeVisible();
+  const box = (await ghost.boundingBox())!;
+  expect(box.x + box.width / 2).toBeCloseTo(520, 0);
+  expect(box.y + box.height / 2).toBeCloseTo(320, 0);
+
+  // Not while typing in the note placed there.
+  await page.mouse.click(520, 320);
+  await page.mouse.move(540, 340);
+  await expect(ghost).toBeHidden();
+  await page.keyboard.press("Escape");
+
+  // Nor with another tool.
+  await page.getByRole("button", { name: "Pencil" }).click();
+  await page.mouse.move(300, 200);
+  await expect(ghost).toBeHidden();
+});
+
+test("an empty note being typed in shows a hint", async ({ page }) => {
+  await page.getByRole("button", { name: "Sticky note" }).click();
+  await page.mouse.click(500, 300);
+
+  const note = page.locator(".canvas-note");
+  await expect(note).toHaveAttribute("data-empty");
+  expect(
+    await note.evaluate(
+      (element) => getComputedStyle(element, "::before").content
+    )
+  ).toBe('"Add text"');
+  await page.keyboard.type("Hi");
+  await expect(note).not.toHaveAttribute("data-empty");
+});
+
+test("a space hides a note's hint, but only spaces aren't kept", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Sticky note" }).click();
+  await page.mouse.click(500, 300);
+  const note = page.locator(".canvas-note");
+
+  await page.keyboard.type("  ");
+  await expect(note).not.toHaveAttribute("data-empty");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Escape");
+
+  // It's kept empty, with its hint, even once it's no longer typed in.
+  await expect(note).toHaveAttribute("data-empty");
+  await expect(getNotes(page)).toHaveText("");
+  await page.reload();
+  await expect(page.locator(".canvas-note")).toHaveAttribute("data-empty");
 });
 
 test("right-clicking a note being typed in opens its menu, and keeps the text", async ({
@@ -324,13 +502,11 @@ test("right-clicking a note being typed in opens its menu, and keeps the text", 
   await page.keyboard.type("Typing");
 
   await getNotes(page).click({ button: "right" });
-  await expect(page.locator(".canvas-context-menu")).toBeVisible();
-  await page.getByRole("menuitemradio", { name: "green" }).click();
+  const menu = page.locator(".canvas-context-menu");
+  await expect(menu).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
   await expect(getNotes(page)).toHaveText("Typing");
-  await expect(page.locator(".canvas-note")).not.toHaveCSS(
-    "background-color",
-    "rgb(255, 255, 255)"
-  );
 });
 
 test("notes are restored after a reload", async ({ page }) => {
@@ -352,7 +528,7 @@ test("SVG exports include notes and their text", async ({ page }) => {
   await dialog.getByRole("button", { name: "Export" }).click();
 
   const svg = (await readFile(await (await download).path())).toString();
-  expect(svg).toContain('fill="#fefe99"');
+  expect(svg).toContain(`fill="${await getNoteHex(page)}"`);
   expect(svg).toContain(">Exported</tspan>");
 });
 

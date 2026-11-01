@@ -134,69 +134,149 @@ test("drawing a stroke can be undone and redone", async ({ page }) => {
   await expect(redo).toBeDisabled();
 });
 
+// The bar of the picked tool's options, above the toolbar.
+function getOptions(page: Page, tool: string) {
+  return page.getByRole("toolbar", { name: `${tool} options` });
+}
+
 test("picking a color updates the color button", async ({ page }) => {
-  await page.getByRole("button", { name: "Color: black" }).click();
-  await page.getByRole("button", { name: "red", exact: true }).click();
+  const popover = page.locator(".canvas-popover");
+  await page.getByRole("button", { name: "Color: Black" }).click();
+  await popover.getByRole("button", { name: "Red", exact: true }).click();
 
-  await expect(page.getByRole("button", { name: "Color: red" })).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "red", exact: true })
-  ).toBeHidden();
-});
-
-test("clicking the active tool opens its sizes, which pick it and close", async ({
-  page,
-}) => {
-  const pencil = page.getByRole("button", { name: "Pencil" });
-  const sizes = page.getByRole("group", { name: "Pencil size" });
-
-  await pencil.click();
-  // The size picked has focus.
-  await expect(sizes.getByRole("button", { pressed: true })).toBeFocused();
-
-  // Safari doesn't focus buttons on click, so this checks focus still returns
-  // to the button there.
-  await page.keyboard.press("Escape");
-  await expect(sizes).toBeHidden();
-  await expect(pencil).toBeFocused();
-
-  await pencil.click();
-  await sizes.getByRole("button", { name: "20 pixels" }).click();
-  await expect(sizes).toBeHidden();
-  await pencil.click();
+    page.getByRole("button", { name: "Color: Red", exact: true })
+  ).toBeVisible();
+  await expect(popover).toBeHidden();
+  // The pencil's options show it too.
   await expect(
-    sizes.getByRole("button", { name: "20 pixels" })
+    getOptions(page, "Pencil").getByRole("button", { name: "Red", exact: true })
   ).toHaveAttribute("aria-pressed", "true");
 });
 
-test("the eraser offers the pencil's sizes", async ({ page }) => {
+test("the picked tool's options show above the toolbar, for the tools with any", async ({
+  page,
+}) => {
+  const options = page.locator(".canvas-tool-options:visible");
+  // The pencil's at first: its sizes, colors, and the color picked.
+  const pencil = getOptions(page, "Pencil");
+  await expect(pencil).toBeVisible();
+  await expect(pencil.getByRole("group", { name: "Size" })).toBeVisible();
+  await expect(
+    pencil.getByRole("button", { name: "Custom color: #000000" })
+  ).toBeVisible();
+  const toolbar = (await page
+    .locator(
+      '.canvas-toolbar[data-position="bottom"]:not(.canvas-tool-options)'
+    )
+    .boundingBox())!;
+  const bar = (await pencil.boundingBox())!;
+  expect(bar.y + bar.height).toBeLessThanOrEqual(toolbar.y);
+
+  // The eraser has sizes, and no colors.
+  await page.getByRole("button", { name: "Eraser" }).click();
+  const eraser = getOptions(page, "Eraser");
+  await expect(eraser.getByRole("group", { name: "Size" })).toBeVisible();
+  await expect(eraser.getByRole("group", { name: "Colors" })).toHaveCount(0);
+
+  // Notes have colors, and no sizes.
+  await page.getByRole("button", { name: "Sticky note" }).click();
+  const note = getOptions(page, "Sticky note");
+  await expect(note.getByRole("group", { name: "Colors" })).toBeVisible();
+  await expect(note.getByRole("group", { name: "Size" })).toHaveCount(0);
+
+  // The paint bucket has colors, its own, apart from the pencil's.
+  await page.getByRole("button", { name: "Paint bucket" }).click();
+  const bucket = getOptions(page, "Paint bucket");
+  await expect(bucket.getByRole("group", { name: "Size" })).toHaveCount(0);
+  await bucket.getByRole("button", { name: "Red", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Color: Red", exact: true })
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Pencil" }).click();
+  await expect(
+    getOptions(page, "Pencil").getByRole("button", {
+      name: "Black",
+      exact: true,
+    })
+  ).toHaveAttribute("aria-pressed", "true");
+
+  // Other tools have none.
+  for (const tool of ["Move", "Text"]) {
+    await page.getByRole("button", { name: tool, exact: true }).click();
+    await expect(options).toHaveCount(0);
+  }
+  await page.getByRole("button", { name: "Highlighter" }).click();
+  await expect(getOptions(page, "Highlighter")).toBeVisible();
+});
+
+test("the options' sizes pick the tool's size, and clicking the tool again opens nothing", async ({
+  page,
+}) => {
+  const pencil = page.getByRole("button", { name: "Pencil" });
+  const sizes = getOptions(page, "Pencil").getByRole("group", {
+    name: "Size",
+  });
+
+  // The middle one, at first.
+  await expect(
+    sizes.getByRole("button", { pressed: true })
+  ).toHaveAccessibleName("Medium");
+  await sizes.getByRole("button", { name: "Thick" }).click();
+  await expect(sizes.getByRole("button", { name: "Thick" })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+
+  await pencil.click();
+  await expect(pencil).toHaveAttribute("aria-pressed", "true");
+  await expect(pencil).not.toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator(".canvas-popover")).toHaveCount(0);
+});
+
+test("a palette color in the options closes the full picker", async ({
+  page,
+}) => {
+  const options = getOptions(page, "Pencil");
+  await options.getByRole("button", { name: /^Custom color: / }).click();
+  const code = page.getByRole("textbox", { name: "Color code" });
+  await expect(code).toBeVisible();
+
+  await options.getByRole("button", { name: "Blue", exact: true }).click();
+
+  await expect(code).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "Color: Blue", exact: true })
+  ).toBeVisible();
+});
+
+test("each stroke tool has sizes of its own, thin, medium and thick", async ({
+  page,
+}) => {
   const sizeNames = async (tool: string) => {
-    const button = page.getByRole("button", { name: tool, exact: true });
-    const sizes = page.getByRole("group", { name: `${tool} size` });
-    // Picked, then clicked again for its sizes.
-    if ((await button.getAttribute("aria-pressed")) !== "true") {
-      await button.click();
-    }
-    await button.click();
+    await page.getByRole("button", { name: tool, exact: true }).click();
+    const sizes = getOptions(page, tool).getByRole("group", { name: "Size" });
     await expect(sizes).toBeVisible();
-    const names = await sizes
+    return sizes
       .getByRole("button")
       .evaluateAll((buttons) =>
         buttons.map((button) => button.getAttribute("aria-label"))
       );
-    await page.keyboard.press("Escape");
-    return names;
   };
 
-  const pencil = await sizeNames("Pencil");
-  expect(pencil).toEqual([
-    "2 pixels",
-    "5 pixels",
-    "10 pixels",
-    "20 pixels",
-    "40 pixels",
-  ]);
-  expect(await sizeNames("Eraser")).toEqual(pencil);
+  expect(await sizeNames("Pencil")).toEqual(["Thin", "Medium", "Thick"]);
+  expect(await sizeNames("Eraser")).toEqual(["Thin", "Medium", "Thick"]);
+
+  // Picking the eraser's leaves the pencil's as it was.
+  await getOptions(page, "Eraser")
+    .getByRole("button", { name: "Thin" })
+    .click();
+  await page.getByRole("button", { name: "Pencil" }).click();
+  await expect(
+    getOptions(page, "Pencil")
+      .getByRole("group", { name: "Size" })
+      .getByRole("button", { pressed: true })
+  ).toHaveAccessibleName("Medium");
 });
 
 test("the highlighter draws see-through, in a color of its own", async ({
@@ -204,7 +284,7 @@ test("the highlighter draws see-through, in a color of its own", async ({
 }) => {
   await page.keyboard.press("h");
   await expect(
-    page.getByRole("button", { name: "Color: yellow" })
+    page.getByRole("button", { name: "Color: Yellow" })
   ).toBeVisible();
   // Along a line and back over it, which isn't darker where it overlaps.
   const box = (await page.locator("canvas").boundingBox())!;
@@ -225,10 +305,17 @@ test("the highlighter draws see-through, in a color of its own", async ({
     );
   expect(alpha).toBeGreaterThan(80);
   expect(alpha).toBeLessThan(130);
+  // With square ends, like a highlighter's tip.
+  const strokes = await page.evaluate(() =>
+    Object.entries(localStorage)
+      .filter(([key]) => key.endsWith(":strokes"))
+      .flatMap(([, value]) => JSON.parse(value))
+  );
+  expect(strokes).toEqual([expect.objectContaining({ cap: "square" })]);
   // The pencil keeps its own color.
   await page.keyboard.press("p");
   await expect(
-    page.getByRole("button", { name: "Color: black" })
+    page.getByRole("button", { name: "Color: Black" })
   ).toBeVisible();
 });
 
@@ -299,31 +386,30 @@ test("a pen draws wider where it presses harder", async ({ page }) => {
 });
 
 test("[ and ] step through the pencil's sizes", async ({ page }) => {
-  const pencil = page.getByRole("button", { name: "Pencil" });
-  const sizes = page.getByRole("group", { name: "Pencil size" });
+  const sizes = getOptions(page, "Pencil").getByRole("group", {
+    name: "Size",
+  });
   const box = (await page.locator("canvas").first().boundingBox())!;
   // The keys are the canvas's while the pointer's over it.
-  const overCanvas = () =>
-    page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await overCanvas();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 
   await page.keyboard.press("]");
-  await page.keyboard.press("]");
-  await pencil.click();
   await expect(
     sizes.getByRole("button", { pressed: true })
-  ).toHaveAccessibleName("20 pixels");
-  await page.keyboard.press("Escape");
+  ).toHaveAccessibleName("Thick");
+  // It stops at the largest.
+  await page.keyboard.press("]");
+  await expect(
+    sizes.getByRole("button", { pressed: true })
+  ).toHaveAccessibleName("Thick");
 
-  await overCanvas();
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 4; i++) {
     await page.keyboard.press("[");
   }
-  await pencil.click();
-  // It stops at the smallest.
+  // And at the smallest.
   await expect(
     sizes.getByRole("button", { pressed: true })
-  ).toHaveAccessibleName("2 pixels");
+  ).toHaveAccessibleName("Thin");
 });
 
 test("the pencil stays the size picked on screen, at any zoom", async ({
@@ -345,18 +431,17 @@ test("the pencil stays the size picked on screen, at any zoom", async ({
 test("a popover opened from the keyboard returns focus on escape", async ({
   page,
 }) => {
-  const color = page.getByRole("button", { name: "Color: black" });
+  const color = page.getByRole("button", { name: "Color: Black" });
+  const black = page
+    .locator(".canvas-popover")
+    .getByRole("button", { name: "Black", exact: true });
 
   await color.focus();
   await page.keyboard.press("Enter");
-  await expect(
-    page.getByRole("button", { name: "black", exact: true })
-  ).toBeFocused();
+  await expect(black).toBeFocused();
 
   await page.keyboard.press("Escape");
-  await expect(
-    page.getByRole("button", { name: "black", exact: true })
-  ).toBeHidden();
+  await expect(black).toBeHidden();
   await expect(color).toBeFocused();
 });
 
@@ -447,13 +532,24 @@ test("the export dialog starts from the last choices", async ({ page }) => {
 test("the drawing and settings are restored after a reload", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Color: black" }).click();
-  await page.getByRole("button", { name: "red", exact: true }).click();
+  await page.getByRole("button", { name: "Color: Black" }).click();
+  await page
+    .locator(".canvas-popover")
+    .getByRole("button", { name: "Red", exact: true })
+    .click();
+  await getOptions(page, "Pencil")
+    .getByRole("button", { name: "Thick" })
+    .click();
   await drawLine(page);
 
   await page.reload();
 
-  await expect(page.getByRole("button", { name: "Color: red" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Color: Red", exact: true })
+  ).toBeVisible();
+  await expect(
+    getOptions(page, "Pencil").getByRole("button", { name: "Thick" })
+  ).toHaveAttribute("aria-pressed", "true");
   // Undo history isn't saved.
   await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
   await expect

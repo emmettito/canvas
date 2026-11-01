@@ -83,9 +83,11 @@ export class DrawingHistory implements History {
     this.#apply({ type: "batch", changes });
   }
 
-  /** Like adding a stroke, it can be undone. */
+  /** Unlike other changes, it can't be undone, nor can those before it. */
   clear(): void {
     this.#apply({ type: "clear" });
+    this.#past = [];
+    this.#undone = [];
   }
 
   /** Replaces the drawing, so it can be undone. */

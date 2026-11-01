@@ -17,7 +17,6 @@ import bucket from "@phosphor-icons/core/regular/paint-bucket.svg?raw";
 import note from "@phosphor-icons/core/regular/note.svg?raw";
 import dropper from "@phosphor-icons/core/regular/eyedropper.svg?raw";
 import text from "@phosphor-icons/core/regular/text-t.svg?raw";
-import shape from "@phosphor-icons/core/regular/shapes.svg?raw";
 import image from "@phosphor-icons/core/regular/image.svg?raw";
 import { type ToolbarAction } from "./index";
 
@@ -38,7 +37,6 @@ const ICONS: Record<ToolbarAction, string> = {
   note,
   dropper,
   text,
-  shape,
   image,
 };
 

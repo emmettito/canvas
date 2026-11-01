@@ -61,7 +61,6 @@ function createDrawing(parts: Partial<Drawing>): Drawing {
     images: [],
     texts: [],
     notes: [],
-    shapes: [],
     ...parts,
   };
   return { ...drawing, order: parts.order ?? getDefaultOrder(drawing) };
@@ -155,28 +154,6 @@ describe("createSvg", () => {
     const svg = toSvg({ strokes: [{ ...LINE, opacity: 0.4 }] });
 
     expect(svg).toMatch(/<g opacity="0.4"><path [^>]*stroke="#0000ff"/);
-  });
-
-  it("draws shapes as paths, filled if they are", () => {
-    const svg = toSvg({
-      shapes: [
-        {
-          id: "s",
-          type: "rectangle",
-          x: 0,
-          y: 0,
-          width: 40,
-          height: 30,
-          color: "#000000",
-          strokeWidth: 3,
-          fill: "#ff0000",
-        },
-      ],
-    });
-
-    expect(svg).toContain(
-      '<path d="M0 0L40 0L40 30L0 30Z" fill="#ff0000" stroke="#000000" stroke-width="3"'
-    );
   });
 
   it("opens at the chosen size, and keeps the drawing's units inside", () => {

@@ -15,4 +15,7 @@ export interface Stroke {
   // How much of the color shows, from 0 to 1, e.g. the highlighter's, so
   // what's under it shows through. Left out for a solid stroke.
   opacity?: number;
+  // How its ends and corners are drawn: square for the highlighter's, like a
+  // highlighter's tip. Left out for round ones.
+  cap?: "square";
 }

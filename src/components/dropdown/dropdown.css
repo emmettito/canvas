@@ -1,0 +1,156 @@
+/* Its menu is positioned against it. */
+.canvas-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+
+.canvas-dropdown-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--canvas-color-border);
+  border-radius: 6px;
+  color: var(--canvas-color-text);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover,
+  &[aria-expanded="true"] {
+    background-color: var(--canvas-color-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--canvas-color-accent);
+    outline-offset: -2px;
+  }
+}
+
+.canvas-dropdown-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A chevron, drawn as two sides of a box turned on its corner. */
+.canvas-dropdown-chevron {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin: 0 2px 3px 0;
+  border-right: 1.5px solid var(--canvas-color-text-muted);
+  border-bottom: 1.5px solid var(--canvas-color-text-muted);
+  transform: rotate(45deg);
+}
+
+.canvas-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: max(100%, 140px);
+  padding: 4px;
+  border: 1px solid var(--canvas-color-border);
+  border-radius: 10px;
+  background: var(--canvas-color-surface);
+  box-shadow:
+    0 8px 24px rgb(0 0 0 / 0.12),
+    0 1px 2px rgb(0 0 0 / 0.06);
+  color: var(--canvas-color-text);
+  font-size: 13px;
+  line-height: normal;
+  transform: translateX(var(--dropdown-shift, 0px));
+  animation: canvas-dropdown-in 100ms ease-out;
+
+  &[data-above] {
+    top: auto;
+    bottom: calc(100% + 4px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@keyframes canvas-dropdown-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--dropdown-shift, 0px)) scale(0.98);
+  }
+}
+
+.canvas-dropdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* The chosen option is checked, after its label, and the one under the
+ * pointer or focused is highlighted. */
+.canvas-dropdown-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 4px 28px 4px 10px;
+  border-radius: 6px;
+  color: var(--canvas-color-text);
+  line-height: 1.2;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    background-color: var(--canvas-color-hover);
+    outline: none;
+  }
+
+  &[aria-selected="true"] {
+    position: relative;
+    background-color: var(--canvas-color-accent);
+    color: #ffffff;
+
+    &::before {
+      content: "";
+      position: absolute;
+      right: 10px;
+      top: calc(50% - 5px);
+      width: 9px;
+      height: 5px;
+      border-bottom: 1.5px solid currentColor;
+      border-left: 1.5px solid currentColor;
+      transform: rotate(-45deg);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--canvas-color-text);
+      outline-offset: -2px;
+    }
+  }
+}
+
+/* Below the options, e.g. a field to type a size. */
+.canvas-dropdown-footer {
+  margin: 4px -4px -4px;
+  padding: 6px;
+  border-top: 1px solid var(--canvas-color-border);
+}
+
+/* A size typed in, filling the menu's width, like the color picker's
+ * fields. */
+.canvas-size-field .canvas-text-input {
+  width: 100%;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+
+  &[aria-invalid="true"] {
+    border-color: var(--canvas-color-danger);
+    color: var(--canvas-color-danger);
+  }
+}

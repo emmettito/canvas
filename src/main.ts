@@ -1,5 +1,5 @@
-// The demo page, which uses the library the way another project would. It's
-// only for drawing, so nothing's saved: a refresh starts again.
+// The demo page, which uses the library the way another project would. What's
+// drawn is saved in the browser, so a refresh keeps it.
 import "./demo.css";
 import { createIcon } from "./demo-icons";
 import { mountCanvas, type ToolbarAction, type ToolbarControl } from "./index";
@@ -16,22 +16,24 @@ function button(action: ToolbarAction): ToolbarControl {
 }
 
 mountCanvas(document.getElementById("root")!, {
+  storageKey: "canvas-demo",
   textEditor: proseMirrorEditor,
+  // The canvas's name is only shown, and changed, in the export dialog, and
+  // in the tab's title.
+  onNameChange: (name) => {
+    document.title = `${name || "Untitled"} – Canvas Demo`;
+  },
   toolbar: [
-    [button("undo"), button("redo")],
+    [button("undo"), button("redo"), button("clear"), button("export")],
     [
-      button("move"),
       button("pencil"),
       button("highlighter"),
       button("eraser"),
       button("bucket"),
       button("note"),
       button("text"),
-      button("shape"),
-      { action: "color" },
-      button("dropper"),
+      button("image"),
     ],
-    [button("image")],
   ],
   // How the canvas is shown, apart from what's drawn on it.
   topRightToolbar: [[{ action: "zoom" }]],

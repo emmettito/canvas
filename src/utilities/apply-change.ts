@@ -13,14 +13,13 @@ import {
 
 /** Whether anything is drawn or placed. */
 export function hasContent(drawing: Drawing): boolean {
-  const { strokes, fills, images, texts, notes, shapes } = drawing;
+  const { strokes, fills, images, texts, notes } = drawing;
   return (
     strokes.length > 0 ||
     fills.length > 0 ||
     images.length > 0 ||
     texts.length > 0 ||
-    notes.length > 0 ||
-    shapes.length > 0
+    notes.length > 0
   );
 }
 
@@ -118,7 +117,6 @@ export function applyChange(drawing: Drawing, change: DrawingChange): Drawing {
             images: [],
             texts: [],
             notes: [],
-            shapes: [],
             order: [],
           }
         : drawing;

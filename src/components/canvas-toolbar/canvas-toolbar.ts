@@ -2,25 +2,24 @@ import { COLORS } from "../../constants/colors.const";
 import { EXPORT_FORMATS } from "../../constants/export-formats.const";
 import { EXPORT_SCALES } from "../../constants/export-scales.const";
 import { FILE_MENU_ITEMS } from "../../constants/file-menu-items.const";
-import { HIGHLIGHTER } from "../../constants/highlighter.const";
-import { SHAPE_SHORTCUTS } from "../../constants/shape-shortcuts.const";
-import { SHAPE_TYPES } from "../../constants/shape-types.const";
-import { TEXT_LAYOUT } from "../../constants/text-layout.const";
 import { TIMER_LAYOUT } from "../../constants/timer-layout.const";
 import { TIMER_SOUNDS } from "../../constants/timer-sounds.const";
 import { TOOLBAR_ACTIONS } from "../../constants/toolbar-actions.const";
 import { TOOL_SHORTCUTS } from "../../constants/tool-shortcuts.const";
-import { TOOL_SIZES } from "../../constants/tool-sizes.const";
+import { TOOL_SIZE_LABELS, TOOL_SIZES } from "../../constants/tool-sizes.const";
 import { TOOLS } from "../../constants/tools.const";
 import { UNTITLED_NAME } from "../../constants/untitled-name.const";
 import { type CanvasEntry } from "../../models/canvas-entry.model";
-import { type CustomColor, type ToolColor } from "../../models/color.model";
+import {
+  type Color,
+  type CustomColor,
+  type ToolColor,
+} from "../../models/color.model";
 import {
   type ExportFormat,
   type ExportOptions,
   type ExportScale,
 } from "../../models/export-options.model";
-import { type ShapeType } from "../../models/shape.model";
 import { type Size } from "../../models/size.model";
 import { type TimerSound } from "../../models/timer.model";
 import {
@@ -31,16 +30,26 @@ import {
 } from "../../models/toolbar-control.model";
 import { type ToolState } from "../../models/tool-state.model";
 import { type StrokeTool, type Tool } from "../../models/tool.model";
+import {
+  type ColorFormat,
+  type ColorFormats,
+} from "../../utilities/color-formats";
 import { createElement } from "../../utilities/create-element";
 import {
   getColorName,
   isCustomColor,
   resolveColor,
 } from "../../utilities/colors";
+import { getNoteShade, getPaletteGrid } from "../../utilities/palette-grid";
 import { canExportAt, getExportSize } from "../../utilities/export-drawing";
 import { formatTimer } from "../../utilities/format-timer";
 import { playTimerSound } from "../../utilities/play-timer-sound";
-import { createColorPicker } from "../color-picker/color-picker";
+import {
+  ColorChip,
+  createColorPicker,
+  createSwatchRow,
+} from "../color-picker/color-picker";
+import { showDialog } from "../dialog/dialog";
 import { showPopover } from "../popover/popover";
 import "./canvas-toolbar.css";
 
@@ -50,23 +59,41 @@ type ControlName = ToolbarControl["action"];
 type ActionName = ControlName | FileMenuItem;
 
 /** Whose color the color control picks. */
-export type ColorTarget = "pencil" | "highlighter" | "note";
+export type ColorTarget = "pencil" | "highlighter" | "bucket" | "note";
 
 // Which edge of the canvas the toolbar sits on. Its popovers and tooltips
 // open away from the canvas, e.g. below a toolbar at the top.
 export type ToolbarPosition = "top" | "bottom";
 
-// Each tool with a size has a slider for it.
+// The custom color is the tool options' picker.
 type ToolbarPopover =
-  | SizedTool
-  | "shape"
   | "color"
+  | "custom-color"
   | "zoom"
   | "timer"
   | "file-menu"
   | "history"
   | "rename"
-  | "export";
+  | "export"
+  | "clear";
+
+// The tools with options of their own, shown in a smaller bar above the
+// toolbar while they're picked: the stroke tools' sizes, and the colors of
+// the pencil, highlighter, paint bucket and notes.
+type OptionsTool = "pencil" | "highlighter" | "eraser" | "bucket" | "note";
+
+// The tool whose color an options tool's colors pick.
+function getColorTool(tool: OptionsTool): ColorTarget | null {
+  return tool === "eraser" ? null : tool;
+}
+
+const OPTIONS_TOOLS: OptionsTool[] = [
+  "pencil",
+  "highlighter",
+  "eraser",
+  "bucket",
+  "note",
+];
 
 // The names screen readers announce, and tooltips show.
 const ACTION_LABELS: Record<ToolbarAction, string> = {
@@ -84,7 +111,6 @@ const ACTION_LABELS: Record<ToolbarAction, string> = {
   note: "Sticky note",
   dropper: "Dropper",
   text: "Text",
-  shape: "Shape",
   image: "Insert image",
 };
 
@@ -96,42 +122,18 @@ const FILE_MENU_LABELS: Record<FileMenuItem, string> = {
   export: ACTION_LABELS.export,
 };
 
-const SHAPE_TYPE_LABELS: Record<ShapeType, string> = {
-  rectangle: "Rectangle",
-  ellipse: "Ellipse",
-  line: "Line",
-  arrow: "Arrow",
-};
-
 const EXPORT_FORMAT_LABELS: Record<ExportFormat, string> = {
   png: "PNG",
   jpeg: "JPEG",
   svg: "SVG",
 };
 
-// The tools with a size, which clicking them again picks.
-type SizedTool = Exclude<
-  Tool,
-  "move" | "bucket" | "note" | "shape" | "dropper"
->;
-
-const TOOL_LABELS: Record<SizedTool, string> = {
-  eraser: ACTION_LABELS.eraser,
-  pencil: ACTION_LABELS.pencil,
-  highlighter: ACTION_LABELS.highlighter,
-  text: ACTION_LABELS.text,
-};
-
 // Controls that open a popover, which is positioned against them.
 const ANCHORED: ControlName[] = [
+  "clear",
   "new-canvas",
   "history",
   "export",
-  "pencil",
-  "highlighter",
-  "eraser",
-  "text",
-  "shape",
   "color",
   "zoom",
   "timer",
@@ -176,15 +178,23 @@ const ZOOM_ITEMS: { action: ZoomAction; label: string; hint: string }[] = [
 
 export interface CanvasToolbarState {
   activeTool: Tool;
+  // The tool the dropper goes back to, whose color it picks, while it's
+  // picked.
+  previousTool: Tool;
   tools: Record<StrokeTool, ToolState>;
+  bucketColor: ToolColor;
   noteColor: ToolColor;
+  // The color of the note being typed in, which the note's options show and
+  // change, or null if none is.
+  typingNoteColor: string | null;
+  // How each tool's custom color is written, e.g. as hex.
+  colorFormats: ColorFormats;
   // Which color the color control picks: the pencil's, which text uses too,
-  // the highlighter's, or new notes'.
+  // the highlighter's, the bucket's, or new notes'.
   colorTarget: ColorTarget;
   // Custom colors picked, most recent first.
   recentColors: CustomColor[];
   textSize: number;
-  shapeType: ShapeType;
   canUndo: boolean;
   canRedo: boolean;
   canClear: boolean;
@@ -224,8 +234,8 @@ export interface CanvasToolbarActions {
   onSelectTool: (tool: Tool) => void;
   onUpdateTool: (tool: StrokeTool, values: Partial<ToolState>) => void;
   onUpdateNoteColor: (color: ToolColor) => void;
-  onUpdateTextSize: (size: number) => void;
-  onSelectShape: (type: ShapeType) => void;
+  onUpdateBucketColor: (color: ToolColor) => void;
+  onUpdateColorFormat: (target: ColorTarget, format: ColorFormat) => void;
   onInsertImage: () => void;
   onZoom: (action: ZoomAction) => void;
   onToggleRulers: () => void;
@@ -303,6 +313,29 @@ export function getToolbarActions(groups: ToolbarControl[][]): ActionName[] {
 function toCss(color: ToolColor): string {
   return isCustomColor(color) ? color : `var(${color})`;
 }
+
+const SVG = "http://www.w3.org/2000/svg";
+
+// A squiggle drawn `width` wide, as a size's button shows it, with square
+// ends for the highlighter, which draws them.
+function createSquiggle(width: number, square: boolean): SVGSVGElement {
+  const svg = document.createElementNS(SVG, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  svg.classList.add("canvas-icon", "canvas-squiggle");
+  const path = document.createElementNS(SVG, "path");
+  path.setAttribute("d", "M4 16c2-6 4.5-8.5 6.5-5.5s3 6 5.5 3S19 8 20 7");
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-width", String(width));
+  path.setAttribute("stroke-linecap", square ? "square" : "round");
+  path.setAttribute("stroke-linejoin", square ? "bevel" : "round");
+  svg.append(path);
+  return svg;
+}
+
+// How thick each size's squiggle is drawn, thin to thick.
+const SQUIGGLE_WIDTHS = [1.5, 2.75, 4.5];
 
 // Buttons default to submitting a form, e.g. if the host mounts the canvas in one.
 function createButton(className: string): HTMLButtonElement {
@@ -394,12 +427,28 @@ function getColor(state: CanvasToolbarState): ToolColor {
   if (state.colorTarget === "note") {
     return state.noteColor;
   }
+  if (state.colorTarget === "bucket") {
+    return state.bucketColor;
+  }
   return state.tools[state.colorTarget].color ?? COLORS[0];
 }
 
 /** The controls the host page asked for, in the groups it listed them in. */
 export class CanvasToolbar {
   readonly element = createElement("div", "canvas-toolbar");
+  /**
+   * The picked tool's options, in a smaller bar of their own, above a
+   * toolbar at the bottom or below one at the top, while a tool with options
+   * that's on this toolbar is picked. Hidden otherwise.
+   */
+  readonly options = createElement("div", "canvas-toolbar canvas-tool-options");
+  #optionsTool: OptionsTool | null = null;
+  // Whether the options were made before the bar was on the page, when the
+  // palette's CSS colors can't be read, e.g. for notes' shades.
+  #optionsDetached = false;
+  #sizeButtons = new Map<number, HTMLButtonElement>();
+  #selectSwatch: ((value: string | null) => void) | null = null;
+  #chip: ColorChip | null = null;
   #state: CanvasToolbarState;
   #actions: CanvasToolbarActions;
   #buttons: Partial<Record<ControlName, HTMLButtonElement>> = {};
@@ -430,6 +479,9 @@ export class CanvasToolbar {
     this.#state = state;
     this.#actions = actions;
     this.element.dataset.position = position;
+    this.options.dataset.position = position;
+    this.options.setAttribute("role", "toolbar");
+    this.options.hidden = true;
 
     for (const controls of groups) {
       if (controls.length === 0) {
@@ -456,18 +508,20 @@ export class CanvasToolbar {
     this.#tooltip.hidden = true;
     this.#tooltip.setAttribute("aria-hidden", "true");
     this.element.append(this.#tooltip);
-    this.element.addEventListener("pointerover", this.#onPointerOver);
-    this.element.addEventListener("pointerout", this.#onPointerOut);
-    this.element.addEventListener("focusin", this.#onFocusIn);
-    this.element.addEventListener("focusout", () => this.#hideTooltip());
-    // Like Linear, a press dismisses it until the pointer moves to another
-    // button.
-    this.element.addEventListener("pointerdown", (event) => {
-      this.#pressedButton = (event.target as Element).closest<HTMLElement>(
-        "[data-tooltip]"
-      );
-      this.#hideTooltip();
-    });
+    for (const bar of [this.element, this.options]) {
+      bar.addEventListener("pointerover", this.#onPointerOver);
+      bar.addEventListener("pointerout", this.#onPointerOut);
+      bar.addEventListener("focusin", this.#onFocusIn);
+      bar.addEventListener("focusout", () => this.#hideTooltip());
+      // Like Linear, a press dismisses it until the pointer moves to another
+      // button.
+      bar.addEventListener("pointerdown", (event) => {
+        this.#pressedButton = (event.target as Element).closest<HTMLElement>(
+          "[data-tooltip]"
+        );
+        this.#hideTooltip();
+      });
+    }
 
     this.update(state);
   }
@@ -496,8 +550,9 @@ export class CanvasToolbar {
         "aria-pressed",
         String(tool === state.activeTool)
       );
-      expanded(buttons[tool], this.#openPopover === tool);
     }
+
+    this.#updateOptions(state);
 
     const colorButton = buttons.color;
     if (colorButton) {
@@ -704,7 +759,7 @@ export class CanvasToolbar {
     const onClick: Record<ToolbarAction, () => void> = {
       undo: () => actions.onUndo(),
       redo: () => actions.onRedo(),
-      clear: () => actions.onClear(),
+      clear: () => this.#togglePopover("clear"),
       ...fileActions,
       move: () => this.#onToolClick("move"),
       pencil: () => this.#onToolClick("pencil"),
@@ -713,7 +768,6 @@ export class CanvasToolbar {
       bucket: () => this.#onToolClick("bucket"),
       note: () => this.#onToolClick("note"),
       text: () => this.#onToolClick("text"),
-      shape: () => this.#onToolClick("shape"),
       dropper: () => this.#onToolClick("dropper"),
       image: () => {
         this.#closePopover();
@@ -742,7 +796,8 @@ export class CanvasToolbar {
   // It listens before the press reaches the canvas, which keeps some to
   // itself, e.g. to pan.
   #onDocumentPointerDown = (event: PointerEvent): void => {
-    if (!this.element.contains(event.target as Node)) {
+    const target = event.target as Node;
+    if (!this.element.contains(target) && !this.options.contains(target)) {
       this.#closePopover();
     }
   };
@@ -775,12 +830,11 @@ export class CanvasToolbar {
     this.#hideTooltip();
     this.update(this.#state);
     const [opener, content] = this.#getPopover(popover);
-    this.#removePopover = showPopover(
-      opener,
-      content,
-      () => this.#closePopover(),
-      takesFocus
-    );
+    // Exporting is a dialog of its own, in the middle of the window.
+    this.#removePopover =
+      popover === "export"
+        ? showDialog(this.element, content, () => this.#closePopover())
+        : showPopover(opener, content, () => this.#closePopover(), takesFocus);
     document.addEventListener("pointerdown", this.#onDocumentPointerDown, true);
   }
 
@@ -795,6 +849,8 @@ export class CanvasToolbar {
       // Renaming is only in the file menu.
       case "rename":
         return buttons["file-menu"]!;
+      case "custom-color":
+        return this.#chip!.element;
       case "export":
         return buttons.export ?? buttons["file-menu"]!;
       default:
@@ -808,6 +864,10 @@ export class CanvasToolbar {
     switch (popover) {
       case "color":
         return [opener, this.#createColorOptions()];
+      case "custom-color":
+        return [opener, this.#createCustomColorPicker()];
+      case "clear":
+        return [opener, this.#createClearForm()];
       case "zoom":
         return [
           opener,
@@ -853,37 +913,15 @@ export class CanvasToolbar {
         return [opener, this.#createRenameForm()];
       case "export":
         return [opener, this.#createExportForm()];
-      case "shape":
-        return [
-          opener,
-          this.#createMenu(
-            SHAPE_TYPES.map((type) => ({
-              label: SHAPE_TYPE_LABELS[type],
-              hint: SHAPE_SHORTCUTS[type],
-              selected: type === this.#state.shapeType,
-              onSelect: () => this.#actions.onSelectShape(type),
-            }))
-          ),
-        ];
-      default:
-        return [
-          opener,
-          popover === "text"
-            ? this.#createTextSizeSlider()
-            : this.#createSizePicker(popover),
-        ];
     }
   }
 
-  // Clicking the active tool again opens its size slider, or the shapes to
-  // pick from. The move tool, the bucket and notes have no size, and the
-  // dropper goes back to the tool before it.
+  // Clicking the dropper again goes back to the tool before it. The tools
+  // with options show them in a bar of their own instead.
   #onToolClick(tool: Tool): void {
     if (tool === this.#state.activeTool) {
       if (tool === "dropper") {
         this.#actions.onSelectTool(tool);
-      } else if (tool !== "note" && tool !== "move" && tool !== "bucket") {
-        this.#togglePopover(tool);
       }
     } else {
       this.#closePopover();
@@ -895,82 +933,276 @@ export class CanvasToolbar {
   #onColorClick(color: ToolColor): void {
     this.#closePopover();
     const target = this.#state.colorTarget;
-    if (target === "note") {
-      this.#actions.onUpdateNoteColor(color);
-      return;
-    }
-    this.#actions.onUpdateTool(target, { color });
-    if (this.#state.activeTool === "eraser") {
+    this.#updateColor(target, color);
+    if (target === "pencil" && this.#state.activeTool === "eraser") {
       this.#actions.onSelectTool("pencil");
     }
   }
 
-  // Text's font size, from its smallest to its largest.
-  #createTextSizeSlider(): HTMLInputElement {
-    const slider = createElement("input", "canvas-tool-size-slider");
-    slider.type = "range";
-    slider.setAttribute("aria-label", `${TOOL_LABELS.text} size`);
-    slider.min = String(TEXT_LAYOUT.minSize);
-    slider.max = String(TEXT_LAYOUT.maxSize);
-    slider.value = String(this.#state.textSize);
-    slider.addEventListener("input", () =>
-      this.#actions.onUpdateTextSize(Number(slider.value))
-    );
-    return slider;
-  }
-
-  // The stroke tools' sizes, each shown as the dot it draws, at the size it
-  // draws it, in the tool's color, as see-through as it draws, or as the
-  // eraser's outline. The one picked is ringed, and picking one closes it,
-  // like picking a color.
-  #createSizePicker(tool: StrokeTool): HTMLDivElement {
-    const picker = createElement("div", "canvas-size-picker");
-    picker.setAttribute("role", "group");
-    picker.setAttribute("aria-label", `${TOOL_LABELS[tool]} size`);
-    const { size: current, color } = this.#state.tools[tool];
-    const opacity = tool === "highlighter" ? String(HIGHLIGHTER.opacity) : "";
-    const shown = color === undefined ? null : toCss(color);
-    for (const size of TOOL_SIZES) {
-      const option = createButton("canvas-size-option");
-      const width = size * 2;
-      option.setAttribute("aria-label", `${width} pixels`);
-      option.setAttribute("aria-pressed", String(size === current));
-      const dot = createElement("span", "canvas-size-dot");
-      dot.style.setProperty("--canvas-size", `${width}px`);
-      if (shown) {
-        dot.style.backgroundColor = shown;
-        dot.style.opacity = opacity;
-      } else {
-        dot.toggleAttribute("data-erases", true);
-      }
-      const label = createElement("span", "canvas-size-label");
-      label.textContent = String(width);
-      label.setAttribute("aria-hidden", "true");
-      option.append(dot, label);
-      option.addEventListener("click", () => {
-        this.#closePopover();
-        this.#actions.onUpdateTool(tool, { size });
-      });
-      picker.append(option);
-    }
-    return picker;
-  }
-
+  // The palette, then any color, for the color control.
   #createColorOptions(): HTMLDivElement {
-    const picker = createColorPicker({
-      swatches: COLORS.map((color) => ({
+    const options = createElement("div", "canvas-color-options");
+    const swatches = createSwatchRow(
+      "Colors",
+      COLORS.map((color) => ({
         label: getColorName(color),
         value: color,
         shown: toCss(color),
       })),
-      selected: getColor(this.#state),
-      current: resolveColor(this.element, getColor(this.#state)),
+      (value) => {
+        this.#actions.onUpdateColorFormat(this.#state.colorTarget, "hex");
+        this.#onColorClick(value as ToolColor);
+      }
+    );
+    swatches.select(getColor(this.#state));
+    const picker = this.#createPicker(
+      resolveColor(this.element, getColor(this.#state)) as CustomColor,
+      (color) => this.#updateColor(this.#state.colorTarget, color),
+      this.#state.colorTarget
+    );
+    options.append(swatches.element, picker);
+    options.dataset.canvasKeepsTyping = "";
+    return options;
+  }
+
+  // The full color picker for `target`'s color, starting from `color`, which
+  // picks with `onPick`. A note's is only solid colors.
+  #createPicker(
+    color: CustomColor,
+    onPick: (color: CustomColor) => void,
+    target: ColorTarget
+  ): HTMLDivElement {
+    return createColorPicker({
+      grid: getPaletteGrid(this.element),
+      color,
+      format: this.#state.colorFormats[target],
       recent: this.#state.recentColors,
-      onPick: (value) => this.#onColorClick(value as ToolColor),
+      onPick,
+      opaque: target === "note",
+      onFormat: (format) => this.#actions.onUpdateColorFormat(target, format),
+      // The dropper picks a color from the drawing for whichever tool the
+      // picker's for, then goes back to it.
+      onDropper: () => {
+        this.#closePopover();
+        if (this.#state.activeTool !== "dropper") {
+          this.#actions.onSelectTool("dropper");
+        }
+      },
     });
-    // Typing a color code here doesn't stop typing text, which it colors.
-    picker.dataset.canvasKeepsTyping = "";
-    return picker;
+  }
+
+  // The tool whose options show: the one picked, or the one the dropper
+  // picks a color for, if it has options and its button is on this toolbar.
+  #getOptionsTool(state: CanvasToolbarState): OptionsTool | null {
+    const tool = (
+      state.activeTool === "dropper" ? state.previousTool : state.activeTool
+    ) as OptionsTool;
+    return OPTIONS_TOOLS.includes(tool) && this.#buttons[tool] ? tool : null;
+  }
+
+  // Shows the picked tool's options, made again once another tool's picked,
+  // or once the bar's on the page, if they were made before it was.
+  #updateOptions(state: CanvasToolbarState): void {
+    const tool = this.#getOptionsTool(state);
+    if (
+      tool !== this.#optionsTool ||
+      (this.#optionsDetached && this.options.isConnected)
+    ) {
+      if (this.#openPopover === "custom-color") {
+        this.#closePopover();
+      }
+      this.#optionsTool = tool;
+      this.#optionsDetached = !this.options.isConnected;
+      this.#createOptions(tool);
+    }
+    if (!tool) {
+      return;
+    }
+    if (tool !== "note" && tool !== "bucket") {
+      for (const [size, button] of this.#sizeButtons) {
+        button.setAttribute(
+          "aria-pressed",
+          String(size === state.tools[tool].size)
+        );
+      }
+    }
+    const shown = this.#getOptionsColor(state);
+    if (shown) {
+      this.#selectSwatch?.(shown.selected);
+      this.#chip?.show(shown.color, state.colorFormats[shown.target]);
+      this.#chip?.element.setAttribute(
+        "aria-expanded",
+        String(this.#openPopover === "custom-color")
+      );
+    }
+  }
+
+  // The color the options show for the tool: the palette's color, or the
+  // custom one, that's picked, and the color it is. A note's palette colors
+  // are a light shade of them. While a note's typed in, its own color shows.
+  // `target` is whose color it is.
+  #getOptionsColor(
+    state: CanvasToolbarState
+  ): { selected: string; color: CustomColor; target: ColorTarget } | null {
+    const tool = this.#optionsTool;
+    if (tool === "note") {
+      const typing = state.typingNoteColor;
+      if (typing) {
+        const palette = COLORS.find(
+          (color) => this.#getNoteShade(color) === typing
+        );
+        return {
+          selected: palette ?? typing,
+          color: typing as CustomColor,
+          target: "note",
+        };
+      }
+      const { noteColor } = state;
+      return {
+        selected: noteColor,
+        color: isCustomColor(noteColor)
+          ? noteColor
+          : (this.#getNoteShade(noteColor) as CustomColor),
+        target: "note",
+      };
+    }
+    const stroke = tool && getColorTool(tool);
+    if (!stroke || stroke === "note") {
+      return null;
+    }
+    const color =
+      stroke === "bucket" ? state.bucketColor : state.tools[stroke].color;
+    return color
+      ? {
+          selected: color,
+          color: resolveColor(this.element, color) as CustomColor,
+          target: stroke,
+        }
+      : null;
+  }
+
+  // A light shade of a palette color, for a note.
+  #getNoteShade(color: Color): string {
+    return getNoteShade(this.element, color);
+  }
+
+  // The tool's sizes, as squiggles, then its colors, from the palette, and
+  // the color picked, which opens the picker for any color.
+  #createOptions(tool: OptionsTool | null): void {
+    const bar = this.options;
+    bar.replaceChildren();
+    bar.hidden = tool === null;
+    this.#sizeButtons.clear();
+    this.#selectSwatch = null;
+    this.#chip = null;
+    if (!tool) {
+      return;
+    }
+    bar.setAttribute("aria-label", `${ACTION_LABELS[tool]} options`);
+    if (tool !== "note" && tool !== "bucket") {
+      const sizes = createElement("div", "canvas-toolbar-group");
+      sizes.setAttribute("role", "group");
+      sizes.setAttribute("aria-label", "Size");
+      TOOL_SIZES[tool].forEach((size, index) => {
+        const button = createButton("canvas-toolbar-button");
+        const label = TOOL_SIZE_LABELS[index];
+        button.setAttribute("aria-label", label);
+        button.dataset.tooltip = label;
+        button.append(
+          createSquiggle(SQUIGGLE_WIDTHS[index], tool === "highlighter")
+        );
+        // Pressing it leaves focus where it is, e.g. on the canvas.
+        button.addEventListener("mousedown", (event) => event.preventDefault());
+        button.addEventListener("click", () =>
+          this.#actions.onUpdateTool(tool, { size })
+        );
+        this.#sizeButtons.set(size, button);
+        sizes.append(button);
+      });
+      bar.append(sizes);
+    }
+    const colorTool = getColorTool(tool);
+    if (!colorTool) {
+      return;
+    }
+    const colors = createElement("div", "canvas-toolbar-group");
+    const swatches = createSwatchRow(
+      "Colors",
+      COLORS.map((color) => ({
+        label: getColorName(color),
+        value: color,
+        shown: tool === "note" ? this.#getNoteShade(color) : toCss(color),
+      })),
+      (value) => {
+        // Picking one puts the picker away. A palette color is written in
+        // hex, as the palette is.
+        if (this.#openPopover === "custom-color") {
+          this.#closePopover();
+        }
+        this.#actions.onUpdateColorFormat(colorTool, "hex");
+        this.#updateColor(colorTool, value as Color);
+      }
+    );
+    this.#selectSwatch = swatches.select;
+    const chip = new ColorChip();
+    chip.element.addEventListener("click", (event) =>
+      // A click from the keyboard has no `detail`, and moves focus in.
+      this.#togglePopover("custom-color", event.detail === 0)
+    );
+    this.#chip = chip;
+    const anchor = createElement("div", "canvas-toolbar-item");
+    anchor.append(chip.element);
+    colors.append(swatches.element, anchor);
+    bar.append(colors);
+  }
+
+  // Any color, for the tool whose options show. A note is the color picked,
+  // rather than a light shade of it, as its palette colors are.
+  #createCustomColorPicker(): HTMLDivElement {
+    // Only a tool with a color has a picker, so the pencil only satisfies
+    // the type.
+    const tool =
+      (this.#optionsTool && getColorTool(this.#optionsTool)) ?? "pencil";
+    const shown = this.#getOptionsColor(this.#state);
+    return this.#createPicker(
+      shown?.color ?? "#000000",
+      (color) => this.#updateColor(tool, color),
+      tool
+    );
+  }
+
+  // Gives `target` its new color.
+  #updateColor(target: ColorTarget, color: ToolColor): void {
+    if (target === "note") {
+      this.#actions.onUpdateNoteColor(color);
+    } else if (target === "bucket") {
+      this.#actions.onUpdateBucketColor(color);
+    } else {
+      this.#actions.onUpdateTool(target, { color });
+    }
+  }
+
+  // Clearing can't be undone, so it's asked about first.
+  #createClearForm(): HTMLDivElement {
+    const form = createElement("div", "canvas-form canvas-clear");
+    const title = createElement("p", "canvas-confirmation-message");
+    title.textContent = "Clear the canvas?";
+    const detail = createElement("p", "canvas-confirmation-detail");
+    detail.textContent =
+      "Everything on it will be removed. This can't be undone.";
+    const buttons = createElement("div", "canvas-confirmation-buttons");
+    const cancel = createButton("canvas-button");
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => this.#closePopover());
+    const clear = createButton("canvas-button canvas-button-danger");
+    clear.textContent = "Clear";
+    clear.addEventListener("click", () => {
+      this.#closePopover();
+      this.#actions.onClear();
+    });
+    buttons.append(cancel, clear);
+    form.append(title, detail, buttons);
+    return form;
   }
 
   // Choosing an item closes the menu. The selected one has a check mark.
@@ -1029,13 +1261,27 @@ export class CanvasToolbar {
     return form;
   }
 
-  // The chosen format is what the popover focuses. Enter exports, and Escape
-  // or Cancel closes it without exporting.
+  // The canvas's name comes first, since it names the file, and it's renamed
+  // as it's typed. Enter exports, and Escape or Cancel closes it without
+  // exporting.
   #createExportForm(): HTMLFormElement {
     const { drawingSize, exportOptions } = this.#state;
     const form = createElement("form", "canvas-form canvas-export");
-    const title = createElement("p", "canvas-confirmation-message");
+    const title = createElement("h2", "canvas-dialog-title");
     title.textContent = "Export";
+
+    const nameField = createElement("label", "canvas-field");
+    const nameLabel = createElement("span", "canvas-field-legend");
+    nameLabel.textContent = "Name";
+    const name = createElement("input", "canvas-text-input");
+    name.type = "text";
+    name.value = this.#state.name;
+    name.placeholder = UNTITLED_NAME;
+    name.spellcheck = false;
+    name.addEventListener("input", () =>
+      this.#actions.onRename(name.value.trim())
+    );
+    nameField.append(nameLabel, name);
 
     const formats = createSegmented(
       "Format",
@@ -1116,7 +1362,7 @@ export class CanvasToolbar {
       this.#actions.onExport(options);
     });
     buttons.append(cancel, submit);
-    form.append(title, formats, scales, transparent, buttons);
+    form.append(title, nameField, formats, scales, transparent, buttons);
     refresh();
     return form;
   }

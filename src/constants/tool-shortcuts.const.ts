@@ -10,7 +10,5 @@ export const TOOL_SHORTCUTS: Record<Tool, string> = {
   bucket: "G",
   note: "N",
   text: "T",
-  // Rectangles', though each shape has its own (see `SHAPE_SHORTCUTS`).
-  shape: "R",
   dropper: "I",
 };

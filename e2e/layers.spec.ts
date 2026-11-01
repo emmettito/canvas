@@ -56,6 +56,22 @@ async function pickColor(page: Page, x: number, y: number) {
     .getAttribute("aria-label");
 }
 
+// The first note's color, as "#rrggbb", the way the dropper and exports write
+// it.
+function getNoteHex(page: Page) {
+  return page
+    .locator(".canvas-note")
+    .first()
+    .evaluate((element) => {
+      const [r, g, b] = getComputedStyle(element)
+        .backgroundColor.match(/\d+/g)!
+        .map(Number);
+      return `#${[r, g, b]
+        .map((channel) => channel.toString(16).padStart(2, "0"))
+        .join("")}`;
+    });
+}
+
 test("drawing on a note draws on it, and moves with it", async ({ page }) => {
   await addNote(page);
   await drag(page, { x: 470, y: 320 }, 60, 0);
@@ -94,19 +110,25 @@ test("a note's strokes stay put as it's resized, and only show inside it", async
   const after = (await note.boundingBox())!;
   await drag(page, { x: after.x + after.width, y: after.y + 80 }, -50, 0);
   await page.getByRole("button", { name: "Pencil" }).click();
-  expect(await pickColor(page, 560, 300)).toBe("Color: white");
+  expect(await pickColor(page, 560, 300)).toBe("Color: White");
 });
 
 test("a stroke drawn after an image is above it, and one before below", async ({
   page,
 }) => {
   // A blue line, then a note over it, then a red line over both.
-  await page.getByRole("button", { name: "Color: black" }).click();
-  await page.getByRole("button", { name: "blue", exact: true }).click();
+  await page.getByRole("button", { name: "Color: Black", exact: true }).click();
+  await page
+    .locator(".canvas-popover")
+    .getByRole("button", { name: "Blue", exact: true })
+    .click();
   await drag(page, { x: 300, y: 300 }, 400, 0);
   await addNote(page, 500, 300);
-  await page.getByRole("button", { name: "Color: blue" }).click();
-  await page.getByRole("button", { name: "red", exact: true }).click();
+  await page.getByRole("button", { name: "Color: Blue", exact: true }).click();
+  await page
+    .locator(".canvas-popover")
+    .getByRole("button", { name: "Red", exact: true })
+    .click();
   // Started off the note, so it's on the drawing, over it.
   await drag(page, { x: 500, y: 150 }, 0, 300);
 
@@ -127,20 +149,25 @@ test("a stroke drawn after an image is above it, and one before below", async ({
   );
 
   // The note hides the blue line, and the red one shows over the note.
-  expect(await pickColor(page, 460, 300)).toBe("Color: #fefe99");
-  expect(await pickColor(page, 500, 260)).toBe("Color: red");
+  expect(await pickColor(page, 460, 300)).toBe(
+    `Color: ${await getNoteHex(page)}`
+  );
+  expect(await pickColor(page, 500, 260)).toBe("Color: Red");
   // Off the note, the blue line shows.
-  expect(await pickColor(page, 320, 300)).toBe("Color: blue");
+  expect(await pickColor(page, 320, 300)).toBe("Color: Blue");
 });
 
 test("an item's menu brings it to the front or sends it to the back", async ({
   page,
 }) => {
   await addNote(page, 500, 300);
-  await page.getByRole("button", { name: "Color: black" }).click();
-  await page.getByRole("button", { name: "red", exact: true }).click();
+  await page.getByRole("button", { name: "Color: Black", exact: true }).click();
+  await page
+    .locator(".canvas-popover")
+    .getByRole("button", { name: "Red", exact: true })
+    .click();
   await drag(page, { x: 500, y: 150 }, 0, 300);
-  expect(await pickColor(page, 500, 300)).toBe("Color: red");
+  expect(await pickColor(page, 500, 300)).toBe("Color: Red");
 
   // A right-click with the pencil opens the note's menu too.
   await page.mouse.click(460, 340, { button: "right" });
@@ -148,28 +175,37 @@ test("an item's menu brings it to the front or sends it to the back", async ({
     page.getByRole("menuitem", { name: "Send to back" })
   ).toBeDisabled();
   await page.getByRole("menuitem", { name: "Bring to front" }).click();
-  expect(await pickColor(page, 500, 300)).toBe("Color: #fefe99");
+  expect(await pickColor(page, 500, 300)).toBe(
+    `Color: ${await getNoteHex(page)}`
+  );
 
   // It's kept, and undone.
   await page.reload();
-  expect(await pickColor(page, 500, 300)).toBe("Color: #fefe99");
+  expect(await pickColor(page, 500, 300)).toBe(
+    `Color: ${await getNoteHex(page)}`
+  );
   await page.getByRole("button", { name: "Pencil" }).click();
   await page.mouse.click(460, 340, { button: "right" });
   await expect(
     page.getByRole("menuitem", { name: "Bring to front" })
   ).toBeDisabled();
   await page.getByRole("menuitem", { name: "Send to back" }).click();
-  expect(await pickColor(page, 500, 300)).toBe("Color: red");
+  expect(await pickColor(page, 500, 300)).toBe("Color: Red");
   await page.getByRole("button", { name: "Undo" }).click();
-  expect(await pickColor(page, 500, 300)).toBe("Color: #fefe99");
+  expect(await pickColor(page, 500, 300)).toBe(
+    `Color: ${await getNoteHex(page)}`
+  );
 });
 
 test("the pencil draws over items, and the move tool moves them", async ({
   page,
 }) => {
   await addNote(page);
-  await page.getByRole("button", { name: "Color: black" }).click();
-  await page.getByRole("button", { name: "blue", exact: true }).click();
+  await page.getByRole("button", { name: "Color: Black", exact: true }).click();
+  await page
+    .locator(".canvas-popover")
+    .getByRole("button", { name: "Blue", exact: true })
+    .click();
   const note = page.locator(".canvas-note");
   const before = (await note.boundingBox())!;
   await drag(page, { x: 300, y: 200 }, 400, 200);

@@ -1,5 +1,13 @@
 import { FONTS } from "../constants/fonts.const";
 import { type RichText, type TextStyle } from "../models/rich-text.model";
+import { getListMarkers } from "./rich-text";
+
+/**
+ * How far in each level of a list's items are, as a multiple of the text's
+ * own font size, with their bullet or number in the room before them. The
+ * editors' styles use the same, as `1.5em`.
+ */
+export const LIST_INDENT = 1.5;
 
 // The text's own look, where its runs don't say otherwise.
 export interface TextDefaults {
@@ -20,6 +28,8 @@ export interface ResolvedStyle {
   underline: boolean;
   strike: boolean;
   color: string;
+  // Where it links to, which is underlined.
+  link: string | null;
 }
 
 // How the text measures, in drawing units.
@@ -66,6 +76,7 @@ function resolve(style: TextStyle, defaults: TextDefaults): ResolvedStyle {
     underline: style.underline ?? false,
     strike: style.strike ?? false,
     color: style.color ?? defaults.color,
+    link: style.link ?? null,
   };
 }
 
@@ -77,7 +88,8 @@ function isSameStyle(a: ResolvedStyle, b: ResolvedStyle): boolean {
     a.italic === b.italic &&
     a.underline === b.underline &&
     a.strike === b.strike &&
-    a.color === b.color
+    a.color === b.color &&
+    a.link === b.link
   );
 }
 
@@ -214,32 +226,50 @@ export function layOutRichText(
     };
   };
 
-  const paragraphs = content.map(({ align = "left", runs }) => {
-    const pieces: Piece[] = runs.flatMap((run) => {
-      const style = resolve(run, defaults);
-      return run.text
-        .split(/( +)/)
-        .filter((text) => text !== "")
-        .map((text) => ({
-          text,
-          style,
-          width: measurer.width(text, style),
-          isSpace: text.startsWith(" "),
-        }));
-    });
-    return { align, lines: wrap(toTokens(pieces), width, measurer) };
-  });
+  const markers = getListMarkers(content);
+  // A list item's text starts its level's indent in, with its marker in the
+  // indent's last step.
+  const step = LIST_INDENT * defaults.fontSize;
+  const paragraphs = content.map(
+    ({ align = "left", list, level = 0, runs }, index) => {
+      const indent = list ? (level + 1) * step : 0;
+      const pieces: Piece[] = runs.flatMap((run) => {
+        const style = resolve(run, defaults);
+        return run.text
+          .split(/( +)/)
+          .filter((text) => text !== "")
+          .map((text) => ({
+            text,
+            style,
+            width: measurer.width(text, style),
+            isSpace: text.startsWith(" "),
+          }));
+      });
+      return {
+        align,
+        indent,
+        marker: markers[index],
+        lines: wrap(
+          toTokens(pieces),
+          width === null ? null : Math.max(width - indent, 1),
+          measurer
+        ),
+      };
+    }
+  );
   const textWidth =
     width ??
     Math.max(
       0,
-      ...paragraphs.flatMap(({ lines }) => lines.map((line) => getWidth(line)))
+      ...paragraphs.flatMap(({ lines, indent }) =>
+        lines.map((line) => getWidth(line) + indent)
+      )
     );
 
   const lines: LaidOutText["lines"] = [];
   let top = 0;
-  for (const { align, lines: tokenLines } of paragraphs) {
-    for (const line of tokenLines) {
+  for (const { align, indent, marker, lines: tokenLines } of paragraphs) {
+    for (const [lineIndex, line] of tokenLines.entries()) {
       const pieces = line.flatMap(({ pieces }) => pieces);
       let above = extent(strut).above;
       let below = extent(strut).below;
@@ -251,14 +281,29 @@ export function layOutRichText(
       const lineWidth = getWidth(line);
       let x =
         align === "center"
-          ? (textWidth - lineWidth) / 2
+          ? indent + (textWidth - indent - lineWidth) / 2
           : align === "right"
             ? textWidth - lineWidth
-            : 0;
+            : indent;
       const spans: PlacedSpan[] = [];
+      if (marker && lineIndex === 0) {
+        spans.push({
+          text: marker,
+          style: strut,
+          x: x - step,
+          width: measurer.width(marker, strut),
+          baseline,
+        });
+      }
+      // The marker is apart from the text, which may look the same.
+      const textStart = spans.length;
       for (const piece of pieces) {
         const last = spans.at(-1);
-        if (last && isSameStyle(last.style, piece.style)) {
+        if (
+          last &&
+          spans.length > textStart &&
+          isSameStyle(last.style, piece.style)
+        ) {
           last.text += piece.text;
           last.width += piece.width;
         } else {

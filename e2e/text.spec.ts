@@ -89,33 +89,32 @@ test("once typing's finished with Escape, the next press places again", async ({
   await page.keyboard.press("Escape");
   await expect(getTexts(page)).toHaveText(["First", "Second"]);
 
-  await page.keyboard.press("r");
-  await page.mouse.move(300, 450);
-  await page.mouse.down();
-  await page.mouse.move(400, 550, { steps: 5 });
-  await page.mouse.up();
-  await expect(page.locator(".canvas-shape")).toHaveCount(1);
+  await page.keyboard.press("n");
+  await page.mouse.click(350, 500);
+  await expect(page.locator(".canvas-note")).toHaveCount(1);
 });
 
-test("new text is in the pencil's color, at the text size", async ({
+test("new text is in the pencil's color, at the text's own size", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Text", exact: true }).click();
-  await page.getByRole("button", { name: "Color: black" }).click();
-  await page.getByRole("button", { name: "red", exact: true }).click();
+  const textTool = page.getByRole("button", { name: "Text", exact: true });
+  await textTool.click();
+  await page.getByRole("button", { name: "Color: Black", exact: true }).click();
+  await page
+    .locator(".canvas-popover")
+    .getByRole("button", { name: "Red", exact: true })
+    .click();
   // The text tool stays chosen.
-  await expect(
-    page.getByRole("button", { name: "Text", exact: true })
-  ).toHaveAttribute("aria-pressed", "true");
-  // Clicking it again opens its size slider.
-  await page.getByRole("button", { name: "Text", exact: true }).click();
-  await page.getByRole("slider", { name: "Text size" }).fill("48");
-  await page.keyboard.press("Escape");
+  await expect(textTool).toHaveAttribute("aria-pressed", "true");
+  // Clicking it again opens nothing: sizes are the format bar's.
+  await textTool.click();
+  await expect(textTool).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".canvas-popover")).toHaveCount(0);
 
-  await addText(page, "Big");
+  await addText(page, "Plain");
 
   const text = page.locator(".canvas-text");
-  await expect(text).toHaveCSS("font-size", "48px");
+  await expect(text).toHaveCSS("font-size", "24px");
   await expect(text).toHaveCSS("color", "rgb(255, 0, 0)");
 });
 
@@ -262,16 +261,36 @@ test("the color palette opens above text near the bottom", async ({ page }) => {
   );
 });
 
+// Chooses `option` from one of the format bar's dropdowns, e.g. "Font".
+async function choose(page: Page, dropdown: string, option: string) {
+  const bar = getFormatBar(page);
+  await bar.getByRole("button", { name: new RegExp(`^${dropdown}: `) }).click();
+  await bar
+    .getByRole("listbox", { name: dropdown })
+    .getByRole("option", { name: option, exact: true })
+    .click();
+}
+
+// Types a size into the font size dropdown's own field, and presses Enter.
+async function typeFontSize(page: Page, size: string) {
+  const bar = getFormatBar(page);
+  await bar.getByRole("button", { name: /^Font size: / }).click();
+  const field = bar.getByRole("textbox", { name: "Custom font size" });
+  await field.fill(size);
+  await field.press("Enter");
+}
+
 test("the font, size and color can be changed", async ({ page }) => {
   await selectNewText(page, "Fancy");
   const bar = getFormatBar(page);
 
-  await bar
-    .getByRole("combobox", { name: "Font", exact: true })
-    .selectOption("Serif");
-  await bar.getByRole("combobox", { name: "Font size" }).selectOption("48");
+  await choose(page, "Font", "Serif");
+  await expect(bar.getByRole("button", { name: "Font: Serif" })).toBeVisible();
+  await choose(page, "Font size", "Large");
   await bar.getByRole("button", { name: "Text color" }).click();
-  await bar.getByRole("button", { name: "blue", exact: true }).click();
+  await bar.getByRole("button", { name: "Blue", exact: true }).click();
+  // Picking a color closes the colors.
+  await expect(bar.getByRole("group", { name: "Text color" })).toBeHidden();
   // Choosing them doesn't stop typing.
   await expect(bar).toBeVisible();
   await page.keyboard.press("Escape");
@@ -279,14 +298,184 @@ test("the font, size and color can be changed", async ({ page }) => {
   const span = getTexts(page).locator("[data-color]");
   await expect(span).toHaveText("Fancy");
   await expect(span).toHaveCSS("color", "rgb(44, 113, 255)");
+  // 1.5 times the text's own 24.
   await expect(getTexts(page).locator("[data-size]")).toHaveCSS(
     "font-size",
-    "48px"
+    "36px"
   );
   await expect(getTexts(page).locator("[data-font]")).toHaveCSS(
     "font-family",
     /Georgia/
   );
+});
+
+test("the font size offers small, medium and large", async ({ page }) => {
+  await selectNewText(page, "Sized");
+  const bar = getFormatBar(page);
+  const size = bar.getByRole("button", { name: /^Font size: / });
+
+  // Medium is the text's own size.
+  await expect(size).toHaveAccessibleName("Font size: Medium");
+  await size.click();
+  await expect(
+    bar.getByRole("option", { name: "Medium", exact: true })
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(
+    bar.getByRole("listbox", { name: "Font size" }).getByRole("option")
+  ).toHaveText(["Small", "Medium", "Large"]);
+  await bar.getByRole("option", { name: "Small", exact: true }).click();
+  await expect(bar.getByRole("listbox")).toBeHidden();
+  await expect(size).toHaveAccessibleName("Font size: Small");
+  // 0.75 times the text's own 24.
+  await expect(getTexts(page).locator("[data-size]")).toHaveCSS(
+    "font-size",
+    "18px"
+  );
+
+  // Medium takes the size off.
+  await choose(page, "Font size", "Medium");
+  await expect(getTexts(page).locator("[data-size]")).toHaveCount(0);
+  await expect(size).toHaveAccessibleName("Font size: Medium");
+});
+
+test("a font size can be typed in, and typing goes on", async ({ page }) => {
+  await selectNewText(page, "Sized");
+  const bar = getFormatBar(page);
+
+  await typeFontSize(page, "50");
+
+  await expect(getTexts(page).locator("[data-size]")).toHaveCSS(
+    "font-size",
+    "50px"
+  );
+  // One that isn't offered is shown as it is, while typing goes on.
+  await expect(bar).toBeVisible();
+  await expect(
+    bar.getByRole("button", { name: /^Font size: / })
+  ).toHaveAccessibleName("Font size: 50");
+});
+
+test("a size that can't be used isn't", async ({ page }) => {
+  await selectNewText(page, "Sized");
+  const bar = getFormatBar(page);
+
+  await typeFontSize(page, "0");
+
+  await expect(
+    bar.getByRole("textbox", { name: "Custom font size" })
+  ).toHaveAttribute("aria-invalid", "true");
+  await page.keyboard.press("Escape");
+  await expect(getTexts(page).locator("[data-size]")).toHaveCount(0);
+});
+
+test('typing "- " or "1. " starts a list, which Tab nests', async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Text", exact: true }).click();
+  const box = (await page.locator("canvas").boundingBox())!;
+  await page.mouse.click(box.x + box.width * 0.4, box.y + box.height * 0.4);
+  const bar = getFormatBar(page);
+
+  await page.keyboard.type("- Milk");
+  await expect(
+    bar.getByRole("button", { name: "Bulleted list" })
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("Eggs");
+  await page.keyboard.press("Tab");
+  // Two Enters leave the list.
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("1. First");
+  await expect(
+    bar.getByRole("button", { name: "Numbered list" })
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+
+  const text = getTexts(page);
+  await expect(text.locator('p[data-list="bullet"]')).toHaveText([
+    "Milk",
+    "Eggs",
+  ]);
+  await expect(
+    text.locator('p[data-list="bullet"][data-level="1"]')
+  ).toHaveText("Eggs");
+  await expect(text.locator('p[data-list="ordered"]')).toHaveText("First");
+});
+
+test("the list buttons make paragraphs a list, and back", async ({ page }) => {
+  await selectNewText(page, "Item");
+  const bar = getFormatBar(page);
+  const bullets = bar.getByRole("button", { name: "Bulleted list" });
+
+  await bullets.click();
+  await expect(bullets).toHaveAttribute("aria-pressed", "true");
+  await expect(getTexts(page).locator('p[data-list="bullet"]')).toHaveText(
+    "Item"
+  );
+
+  await bullets.click();
+  await expect(bullets).toHaveAttribute("aria-pressed", "false");
+  await expect(getTexts(page).locator("p[data-list]")).toHaveCount(0);
+});
+
+test("selected text can be linked, and typing goes on", async ({ page }) => {
+  await selectNewText(page, "Docs");
+  const bar = getFormatBar(page);
+  const link = bar.getByRole("button", { name: "Link", exact: true });
+
+  await link.click();
+  const address = bar.getByRole("textbox", { name: "Link address" });
+  await expect(address).toBeFocused();
+  await address.fill("example.com/docs");
+  await address.press("Enter");
+
+  const anchor = getTexts(page).locator("a");
+  await expect(anchor).toHaveText("Docs");
+  await expect(anchor).toHaveAttribute("href", "https://example.com/docs");
+  // It's back to typing, with the panel closed.
+  await expect(address).toBeHidden();
+  await expect(bar).toBeVisible();
+  await expect(link).toHaveAttribute("aria-pressed", "true");
+});
+
+test("a link's address that can't be one isn't used", async ({ page }) => {
+  await selectNewText(page, "Docs");
+  const bar = getFormatBar(page);
+
+  await bar.getByRole("button", { name: "Link", exact: true }).click();
+  const address = bar.getByRole("textbox", { name: "Link address" });
+  // Only web and email addresses are links.
+  await address.fill("javascript:alert(1)");
+  await address.press("Enter");
+
+  await expect(address).toHaveAttribute("aria-invalid", "true");
+  await expect(getTexts(page).locator("a")).toHaveCount(0);
+});
+
+test("a link can be removed", async ({ page }) => {
+  await selectNewText(page, "Docs");
+  const bar = getFormatBar(page);
+  const link = bar.getByRole("button", { name: "Link", exact: true });
+  await link.click();
+  await bar.getByRole("textbox", { name: "Link address" }).fill("example.com");
+  await bar.getByRole("textbox", { name: "Link address" }).press("Enter");
+  await expect(getTexts(page).locator("a")).toHaveCount(1);
+  // Typed in again, if it stopped, with the link selected.
+  if (await bar.isHidden()) {
+    await getTexts(page).click();
+  }
+  await page.keyboard.press("ControlOrMeta+a");
+
+  await link.click();
+  await expect(bar.getByRole("textbox", { name: "Link address" })).toHaveValue(
+    "https://example.com"
+  );
+  await bar.getByRole("button", { name: "Remove link" }).click();
+
+  await expect(getTexts(page).locator("a")).toHaveCount(0);
+  await expect(getTexts(page)).toHaveText("Docs");
 });
 
 test("the text's own color is chosen, and picking it removes others", async ({
@@ -297,16 +486,16 @@ test("the text's own color is chosen, and picking it removes others", async ({
   const colorButton = bar.getByRole("button", { name: "Text color" });
 
   await colorButton.click();
-  await expect(bar.getByRole("button", { name: "black" })).toHaveAttribute(
+  await expect(bar.getByRole("button", { name: "Black" })).toHaveAttribute(
     "aria-pressed",
     "true"
   );
-  await bar.getByRole("button", { name: "blue", exact: true }).click();
+  await bar.getByRole("button", { name: "Blue", exact: true }).click();
   await expect(getTexts(page).locator("[data-color]")).toHaveCount(1);
 
   await page.keyboard.press("ControlOrMeta+a");
   await colorButton.click();
-  await bar.getByRole("button", { name: "black" }).click();
+  await bar.getByRole("button", { name: "Black" }).click();
   await expect(getTexts(page).locator("[data-color]")).toHaveCount(0);
 });
 
@@ -364,17 +553,18 @@ test("a selection with mixed formatting shows none", async ({ page }) => {
   const box = (await page.locator("canvas").boundingBox())!;
   await page.mouse.click(box.x + box.width * 0.4, box.y + box.height * 0.4);
   const bar = getFormatBar(page);
-  const size = bar.getByRole("combobox", { name: "Font size" });
-  await size.selectOption("40");
+  await choose(page, "Font size", "Large");
   await page.keyboard.type("Big");
   await page.keyboard.press("Enter");
-  await size.selectOption("24");
+  await choose(page, "Font size", "Small");
   await page.keyboard.type("small");
   await bar.getByRole("button", { name: "Align center" }).click();
 
   await page.keyboard.press("ControlOrMeta+a");
 
-  await expect(size).toHaveValue("");
+  await expect(
+    bar.getByRole("button", { name: "Font size: Mixed" })
+  ).toBeVisible();
   // Only the second paragraph is centered.
   for (const name of ["Align left", "Align center", "Align right"]) {
     await expect(bar.getByRole("button", { name })).toHaveAttribute(
@@ -392,6 +582,11 @@ test("an empty text box shows a hint, and is wide enough to find", async ({
 
   const text = page.locator(".canvas-text");
   await expect(text).toHaveAttribute("data-empty");
+  expect(
+    await text.evaluate(
+      (element) => getComputedStyle(element, "::before").content
+    )
+  ).toBe('"Add text"');
   // Four characters wide, at the 24-unit default.
   expect((await text.boundingBox())!.width).toBeGreaterThanOrEqual(96);
 
@@ -406,12 +601,15 @@ test("picking a color while typing colors the text, and typing goes on", async (
   await page.mouse.click(400, 300);
 
   // From the toolbar, before typing anything.
-  await page.getByRole("button", { name: "Color: black" }).click();
-  await page.getByRole("button", { name: "red", exact: true }).click();
+  await page.getByRole("button", { name: "Color: Black", exact: true }).click();
+  await page
+    .locator(".canvas-popover")
+    .getByRole("button", { name: "Red", exact: true })
+    .click();
   await page.keyboard.type("Red ");
 
   // A color code typed in, too.
-  await page.getByRole("button", { name: "Color: red" }).click();
+  await page.getByRole("button", { name: "Color: Red", exact: true }).click();
   const code = page.getByRole("textbox", { name: "Color code" });
   await code.fill("#0000ff");
   await code.press("Enter");
