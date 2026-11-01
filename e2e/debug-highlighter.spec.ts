@@ -1,65 +1,69 @@
 // TEMPORARY: diagnoses the highlighter test failing on Linux WebKit only.
-import { expect, test } from "@playwright/test";
+import { test } from "@playwright/test";
+import { getSquareOutlines } from "../src/utilities/stroke-pieces";
 
-test("debug: what the highlighter draws", async ({ page }, testInfo) => {
+const points = [];
+for (let i = 0; i <= 10; i++) points.push({ x: 320 + 64 * i, y: 360 });
+for (let i = 1; i <= 10; i++)
+  points.push({ x: 960 - 64 * i, y: 360 + 0.2 * i });
+const outlines = getSquareOutlines({
+  color: "#fcfd00",
+  size: 10,
+  opacity: 0.4,
+  cap: "square",
+  points,
+});
+
+test("debug: which fills Linux WebKit draws", async ({ page }) => {
   await page.goto("/e2e/fixtures/full.html");
-  await expect(page.locator("canvas")).toBeVisible();
-  await page.keyboard.press("h");
-  const box = (await page.locator("canvas").boundingBox())!;
-  const y = box.y + box.height / 2;
-  await page.mouse.move(box.x + box.width / 4, y);
-  await page.mouse.down();
-  await page.mouse.move(box.x + (box.width * 3) / 4, y, { steps: 10 });
-  await page.mouse.move(box.x + box.width / 4, y + 2, { steps: 10 });
-  await page.mouse.up();
-  const info = await page.evaluate(() => {
-    const canvases = [...document.querySelectorAll("canvas")];
-    const strokes = Object.entries(localStorage)
-      .filter(([key]) => key.endsWith(":strokes"))
-      .flatMap(([, value]) => JSON.parse(value));
-    return {
-      dpr: devicePixelRatio,
-      ua: navigator.userAgent,
-      canvases: canvases.map((canvas) => {
-        const context = canvas.getContext("2d")!;
-        const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
-        let painted = 0;
-        let minX = Infinity, minY = Infinity, maxX = -1, maxY = -1;
-        for (let i = 3; i < data.length; i += 4) {
-          if (data[i] > 0) {
-            painted++;
-            const p = (i - 3) / 4;
-            const px = p % canvas.width, py = Math.floor(p / canvas.width);
-            minX = Math.min(minX, px); maxX = Math.max(maxX, px);
-            minY = Math.min(minY, py); maxY = Math.max(maxY, py);
-          }
-        }
-        const row = Math.floor(canvas.height / 2);
-        const samples = [];
-        for (let i = 0; i < 20; i++) {
-          const x = Math.floor((canvas.width * i) / 20);
-          samples.push([...context.getImageData(x, row, 1, 1).data]);
-        }
-        return {
-          className: canvas.className,
-          size: [canvas.width, canvas.height],
-          css: [canvas.clientWidth, canvas.clientHeight],
-          transform: context.getTransform().toString(),
-          painted,
-          bounds: [minX, minY, maxX, maxY],
-          samples,
-        };
-      }),
-      strokes: strokes.map((stroke) => ({
-        ...stroke,
-        points: stroke.points.slice(0, 5),
-        count: stroke.points.length,
-      })),
+  const results = await page.evaluate((outlines) => {
+    type Pt = { x: number; y: number };
+    const trace = (context: CanvasPath, list: Pt[][]) =>
+      list.forEach(([first, ...rest]) => {
+        context.moveTo(first.x, first.y);
+        rest.forEach(({ x, y }) => context.lineTo(x, y));
+        context.closePath();
+      });
+    const run = (
+      draw: (context: CanvasRenderingContext2D) => void,
+      alpha = 0.4
+    ) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 2560;
+      canvas.height = 1440;
+      const context = canvas.getContext("2d")!;
+      context.scale(2, 2);
+      context.fillStyle = "#fcfd00";
+      context.globalAlpha = alpha;
+      draw(context);
+      const data = context.getImageData(0, 0, 2560, 1440).data;
+      let painted = 0;
+      for (let i = 3; i < data.length; i += 4) if (data[i] > 0) painted++;
+      return painted;
     };
-  });
-  console.log("DEBUG " + JSON.stringify(info));
-  await testInfo.attach("screen", {
-    body: await page.screenshot(),
-    contentType: "image/png",
-  });
+    const one =
+      (list: Pt[][], rule?: CanvasFillRule) =>
+      (c: CanvasRenderingContext2D) => {
+        c.beginPath();
+        trace(c, list);
+        c.fill(rule);
+      };
+    return {
+      all: run(one(outlines)),
+      allSolid: run(one(outlines), 1),
+      allEvenOdd: run(one(outlines, "evenodd")),
+      first10: run(one(outlines.slice(0, 10))),
+      first100: run(one(outlines.slice(0, 100))),
+      first300: run(one(outlines.slice(0, 300))),
+      forwardHalf: run(one(outlines.slice(0, 305))),
+      backHalf: run(one(outlines.slice(305))),
+      eachSeparately: run((c) => outlines.forEach((o) => one([o])(c))),
+      path2d: run((c) => {
+        const path = new Path2D();
+        trace(path, outlines);
+        c.fill(path);
+      }),
+    };
+  }, outlines);
+  console.log("DEBUG " + JSON.stringify(results));
 });
