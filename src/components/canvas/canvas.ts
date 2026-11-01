@@ -1724,10 +1724,12 @@ export class Canvas {
       return;
     }
     // An item is placed on release instead, since focusing it now would be
-    // undone as the press moves focus.
+    // undone as the press moves focus. A press that finishes typing only
+    // finishes it, but an item still focused once typing's finished, e.g.
+    // with Escape, doesn't keep the press from placing another.
     if (this.#placing) {
       const active = document.activeElement;
-      if (!this.#items.contains(active) && !this.#overlay.contains(active)) {
+      if (!this.#editing && !this.#overlay.contains(active)) {
         this.#placingPress = {
           pointerId: event.pointerId,
           client: { x: event.clientX, y: event.clientY },

@@ -65,9 +65,6 @@ function setName(page: Page, firstName: string, lastName = "") {
 async function share(page: Page): Promise<string> {
   const room = await page.evaluate(() => {
     const test = window as unknown as TestPage;
-    // As a page's Share button would, it takes focus from what was typed in
-    // last.
-    (document.activeElement as HTMLElement | null)?.blur();
     return test.join(test.canvas.canvasId);
   });
   return `${PAGE}?room=${encodeURIComponent(room)}`;

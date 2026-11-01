@@ -78,6 +78,25 @@ test("text left empty isn't kept", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
 });
 
+test("once typing's finished with Escape, the next press places again", async ({
+  page,
+}) => {
+  await addText(page, "First", 0.2, 0.2);
+  // Focus stays on the text, but the press isn't taken to finish typing.
+  await expect(page.locator(".canvas-text")).toBeFocused();
+  await page.mouse.click(600, 400);
+  await page.keyboard.type("Second");
+  await page.keyboard.press("Escape");
+  await expect(getTexts(page)).toHaveText(["First", "Second"]);
+
+  await page.keyboard.press("r");
+  await page.mouse.move(300, 450);
+  await page.mouse.down();
+  await page.mouse.move(400, 550, { steps: 5 });
+  await page.mouse.up();
+  await expect(page.locator(".canvas-shape")).toHaveCount(1);
+});
+
 test("new text is in the pencil's color, at the text size", async ({
   page,
 }) => {
