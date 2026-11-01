@@ -75,8 +75,11 @@ test("dragging text's side wraps it", async ({ page }) => {
 test("picking a color while typing colors plain text", async ({ page }) => {
   await page.getByRole("button", { name: "Text", exact: true }).click();
   await page.mouse.click(400, 300);
-  await page.getByRole("button", { name: "Color: black" }).click();
-  await page.getByRole("button", { name: "blue", exact: true }).click();
+  await page.getByRole("button", { name: "Color: Black", exact: true }).click();
+  await page
+    .locator(".canvas-popover")
+    .getByRole("button", { name: "Blue", exact: true })
+    .click();
   await page.keyboard.type("Blue");
   await page.keyboard.press("Escape");
 

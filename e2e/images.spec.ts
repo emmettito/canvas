@@ -231,13 +231,15 @@ test("the dropper picks from images", async ({ page }) => {
   await page.getByRole("button", { name: "Dropper" }).click();
   await page.mouse.click(box.x + box.width / 2 + 50, middle);
   await expect(
-    page.getByRole("button", { name: "Color: #0000ff" })
+    page.getByRole("button", { name: "Color: #0000ff", exact: true })
   ).toBeVisible();
 
   // Again, from the image already shown, the other half: the palette's red.
   await page.getByRole("button", { name: "Dropper" }).click();
   await page.mouse.click(box.x + box.width / 2 - 50, middle);
-  await expect(page.getByRole("button", { name: "Color: red" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Color: Red", exact: true })
+  ).toBeVisible();
 });
 
 test("the dropper's magnifier shows the color under the mouse", async ({
@@ -251,9 +253,9 @@ test("the dropper's magnifier shows the color under the mouse", async ({
   await page.getByRole("button", { name: "Dropper" }).click();
   await page.mouse.move(box.x + box.width / 2 + 50, middle);
   await expect(loupe).toBeVisible();
-  await expect(loupe).toHaveText("#0000ff");
+  await expect(loupe).toHaveText("#0000FF");
   await page.mouse.move(box.x + box.width / 2 - 50, middle);
-  await expect(loupe).toHaveText("#ff0000");
+  await expect(loupe).toHaveText("#FF0000");
 
   // Picking goes back to the pencil, which has none.
   await page.mouse.click(box.x + box.width / 2 - 50, middle);

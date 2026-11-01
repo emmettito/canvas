@@ -2,7 +2,7 @@
 
 A simple art canvas. Draw with a pencil, highlighter or eraser, fill areas
 with a paint bucket, pick from a color palette, adjust the size of each tool,
-add shapes, text, images and sticky notes, draw on the notes, pick several to
+add text, images and sticky notes, draw on the notes, pick several to
 move, copy or delete together, stack it all, and undo or redo any of it,
 alone or live with others. The canvas fills the space it's
 given, with its toolbars floating above it.
@@ -70,17 +70,16 @@ mountCanvas(document.getElementById("drawing")!, {
 | Control            | Does                                              |
 | ------------------ | ------------------------------------------------- |
 | `undo`, `redo`     | Undo or redo the last change                      |
-| `clear`            | Remove everything, which can be undone            |
+| `clear`            | Remove everything, once asked, for good           |
 | `new-canvas`       | Start a blank canvas                              |
 | `history`          | Open or delete canvases drawn earlier             |
-| `export`           | Export as PNG, JPEG or SVG (see below)            |
+| `export`           | Name and export as PNG, JPEG or SVG (see below)   |
 | `move`             | Move, resize and pick what's placed (see below)   |
-| `pencil`, `eraser` | Pick the tool, or its size if already picked      |
+| `pencil`, `eraser` | Pick the tool, showing its options (see below)    |
 | `highlighter`      | The same, drawing see-through (see below)         |
-| `bucket`           | Fill areas with the pencil's color (see below)    |
-| `text`             | Add text, or pick its size if already picked      |
+| `bucket`           | Fill areas with its own color (see below)         |
+| `text`             | Add text                                          |
 | `note`             | Add sticky notes                                  |
-| `shape`            | Draw shapes, or pick the shape if already picked  |
 | `image`            | Insert images from files                          |
 | `color`            | Pick the drawing tools' or notes' color (no icon) |
 | `dropper`          | Pick a color from the drawing                     |
@@ -153,15 +152,25 @@ added to the page.
 Each tool has a key, shown in its button's tooltip, which picks it while the
 canvas is in use and nothing's being typed: V for `move`, P for `pencil`, H
 for `highlighter`, E for `eraser`, G for `bucket`, N for `note`, T for
-`text`, I for `dropper`, and R, O, L and A for `shape`, with a rectangle,
-ellipse, line or arrow. Only tools on a toolbar have one.
+`text` and I for `dropper`. Only tools on a toolbar have one.
 
-Clicking `pencil`, `highlighter` or `eraser` again shows its sizes, each as
-the dot it draws, at the size it draws it, with its width in pixels below,
-and the one picked ringed, like the color picked. They offer the same sizes:
-2, 5, 10, 20 and 40 pixels wide. [ and ] pick the next size down or up, like
-Photoshop's. A size is on screen, not on the drawing, so a stroke looks the
-size picked at any zoom: zoomed in, it's finer on the drawing, for detail.
+While `pencil`, `highlighter`, `eraser`, `bucket` or `note` is picked, its
+options show
+in a smaller bar of their own, above the toolbar it's on (below a top one),
+until another tool is picked:
+
+- **Sizes**, for the pencil, highlighter and eraser: Thin, Medium (the
+  default) and Thick, each shown as a squiggle that thick. The pencil draws 2,
+  5 or 10 pixels wide, and the highlighter and eraser 10, 20 or 40. [ and ]
+  pick the next size down or up, like Photoshop's. A size is on screen, not on
+  the drawing, so a stroke looks the size picked at any zoom: zoomed in, it's
+  finer on the drawing, for detail.
+- **Colors**, for the pencil, highlighter, paint bucket and notes, each its
+  own: the palette, as circles, with the one picked ringed, then the color
+  picked, as a rounded square and written
+  out, e.g. `#F27637`, which opens the color picker (see [Colors](#colors)).
+  Picking one of the palette's closes the picker. The palette's colors all fit
+  in the same width, so it stays put as they're picked.
 
 Strokes curve smoothly through the points the pointer passed, rather than
 turning sharply at each. Drawn with a pen, e.g. an Apple Pencil or a
@@ -169,8 +178,9 @@ graphics tablet's, a stroke is wider where the pen pressed harder: from a
 quarter of the size picked, pressing lightly, to nearly twice it, pressing
 hard. A mouse or a finger draws at the size picked throughout.
 
-The highlighter draws in a color of its own, yellow to start with, which
-`color` picks while it's picked. Its strokes are see-through, so what's under
+The highlighter draws in a color of its own, yellow to start with, which its
+options or `color` pick while it's picked. Its tip is square, like a
+highlighter's, and so are its strokes' ends. Its strokes are see-through, so what's under
 them shows through, and a stroke isn't any darker where it crosses itself.
 Like the pencil's, they're stacked with everything else, so one drawn over
 text tints it, and one drawn under a note is hidden by it.
@@ -178,7 +188,7 @@ text tints it, and one drawn under a note is hidden by it.
 ### Filling
 
 With `bucket` picked, clicking the canvas fills the area around the click, in
-the pencil's color: everything there that looks the same color, up to the
+the bucket's own color: everything there that looks the same color, up to the
 lines around it, as the drawing's drawn. Fills are kept as outlines,
 not pixels, so they stay sharp at any zoom and export to SVG as shapes.
 
@@ -194,14 +204,12 @@ not pixels, so they stay sharp at any zoom and export to SVG as shapes.
   and strokes, and moves and resizes with the note like its strokes.
 - The eraser erases fills made before it, like strokes. Clicking an image
   does nothing.
-- Inside a rectangle or ellipse, it fills the shape instead (see
-  [Shapes](#shapes)), which can be undone like any change.
 
 The area is found in what the canvas shows, and a little more on each side,
 so zoom out to fill something bigger than the window. A gap in a line lets
 the fill through, like any paint bucket's.
 
-### Shapes, text, images and sticky notes
+### Text, images and sticky notes
 
 Like strokes, these are saved with the canvas, can be undone and cleared, and
 are included in exports. Strokes and what's placed are stacked in one order,
@@ -233,35 +241,32 @@ picked straight away, in the same way. What's pasted is picked, with `move`,
 ready to move. Strokes can't be picked, so they're left where they are.
 
 With `note` or `text` picked, notes or text can be moved and resized the same
-way, and clicking one types in it. Whichever tool is picked, right-click an
+way, and clicking one types in it. With `text` picked, clicking a note types in
+the note, rather than adding text over it. Whichever tool is picked, right-click an
 item, or press and hold one on a touch screen with `move`, for a menu to bring
 it to the front, send it to the back, or delete it. A note's menu also has
 its colors, to change it to, with its own marked, which can be undone like
 any change. Right-clicking text being typed opens the same menu, rather than
 the browser's.
 
-**Shapes**: with `shape` picked, dragging on the canvas draws a rectangle,
-ellipse, line or arrow between where the drag started and the pointer, in the
-pencil's color, as wide as the pencil's size. Clicking `shape` again picks
-which, as do their keys. Hold Shift for a square or circle, or a line at an
-eighth of a turn. A shape is only pressed where it shows: along its line or
-outline, which is easy to press even when it's thin, or anywhere inside one
-filled with `bucket`. Its empty middle lets presses through, to what's under
-it. A rectangle or ellipse resizes from just outside its outline, and a line
-or arrow from its ends, which swing round each other. Shapes are SVG, so they
-stay sharp at any zoom, and export to SVG as paths.
-
 **Text**: with `text` picked, clicking the canvas starts text there, in the
-pencil's color, at the size picked by clicking `text` again. Until it's typed
-in, it shows "Text", and is wide enough to click. Text is as wide
+pencil's color, at its own size, which the format bar changes. Until it's typed
+in, it shows "Add text", and is wide enough to click. Text is as wide
 as its longest line, with Enter for a new line, until a side is dragged, which
 sets the width it wraps at. Resizing only resizes the box, never the text, and
 the box can't be made shorter than its text.
 
-**Sticky notes**: with `note` picked, clicking the canvas adds a note there.
-While `note` is picked, `color` picks the color of new notes, which are a light
-shade of it, so their text stays readable. Yellow is the default. Text that
-doesn't fit in a note is hidden, and left out of the export.
+**Sticky notes**: with `note` picked, a see-through square in the note's
+color follows the mouse, showing where clicking adds a note. Until it's typed
+in, it shows "Add text". Its options pick the color of new notes: the
+palette's are a light shade of each color, in the same order, so their text
+stays readable, and yellow is the default. Each shade is one of the color
+picker's grid, its third row down, so it can be picked there too. A color picked in the color
+picker is used as it is, so a note can be any color, including the palette's
+own. While a note's typed in, its options show its color, and picking another
+changes it, which can be undone; its menu has the palette's too. While `note`
+is picked, `color` picks the same. Text that doesn't fit in a note is hidden,
+and left out of the export.
 
 A note being moved snaps to the notes on screen near it: its edges or middle
 line up with theirs, or it sits a small gap beside one it's level with, and
@@ -290,17 +295,37 @@ exports include them unchanged.
 
 ### Colors
 
-`color` picks the pencil's color, which text uses too, or new notes' while
-`note` is picked. Besides the palette, any color can be picked with the
-browser's color picker, or typed as any solid CSS color, e.g. `#ff8800`,
-`orange` or `hsl(30 100% 50%)`, which is kept as hex. The box shows the
-color picked now, selected to type over. One that's the
-palette's, e.g. `red`, is the palette's. Custom colors are offered again under
-Recent. While text or a note is being typed in, `color` colors the text too,
-and typing carries on. Where the browser can, e.g. Chrome and Edge,
-"Pick from screen" picks a color from anywhere on screen.
+A tool's options, the format bar and `color` offer the palette, and the
+color picked, which opens a color picker for any color. It stays open, to try
+a few:
 
-`dropper` picks a color from the drawing, wherever it's clicked, including
+- A grid of the palette's colors, a column each, from a light tint at the
+  top, through the color itself, to a dark shade, after a column of grays
+  with the palette's white, gray and black.
+  The color picked is framed.
+- **Opacity**, a slider from barely there to solid, except for notes, which
+  are always solid. A see-through stroke is
+  see-through as a whole, like the highlighter's, so it isn't darker where it
+  crosses itself.
+- The color written out, in **Hex**, **RGB**, **CSS**, **HSL** or **HSB**, to
+  read or type. Enter, or leaving the box, picks what's typed. Hex takes a CSS
+  name too, e.g. `orange`, and CSS any CSS color, e.g. `hsl(30 100% 50% / 50%)`,
+  including how see-through it is. Beside it, how much of it shows, as a
+  percentage. Each tool, and the format bar, keeps the format picked for it,
+  and the color picked shows written in it, until a color is picked from the
+  palette or the grid, which is in hex.
+- **Recent**: custom colors picked before.
+- **Pick a color**: the dropper, which picks a color from the drawing for the
+  tool the picker's for (see below). The format bar's picks from anywhere on
+  screen instead, so typing isn't stopped, where the browser can, e.g. Chrome
+  and Edge, and doesn't have one elsewhere.
+
+Colors are kept as `#rrggbb`, or `#rrggbbaa` if they're see-through. One
+that's the palette's, e.g. `red` typed, is the palette's, except for notes.
+While text or a note is being typed in, `color` colors the text too, and
+typing carries on.
+
+`dropper`, or the color picker's dropper, picks a color from the drawing, wherever it's clicked, including
 images, notes and the background, then goes back to the tool before it. A
 color from the palette is kept as the palette's. With a mouse, a magnifier
 follows the pointer, showing the pixels around it and the color it would
@@ -378,10 +403,28 @@ mountCanvas(document.getElementById("drawing")!, {
 });
 ```
 
-While typing, a bar above the text formats what's selected, or what's typed
-next: its font, size, bold, italic, underline, line through, color and
-alignment. Ctrl+B, Ctrl+I and Ctrl+U (Cmd on a Mac) and Ctrl+Shift+X for a
-line through work too, and Ctrl+Z undoes typing until it's finished.
+While typing, a bar centered above the text formats what's selected, or what's typed
+next:
+
+- **Font** and **size**, from menus. The sizes are Small, Medium (the text's
+  own) and Large, or any size typed below them.
+- Bold, italic, underline and line through.
+- **Color**, from a row of the palette's, or any color, from the color
+  picker.
+- **Link**: links the selection, or the link at the cursor, to an address
+  typed or pasted, e.g. `example.com`, or adds the address as its own linked
+  text. Only web and email addresses link. Links are underlined, and open in
+  a new tab with Ctrl held (Cmd on a Mac) as they're clicked.
+- **Bulleted** and **numbered lists**. Typing "- " or "1. " at the start of a
+  line starts one too. Tab nests an item a level further in, and Shift+Tab
+  brings it out, and numbers go from 1. to a. to i. the further in. Enter on
+  an empty item ends the list, and Backspace at an item's start makes it a
+  line again.
+- Alignment.
+
+Ctrl+B, Ctrl+I and Ctrl+U (Cmd on a Mac), Ctrl+Shift+X for a line through,
+and Ctrl+Shift+8 and Ctrl+Shift+7 for lists work too, and Ctrl+Z undoes typing
+until it's finished.
 Formatting is kept in exports, and copies between notes and text. Without the
 editor, formatted text shows as plain text, and keeps its formatting unless
 it's changed.
@@ -433,8 +476,11 @@ is kept with the other settings.
 
 ### Exporting
 
-`export` opens a small dialog to choose the file:
+`export` opens a dialog in the middle of the canvas to choose the file:
 
+- **Name**: the canvas's name, which names the file. It's renamed as it's
+  typed, even without exporting, so it's where a page without `rename` names
+  its canvas.
 - **Format**: PNG, JPEG or SVG. SVG keeps the strokes as shapes, so it stays
   sharp at any size and can be edited in other tools.
 - **Size**: 1×, 2× (the default) or 4× the part of the drawing the canvas
@@ -456,7 +502,7 @@ Everyone's changes show as they're made, with each person's pointer and name
 in their own color, and a row of who's there, with their photos, at the start
 of the top right toolbar. Each pointer looks like the tool it's pointing with:
 a ring as big as the pencil, highlighter or eraser draws, an I-beam for text,
-a crosshair for notes, shapes and the paint bucket, the dropper, or an arrow
+a crosshair for notes and the paint bucket, the dropper, or an arrow
 for the move tool. Its name is the first name, with more of it for two people
 here who share one, as bylines do, and the row shows whole names. It's added while anyone's there, even without
 `topRightToolbar`, and hidden with the toolbars. What they're in the middle of shows too: a stroke as it's drawn, an
@@ -632,9 +678,10 @@ draws together in the room in its address's `room`, through a WebSocket at
 ## Demo page
 
 `npm run dev` serves the demo page, where the canvas fills the window, with
-the drawing tools at the bottom and the zoom at the top right, and formatted
-text. It's only for drawing: there's no File menu, timer, settings or drawing
-together, and nothing's saved, so a refresh starts again.
+undo, redo, clear and export, then the drawing tools, at the bottom, the zoom
+at the top right, and formatted text. It's only for drawing: there's no File
+menu, timer, settings or drawing together. What's drawn is saved in the
+browser, so a refresh keeps it, and the export dialog names it.
 
 The full app built on the library, with saving, naming canvases, profiles,
 themes, the timer and drawing together, is

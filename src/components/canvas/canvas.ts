@@ -1,4 +1,3 @@
-import { COLORS } from "../../constants/colors.const";
 import { DRAG_THRESHOLD } from "../../constants/drag-threshold.const";
 import { FILL_LAYOUT } from "../../constants/fill-layout.const";
 import { IMAGE_LAYOUT } from "../../constants/image-layout.const";
@@ -6,7 +5,6 @@ import { LOUPE_LAYOUT } from "../../constants/loupe-layout.const";
 import { NOTE_LAYOUT } from "../../constants/note-layout.const";
 import { NOTE_SNAP } from "../../constants/note-snap.const";
 import { RESIZE_HANDLES } from "../../constants/resize-handles.const";
-import { SHAPE_LAYOUT } from "../../constants/shape-layout.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
 import { ZOOM } from "../../constants/zoom.const";
 import { type Activity } from "../../models/activity.model";
@@ -26,7 +24,6 @@ import { type Note } from "../../models/note.model";
 import { type PersonName } from "../../models/person-name.model";
 import { type Point } from "../../models/point.model";
 import { type RichText } from "../../models/rich-text.model";
-import { type Shape, type ShapeType } from "../../models/shape.model";
 import { type Size } from "../../models/size.model";
 import { type Stroke } from "../../models/stroke.model";
 import { type TextBox } from "../../models/text-box.model";
@@ -36,16 +33,19 @@ import {
 } from "../../models/text-editor.model";
 import { type ToolState } from "../../models/tool-state.model";
 import { type Viewport } from "../../models/viewport.model";
+import { type ColorFormat } from "../../utilities/color-formats";
 import { createElement } from "../../utilities/create-element";
 import { createId } from "../../utilities/create-id";
 import { drawFills } from "../../utilities/draw-fills";
 import { drawStroke } from "../../utilities/draw-stroke";
 import {
-  getColorName,
+  isCustomColor,
   isDarkColor,
   parseColor,
   resolveColor,
+  splitAlpha,
   toHex,
+  withAlpha,
 } from "../../utilities/colors";
 import { exportDrawing, renderDrawing } from "../../utilities/export-drawing";
 import { getByline, getSignerNames } from "../../utilities/get-byline";
@@ -57,20 +57,9 @@ import {
   touchesEdge,
   traceMask,
 } from "../../utilities/flood-fill";
-import { getNoteColor } from "../../utilities/lighten-color";
+import { getNoteShade } from "../../utilities/palette-grid";
 import { resizeBox, resizeBoxKeepingShape } from "../../utilities/resize-box";
 import { isField } from "../../utilities/is-field";
-import {
-  dragShape,
-  getLineEnds,
-  getShapeBounds,
-  getShapeBox,
-  getShapePath,
-  hitsShape,
-  isInsideShape,
-  isLine,
-  resizeShape,
-} from "../../utilities/shape-geometry";
 import { snapBox, type SnapGuide } from "../../utilities/snap-box";
 import {
   isAtEdge,
@@ -78,7 +67,7 @@ import {
   type Restack,
   resolveLayers,
 } from "../../utilities/layers";
-import { isBlank } from "../../utilities/rich-text";
+import { isBlank, isEmpty } from "../../utilities/rich-text";
 import {
   DEFAULT_VIEWPORT,
   fitViewport,
@@ -125,10 +114,14 @@ export interface CanvasOptions {
   onPickColor: (color: CustomColor) => void;
   // A custom color was picked in the format bar, to pick again.
   onCustomColor: (color: CustomColor) => void;
+  // Custom colors are to be written in `format` from now on.
+  onColorFormat: (format: ColorFormat) => void;
   // What's being done changed, e.g. a stroke being drawn, or null once it's
   // done, after the change it made, so everyone drawing together sees it as
   // it happens.
   onActivity?: (activity: Activity | null) => void;
+  // A note's being typed in, which is this color, or none is, with null.
+  onEditingNote?: (color: string | null) => void;
 }
 
 /** An item, by its kind and id, e.g. one that's picked. */
@@ -157,14 +150,10 @@ export interface ActivityPeer {
   color: string;
 }
 
-/**
- * What pressing the canvas places, instead of drawing. A shape is dragged
- * out, `size` wide on screen, like a stroke.
- */
+/** What pressing the canvas places, instead of drawing. */
 export type Placing =
   | { kind: "notes"; color: ToolColor; author: PersonName | null }
-  | { kind: "texts"; color: ToolColor; fontSize: number }
-  | { kind: "shapes"; type: ShapeType; color: ToolColor; size: number };
+  | { kind: "texts"; color: ToolColor; fontSize: number };
 
 // A note or text box, which is typed in.
 type TypedItem = PlacedItem & { content: RichText };
@@ -204,36 +193,9 @@ interface MenuAction {
   disabled?: boolean;
 }
 
-// A color a menu offers, as a swatch above its actions.
-interface MenuColor {
-  label: string;
-  // A resolved color value, as it's shown.
-  color: string;
-  selected: boolean;
-  onSelect: () => void;
-}
-
 interface ImageView extends ItemView<ImageItem> {
   image: HTMLImageElement;
 }
-
-// A shape, as SVG: its outline or line, and a wider, unseen copy of it that
-// takes presses, so a thin line is easy to press, and an empty shape's
-// middle isn't pressed.
-interface ShapeView extends ItemView<Shape> {
-  path: SVGPathElement;
-  hit: SVGPathElement;
-}
-
-const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
-
-// What screen readers call each shape.
-const SHAPE_LABELS: Record<ShapeType, string> = {
-  rectangle: "Rectangle",
-  ellipse: "Ellipse",
-  line: "Line",
-  arrow: "Arrow",
-};
 
 // What's drawn on a run of strokes' canvas: its strokes, and erasers drawn
 // above them, through the viewport, over `area`.
@@ -365,6 +327,8 @@ export class Canvas {
     { canvas: createElement("canvas", "canvas-drawing"), painted: null },
   ];
   #cursor = createElement("div", "canvas-cursor");
+  // Where a note would go, with the note tool, under the pointer.
+  #noteGhost = createElement("div", "canvas-note-ghost");
   // How each person who's signed a note is shown in its byline.
   #signerName = getSignerNames([]);
   // The dropper's magnifier, and where the pointer is, on screen. Since
@@ -407,19 +371,17 @@ export class Canvas {
     images: ItemLayer<ImageItem, ImageView>;
     texts: ItemLayer<TextBox, TypedView<TextBox>>;
     notes: ItemLayer<Note, NoteView>;
-    shapes: ItemLayer<Shape, ShapeView>;
   };
   // Images' files as object URLs, by id, once they're loaded.
   #imageUrls = new Map<string, Promise<string | null>>();
   // The press that places an item on release: where it started, on screen
-  // and on the drawing, and the note or shape it's sizing once it's dragged.
-  // Pressing the canvas to stop typing in an item doesn't place one.
+  // and on the drawing, and the note it's sizing once it's dragged. Pressing
+  // the canvas to stop typing in an item doesn't place one.
   #placingPress: {
     pointerId: number;
     client: Point;
     start: Point;
     note: NoteView | null;
-    shape: ShapeView | null;
   } | null = null;
   // The note or text being typed in, which the format bar formats.
   // `from` is the item as typing started, to tell if it changed.
@@ -428,7 +390,12 @@ export class Canvas {
     view: TypedView<TypedItem>;
     from: TypedItem;
   } | null = null;
-  #formatBar = new FormatBar((color) => this.#options.onCustomColor(color));
+  // What's being pressed, anywhere on the page, until it's let go.
+  #pressed: Node | null = null;
+  #formatBar = new FormatBar(
+    (color) => this.#options.onCustomColor(color),
+    (format) => this.#options.onColorFormat(format)
+  );
   // An item's menu, while it's open.
   #menu: HTMLElement | null = null;
   // What's picked with the move tool, to move, delete or copy together, by
@@ -497,7 +464,6 @@ export class Canvas {
       images: this.#createImageLayer(),
       texts: this.#createTextLayer(),
       notes: this.#createNoteLayer(),
-      shapes: this.#createShapeLayer(),
     };
     const { fontSize, lineHeight, padding, cornerRadius, bylineSize } =
       NOTE_LAYOUT;
@@ -526,14 +492,13 @@ export class Canvas {
       this.#runs[0].canvas,
       this.#layers.images.element,
       this.#layers.texts.element,
-      this.#layers.notes.element,
-      this.#layers.shapes.element
+      this.#layers.notes.element
     );
     layer.addEventListener("contextmenu", this.#onLayerContextMenu);
     this.#items.addEventListener("focusin", this.#onItemFocus);
     this.#items.addEventListener("keydown", this.#onItemKeyDown);
     this.#peerInk.setAttribute("aria-hidden", "true");
-    this.#surface.append(layer, this.#items, this.#cursor);
+    this.#surface.append(layer, this.#items, this.#cursor, this.#noteGhost);
     this.#overlay.append(
       this.#snapGuides,
       this.#formatBar.element,
@@ -560,6 +525,9 @@ export class Canvas {
       this.#hovered = false;
       this.#hideLoupe();
     });
+    document.addEventListener("pointerdown", this.#onDocumentPress, true);
+    document.addEventListener("pointerup", this.#onDocumentPress, true);
+    document.addEventListener("pointercancel", this.#onDocumentPress, true);
     document.addEventListener("keydown", this.#onSpace);
     document.addEventListener("keyup", this.#onSpace);
     window.addEventListener("blur", this.#onWindowBlur);
@@ -629,9 +597,12 @@ export class Canvas {
     }
   }
 
-  /** Custom colors picked before, which the format bar offers again. */
-  setRecentColors(colors: CustomColor[]): void {
-    this.#formatBar.setRecentColors(colors);
+  /**
+   * Custom colors picked before, which the format bar offers again, and how
+   * they're written.
+   */
+  setColorSettings(colors: CustomColor[], format: ColorFormat): void {
+    this.#formatBar.setColorSettings(colors, format);
   }
 
   /** Shows another part of the drawing, e.g. once a canvas is opened. */
@@ -675,7 +646,6 @@ export class Canvas {
       ...(drawn ? [drawn] : []),
       ...this.#layers.images.items,
       ...this.#layers.notes.items,
-      ...this.#layers.shapes.items.map(getShapeBounds),
       // Text's size is its text's, so it's measured.
       ...this.#layers.texts.items.map((box) => ({
         x: box.x,
@@ -713,7 +683,6 @@ export class Canvas {
       images: [],
       texts: [],
       notes: [],
-      shapes: [],
     };
     const image = renderDrawing(
       drawing,
@@ -793,15 +762,14 @@ export class Canvas {
 
   /** What pressing the canvas places, or null to draw with the tool. */
   setPlacing(placing: Placing | null): void {
-    // A note or shape being sized goes if its tool is put down mid-drag.
-    const press = this.#placingPress;
-    if (
-      (placing?.kind !== "notes" && press?.note) ||
-      (placing?.kind !== "shapes" && press?.shape)
-    ) {
+    // A note being sized goes if the note tool is put down mid-drag.
+    if (placing?.kind !== "notes" && this.#placingPress?.note) {
       this.#cancelPlacing();
     }
     this.#placing = placing;
+    if (placing?.kind !== "notes") {
+      this.#hideNoteGhost();
+    }
     const surface = this.#surface;
     if (placing) {
       surface.dataset.placing = placing.kind;
@@ -854,6 +822,7 @@ export class Canvas {
         ({ kind, id }) => kind === editing.kind && id === editing.view.item.id
       )
     ) {
+      this.#stopEditingNote(editing.kind);
       this.#editing = null;
       this.#formatBar.close();
       this.#options.onActivity?.(null);
@@ -1056,6 +1025,9 @@ export class Canvas {
    * once the canvas is removed.
    */
   destroy(): void {
+    document.removeEventListener("pointerdown", this.#onDocumentPress, true);
+    document.removeEventListener("pointerup", this.#onDocumentPress, true);
+    document.removeEventListener("pointercancel", this.#onDocumentPress, true);
     document.removeEventListener("keydown", this.#onSpace);
     document.removeEventListener("keyup", this.#onSpace);
     window.removeEventListener("blur", this.#onWindowBlur);
@@ -1152,7 +1124,6 @@ export class Canvas {
       fills: this.#fills,
       images: this.#layers.images.items,
       texts: this.#layers.texts.items,
-      shapes: this.#layers.shapes.items,
       // Drawn as they're shown, without who signed them while that's hidden.
       notes: this.#showAuthors
         ? notes
@@ -1696,6 +1667,7 @@ export class Canvas {
   }
 
   #moveCursor(event: PointerEvent): void {
+    this.#moveNoteGhost(event);
     const cursor = this.#cursor;
     // Touch and pen have no hover position, so the cursor only follows a
     // mouse. Placing, moving, filling and picking have no size to show.
@@ -1712,11 +1684,86 @@ export class Canvas {
     const { x, y } = this.#toCanvasPoint(event.clientX, event.clientY);
     // The tool's size is on screen, whatever the zoom.
     const size = this.#toolState.size * 2;
+    cursor.toggleAttribute("data-square", this.#toolState.cap === "square");
     cursor.style.visibility = "visible";
     cursor.style.left = px(x);
     cursor.style.top = px(y);
     cursor.style.width = px(size);
     cursor.style.height = px(size);
+  }
+
+  // With the note tool, a see-through note the size of a new one, in its
+  // color, shows where clicking would place it. Only a mouse hovers, and
+  // pressing while typing only finishes typing, so it's hidden then.
+  #moveNoteGhost(event: PointerEvent): void {
+    const ghost = this.#noteGhost;
+    const placing = this.#placing;
+    if (
+      event.pointerType !== "mouse" ||
+      placing?.kind !== "notes" ||
+      this.#placingPress?.note ||
+      this.#editing
+    ) {
+      this.#hideNoteGhost();
+      return;
+    }
+    // Lined up with the notes near it, as it would be placed.
+    const box = this.#placeNewNote(this.#getPoint(event), event.altKey);
+    const { x, y, zoom } = this.#viewport;
+    ghost.style.visibility = "visible";
+    ghost.style.left = px((box.x - x) * zoom);
+    ghost.style.top = px((box.y - y) * zoom);
+    ghost.style.width = px(box.width * zoom);
+    ghost.style.height = px(box.height * zoom);
+    ghost.style.borderRadius = px(NOTE_LAYOUT.cornerRadius * zoom);
+    ghost.style.backgroundColor = this.#getNoteColor(placing.color);
+  }
+
+  // Its guides go with it, but not a moving note's.
+  #hideNoteGhost(): void {
+    const ghost = this.#noteGhost;
+    if (ghost.style.visibility === "visible") {
+      this.#showSnapGuides([]);
+    }
+    ghost.style.visibility = "hidden";
+  }
+
+  // Where a new note centered on `point` goes: lined up with the notes on
+  // screen near it, as one being moved is, with guides showing what it lined
+  // up with, unless `free`, e.g. with Alt held.
+  #placeNewNote(point: Point, free: boolean): Box {
+    const { size } = NOTE_LAYOUT;
+    const box = {
+      x: point.x - size / 2,
+      y: point.y - size / 2,
+      width: size,
+      height: size,
+    };
+    if (free) {
+      this.#showSnapGuides([]);
+      return box;
+    }
+    const area = this.visibleArea;
+    const others = this.#layers.notes.views
+      .map(({ item }) => item)
+      .filter((other) => intersectBoxes(other, area));
+    const { x, y, guides } = snapBox(
+      box,
+      others,
+      NOTE_SNAP.distance / this.#viewport.zoom,
+      NOTE_SNAP.gap
+    );
+    this.#showSnapGuides(guides);
+    return { ...box, x, y };
+  }
+
+  // What color a note in `color` is: a light shade of a palette color, so its
+  // text stays readable, or a custom color as it is, but solid, so what's
+  // under it doesn't show through.
+  #getNoteColor(color: ToolColor): string {
+    return isCustomColor(color)
+      ? withAlpha(color, 1)
+      : getNoteShade(this.#interfaceLayer, color);
   }
 
   #onPointerDown = (event: PointerEvent): void => {
@@ -1735,7 +1782,6 @@ export class Canvas {
           client: { x: event.clientX, y: event.clientY },
           start: this.#getPoint(event),
           note: null,
-          shape: null,
         };
         // Capture keeps a note being sized if the pointer leaves the canvas.
         this.#interfaceLayer.setPointerCapture(event.pointerId);
@@ -1746,19 +1792,24 @@ export class Canvas {
       void this.#fillAt(event.clientX, event.clientY);
       return;
     }
-    const { color, size, opacity } = this.#toolState;
+    const { color, size, opacity, cap } = this.#toolState;
     // A stroke started on a note is drawn on it, from its top left corner.
     const note = this.#getNoteAt(event.clientX, event.clientY);
+    // A see-through color is drawn solid, with the stroke as a whole
+    // see-through, as the highlighter's is, so it's no darker where it
+    // crosses itself.
+    const { solid, alpha } = splitAlpha(
+      color === undefined ? "" : resolveColor(this.#interfaceLayer, color)
+    );
+    const shows = (opacity ?? 1) * alpha;
     const stroke: Stroke = {
-      color:
-        color === undefined
-          ? undefined
-          : resolveColor(this.#interfaceLayer, color),
+      color: color === undefined ? undefined : solid,
       points: [],
       // The size picked is on screen, so the stroke looks it at any zoom,
       // and is thinner on the drawing the further in it's zoomed.
       size: size / this.#viewport.zoom,
-      ...(opacity !== undefined && color !== undefined && { opacity }),
+      ...(shows < 1 && color !== undefined && { opacity: shows }),
+      ...(cap && color !== undefined && { cap }),
     };
     // A stroke on the drawing is part of the run of strokes on top, or
     // starts one above everything.
@@ -1795,11 +1846,7 @@ export class Canvas {
     }
     this.#moveCursor(event);
     if (this.#placingPress?.pointerId === event.pointerId) {
-      if (this.#placing?.kind === "shapes") {
-        this.#sizeShape(event);
-      } else {
-        this.#sizeNote(event);
-      }
+      this.#sizeNote(event);
       return;
     }
     const drawn = this.#drawn;
@@ -1827,17 +1874,10 @@ export class Canvas {
         if (press.note) {
           this.#layers.notes.endDraft(false);
         }
-        if (press.shape) {
-          this.#layers.shapes.endDraft(false);
-        }
       } else if (press.note) {
         this.#startEditing("notes", press.note);
-      } else if (press.shape) {
-        // Only a shape that's been dragged out is added.
-        this.#layers.shapes.endDraft(true);
-        this.#options.onItemAdd("shapes", press.shape.item);
-      } else if (this.#placing.kind !== "shapes") {
-        this.#placeDraft(this.#getPoint(event), this.#placing);
+      } else {
+        this.#placeDraft(this.#getPoint(event), this.#placing, event.altKey);
       }
       return;
     }
@@ -1883,25 +1923,11 @@ export class Canvas {
   // pixels around it that look the same, as the drawing's drawn, up to the
   // lines and edges around them. On a note, it's the note's. An area that
   // goes past the canvas's edges, around everything, is the background, so
-  // it fills that instead. Inside a rectangle or ellipse, it fills the
-  // shape. Images aren't filled.
+  // it fills that instead. Images aren't filled.
   async #fillAt(clientX: number, clientY: number): Promise<void> {
-    const target = this.#getItemAt(
-      clientX,
-      clientY,
-      ["images", "notes", "shapes"],
-      true
-    );
+    const target = this.#getItemAt(clientX, clientY, ["images", "notes"]);
     const color = this.#toolState.color;
     if (this.#findingFill || target?.kind === "images" || !color) {
-      return;
-    }
-    if (target?.kind === "shapes") {
-      const shape = target.view.item as Shape;
-      const fill = resolveColor(this.#interfaceLayer, color);
-      if (shape.fill !== fill) {
-        this.#options.onItemChange("shapes", { ...shape, fill });
-      }
       return;
     }
     const note = target
@@ -2011,30 +2037,14 @@ export class Canvas {
       : null;
   }
 
-  // The top item of `kinds` at a point on screen, if any. A shape is only
-  // there where pressing it presses it, or, with `inside`, inside it.
+  // The top item of `kinds` at a point on screen, if any.
   #getItemAt(
     clientX: number,
     clientY: number,
-    kinds: ItemKind[] = ["images", "texts", "notes", "shapes"],
-    inside = false
+    kinds: ItemKind[] = ["images", "texts", "notes"]
   ): { kind: ItemKind; view: ItemView<PlacedItem> } | null {
-    const point = this.getDrawingPoint(clientX, clientY);
-    const slop = SHAPE_LAYOUT.hitSlop / this.#viewport.zoom;
     for (const layer of [...this.#order].reverse()) {
       if (layer.kind === "strokes" || !kinds.includes(layer.kind)) {
-        continue;
-      }
-      if (layer.kind === "shapes") {
-        const view = this.#layers.shapes.getView(layer.id);
-        const shape = view?.item;
-        if (
-          view &&
-          shape &&
-          (inside ? isInsideShape(shape, point) : hitsShape(shape, point, slop))
-        ) {
-          return { kind: layer.kind, view };
-        }
         continue;
       }
       const view = this.#layers[layer.kind].getView(layer.id);
@@ -2055,6 +2065,7 @@ export class Canvas {
 
   #onPointerLeave = (): void => {
     this.#cursor.style.visibility = "hidden";
+    this.#hideNoteGhost();
   };
 
   // A point on screen, in pixels from the canvas's top left.
@@ -2418,49 +2429,7 @@ export class Canvas {
     if (this.#placingPress?.note) {
       this.#layers.notes.endDraft(false);
     }
-    if (this.#placingPress?.shape) {
-      this.#layers.shapes.endDraft(false);
-    }
     this.#placingPress = null;
-  }
-
-  // With the shape tool, dragging from where the canvas was pressed draws a
-  // shape between there and the pointer, in the pencil's color and size, a
-  // square, circle or line at an eighth of a turn with Shift held. It's
-  // added on release.
-  #sizeShape(event: PointerEvent): void {
-    const press = this.#placingPress!;
-    const placing = this.#placing;
-    if (placing?.kind !== "shapes") {
-      return;
-    }
-    const dragged = Math.hypot(
-      event.clientX - press.client.x,
-      event.clientY - press.client.y
-    );
-    if (!press.shape && dragged < DRAG_THRESHOLD) {
-      return;
-    }
-    const shape = dragShape(
-      {
-        id: press.shape?.item.id ?? createId(),
-        type: placing.type,
-        color: resolveColor(this.#interfaceLayer, placing.color),
-        // On screen, like a stroke's size, so it looks it at any zoom.
-        strokeWidth: (placing.size * 2) / this.#viewport.zoom,
-        fill: null,
-      },
-      press.start,
-      this.#getPoint(event),
-      event.shiftKey
-    );
-    if (press.shape) {
-      this.#layers.shapes.updateDraft(shape);
-    } else {
-      press.shape = this.#layers.shapes.addDraft(shape);
-      // Above everything, as it will be once it's added.
-      press.shape.element.style.zIndex = String(this.#order.length + 1);
-    }
   }
 
   // A note that isn't in the drawing yet, above everything, as it will be once
@@ -2469,11 +2438,10 @@ export class Canvas {
     box: Box,
     { color: toolColor, author }: Extract<Placing, { kind: "notes" }>
   ): NoteView {
-    const color = resolveColor(this.#interfaceLayer, toolColor);
     const view = this.#layers.notes.addDraft({
       id: createId(),
       ...box,
-      color: getNoteColor(color),
+      color: this.#getNoteColor(toolColor),
       content: [{ runs: [] }],
       strokes: [],
       fills: [],
@@ -2483,20 +2451,12 @@ export class Canvas {
     return view;
   }
 
-  // A note centered where the canvas was pressed, or text starting there,
-  // ready to type in.
-  #placeDraft(
-    point: Point,
-    placing: Exclude<Placing, { kind: "shapes" }>
-  ): void {
+  // A note centered where the canvas was pressed, lined up with the notes
+  // near it unless `free`, or text starting there, ready to type in.
+  #placeDraft(point: Point, placing: Placing, free: boolean): void {
     if (placing.kind === "notes") {
-      const { size } = NOTE_LAYOUT;
-      const box = {
-        x: point.x - size / 2,
-        y: point.y - size / 2,
-        width: size,
-        height: size,
-      };
+      const box = this.#placeNewNote(point, free);
+      this.#showSnapGuides([]);
       this.#startEditing("notes", this.#addNoteDraft(box, placing));
       return;
     }
@@ -2550,6 +2510,10 @@ export class Canvas {
     this.#finishEditing();
     this.#closeMenu();
     this.#editing = { kind, view: typed, from: view.item };
+    this.#hideNoteGhost();
+    if (kind === "notes") {
+      this.#options.onEditingNote?.((view.item as unknown as Note).color);
+    }
     view.element.toggleAttribute("data-editing", true);
     this.#showEmpty(typed);
     view.editor.edit();
@@ -2577,14 +2541,21 @@ export class Canvas {
     }
     this.#editing = null;
     const { kind, view } = editing;
+    this.#stopEditingNote(kind);
     this.#formatBar.close();
     view.element.removeAttribute("data-editing");
     view.editor.stopEditing();
-    view.element.removeAttribute("data-empty");
     // Text past a note's bottom isn't shown, so it shows its start again.
     view.editor.element.scrollTop = 0;
     const layer = this.#getLayer(kind);
-    const content = view.editor.content;
+    let content = view.editor.content;
+    // A note with only spaces or empty lines typed is kept empty, so it shows
+    // its hint again.
+    if (kind === "notes" && isBlank(content) && !isEmpty(content)) {
+      content = [{ runs: [] }];
+      view.editor.setContent(content);
+    }
+    this.#showEmpty(view);
     const blank = kind === "texts" && isBlank(content);
     const item = { ...view.item, content };
     if (layer.isDraft(item.id)) {
@@ -2619,11 +2590,14 @@ export class Canvas {
     });
   }
 
-  // An empty text box shows a hint, and is wide enough to find again.
+  // An empty text box shows a hint while it's typed in, and is wide enough
+  // to find again. An empty note always shows it, since it's kept. Anything
+  // typed, even a space, hides it.
   #showEmpty({ element, editor }: TypedView<TypedItem>): void {
     element.toggleAttribute(
       "data-empty",
-      editor.isEditable && isBlank(editor.content)
+      (editor.isEditable || element.classList.contains("canvas-note")) &&
+        isEmpty(editor.content)
     );
   }
 
@@ -2652,14 +2626,50 @@ export class Canvas {
     }
   }
 
+  /**
+   * Changes the note being typed in to `color`, the way a new note in it
+   * would be, as a change that can be undone.
+   */
+  colorTypingNote(color: ToolColor): void {
+    const editing = this.#editing;
+    if (editing?.kind !== "notes") {
+      return;
+    }
+    const view = editing.view as unknown as NoteView;
+    const noteColor = this.#getNoteColor(color);
+    if (view.item.color === noteColor) {
+      return;
+    }
+    const note = { ...view.item, color: noteColor };
+    if (this.#layers.notes.isDraft(note.id)) {
+      this.#layers.notes.updateDraft(note);
+    } else {
+      this.#options.onItemChange("notes", note);
+      // Its color's changed already, so finishing typing only adds its text.
+      editing.from = { ...editing.from, color: noteColor } as TypedItem;
+    }
+    this.#options.onEditingNote?.(noteColor);
+  }
+
+  // Tells the host no note's being typed in, once `kind` stops being.
+  #stopEditingNote(kind: ItemKind): void {
+    if (kind === "notes") {
+      this.#options.onEditingNote?.(null);
+    }
+  }
+
   /** Puts focus back in what's being typed, e.g. once a color's picked. */
   focusTyping(): void {
     this.#editing?.view.editor.focus();
   }
 
   // Typing goes on while focus is in the text or the format bar.
+  // Safari doesn't focus a button or slider that's pressed, so focus leaves
+  // for nowhere. While one in the format bar, or a control that keeps typing
+  // going, is pressed, that's where it's going, and the text gets focus back.
   #onEditingFocusOut = (event: FocusEvent): void => {
-    const next = event.relatedTarget as Node | null;
+    const pressed = event.relatedTarget ? null : this.#pressed;
+    const next = (event.relatedTarget ?? pressed) as Node | null;
     const editing = this.#editing;
     // Some controls color the text, so typing goes on while they're used.
     const keepsTyping =
@@ -2671,7 +2681,18 @@ export class Canvas {
       !(next && this.#formatBar.element.contains(next))
     ) {
       this.#finishEditing();
+    } else if (editing && pressed) {
+      requestAnimationFrame(() => {
+        if (this.#editing === editing && !isField(document.activeElement)) {
+          editing.view.editor.focus();
+        }
+      });
     }
+  };
+
+  #onDocumentPress = (event: PointerEvent): void => {
+    this.#pressed =
+      event.type === "pointerdown" ? (event.target as Node) : null;
   };
 
   #placeFormatBar(): void {
@@ -2905,8 +2926,7 @@ export class Canvas {
   }
 
   // An item's menu: to move it to the front or back of everything, or
-  // delete it, and a note's colors, to change it to. One being added has no
-  // place in the order yet.
+  // delete it. One being added has no place in the order yet.
   #openItemMenu(
     kind: ItemKind,
     view: ItemView<PlacedItem>,
@@ -2921,37 +2941,11 @@ export class Canvas {
       disabled: !placed || isAtEdge(this.#order, kind, id, to),
       onSelect: () => this.#options.onItemRestack(kind, id, to),
     });
-    this.#openMenu(
-      point,
-      [
-        restack("front", "Bring to front"),
-        restack("back", "Send to back"),
-        { label: "Delete", onSelect: () => this.#deleteItem(kind, view) },
-      ],
-      kind === "notes" ? this.#getNoteColors(view as NoteView) : []
-    );
-  }
-
-  // The light shades notes are made in, from the palette, with the note's
-  // own marked.
-  #getNoteColors(view: NoteView): MenuColor[] {
-    return COLORS.map((name) => {
-      const color = getNoteColor(resolveColor(this.#interfaceLayer, name));
-      return {
-        label: getColorName(name),
-        color,
-        selected: color === view.item.color,
-        onSelect: () => {
-          // It's read as the menu's chosen from, in case the note's changed
-          // since it opened, e.g. by someone drawing together with this
-          // canvas.
-          const note = this.#layers.notes.getView(view.item.id)?.item;
-          if (note && note.color !== color) {
-            this.#options.onItemChange("notes", { ...note, color });
-          }
-        },
-      };
-    });
+    this.#openMenu(point, [
+      restack("front", "Bring to front"),
+      restack("back", "Send to back"),
+      { label: "Delete", onSelect: () => this.#deleteItem(kind, view) },
+    ]);
   }
 
   // Items only take pointer input with the tools that move or open them, so
@@ -2970,6 +2964,7 @@ export class Canvas {
   // Deleting what's being typed in throws the typing away.
   #delete(kind: ItemKind, view: ItemView<PlacedItem>): void {
     if (this.#editing?.view === view) {
+      this.#stopEditingNote(kind);
       this.#editing = null;
       this.#formatBar.close();
       this.#options.onActivity?.(null);
@@ -2982,39 +2977,11 @@ export class Canvas {
     ).remove(view.item.id);
   }
 
-  // Opens a menu of `actions` at `point` on screen, inside the canvas, below
-  // any `colors` to pick from.
-  #openMenu(
-    point: Point,
-    actions: MenuAction[],
-    colors: MenuColor[] = []
-  ): void {
+  // Opens a menu of `actions` at `point` on screen, inside the canvas.
+  #openMenu(point: Point, actions: MenuAction[]): void {
     this.#closeMenu();
     const menu = createElement("div", "canvas-menu canvas-context-menu");
     menu.setAttribute("role", "menu");
-    if (colors.length > 0) {
-      const swatches = createElement("div", "canvas-context-colors");
-      swatches.setAttribute("role", "group");
-      swatches.setAttribute("aria-label", "Color");
-      for (const { label, color, selected, onSelect } of colors) {
-        const swatch = createElement(
-          "button",
-          "canvas-color-option canvas-context-color"
-        );
-        swatch.type = "button";
-        swatch.setAttribute("role", "menuitemradio");
-        swatch.setAttribute("aria-checked", String(selected));
-        swatch.setAttribute("aria-label", label);
-        swatch.title = label;
-        swatch.style.backgroundColor = color;
-        swatch.addEventListener("click", () => {
-          this.#closeMenu();
-          onSelect();
-        });
-        swatches.append(swatch);
-      }
-      menu.append(swatches);
-    }
     for (const { label, onSelect, disabled = false } of actions) {
       const item = createElement("button", "canvas-menu-item");
       item.type = "button";
@@ -3116,6 +3083,7 @@ export class Canvas {
         // someone else's change mustn't replace it.
         if (this.#editing?.view !== view) {
           editor.setContent(item.content);
+          this.#showEmpty(view as unknown as TypedView<TypedItem>);
         }
         this.#paintInk(view);
       },
@@ -3308,65 +3276,6 @@ export class Canvas {
       ...this.#gestureOptions<ImageItem>("images"),
       onChange: (item) => this.#changeItem("images", item),
       onRemove: (id) => this.#options.onItemRemove("images", id),
-    });
-  }
-
-  // Shapes are SVG, so they stay sharp at any zoom. A line's ends are its
-  // only resize handles, and dragging one swings it round the other.
-  #createShapeLayer(): ItemLayer<Shape, ShapeView> {
-    return new ItemLayer<Shape, ShapeView>("canvas-shapes", {
-      className: "canvas-shape",
-      getZoom: () => this.#viewport.zoom,
-      handles: RESIZE_HANDLES,
-      createView: (shape, element) => {
-        element.setAttribute("role", "img");
-        const svg = document.createElementNS(SVG_NAMESPACE, "svg");
-        svg.classList.add("canvas-shape-svg");
-        svg.setAttribute("aria-hidden", "true");
-        const path = document.createElementNS(SVG_NAMESPACE, "path");
-        path.classList.add("canvas-shape-path");
-        const hit = document.createElementNS(SVG_NAMESPACE, "path");
-        hit.classList.add("canvas-shape-hit");
-        svg.append(path, hit);
-        element.append(svg);
-        return { element, item: shape, path, hit };
-      },
-      render: ({ element, item, path, hit }) => {
-        const box = getShapeBox(item);
-        element.style.left = px(box.x);
-        element.style.top = px(box.y);
-        element.style.width = px(box.width);
-        element.style.height = px(box.height);
-        element.dataset.type = item.type;
-        element.setAttribute("aria-label", SHAPE_LABELS[item.type]);
-        element.toggleAttribute("data-filled", item.fill !== null);
-        if (isLine(item)) {
-          element.dataset.ends = getLineEnds(item);
-        } else {
-          delete element.dataset.ends;
-        }
-        const d = getShapePath(item, box);
-        path.setAttribute("d", d);
-        path.setAttribute("fill", item.fill ?? "none");
-        path.setAttribute("stroke", item.color);
-        path.setAttribute("stroke-width", String(item.strokeWidth));
-        hit.setAttribute("d", d);
-        element.style.setProperty(
-          "--canvas-shape-width",
-          String(item.strokeWidth)
-        );
-      },
-      resize: (shape, _size, handle, dx, dy, min) =>
-        resizeShape(shape, handle, dx, dy, min),
-      getMinSize: () => ({
-        width: SHAPE_LAYOUT.minSize,
-        height: SHAPE_LAYOUT.minSize,
-      }),
-      onPress: (view, extend) => this.#pressItem("shapes", view, extend),
-      onMenu: (view, point) => this.#openItemMenu("shapes", view, point),
-      ...this.#gestureOptions<Shape>("shapes"),
-      onChange: (shape) => this.#changeItem("shapes", shape),
-      onRemove: (id) => this.#options.onItemRemove("shapes", id),
     });
   }
 

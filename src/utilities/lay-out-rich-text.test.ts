@@ -128,6 +128,52 @@ describe("layOutRichText", () => {
   });
 });
 
+describe("lists and links", () => {
+  it("indents a list item, with its marker before its first line", () => {
+    // A level is 1.5 times the font size in: 15.
+    const { lines, width } = lay([
+      { list: "bullet", runs: [{ text: "one two" }] },
+      { list: "ordered", level: 1, runs: [{ text: "three" }] },
+    ]);
+
+    expect(lines[0].spans.map(({ text, x }) => [text, x])).toEqual([
+      ["•", 0],
+      ["one two", 15],
+    ]);
+    expect(lines[1].spans.map(({ text, x }) => [text, x])).toEqual([
+      ["a.", 15],
+      ["three", 30],
+    ]);
+    expect(width).toBe(55);
+  });
+
+  it("wraps a list item inside its indent, without another marker", () => {
+    const { lines } = lay(
+      [{ list: "bullet", runs: [{ text: "one two" }] }],
+      40
+    );
+
+    expect(lines.map(({ spans }) => spans.map(({ text }) => text))).toEqual([
+      ["•", "one "],
+      ["two"],
+    ]);
+    expect(lines[1].spans[0].x).toBe(15);
+  });
+
+  it("keeps a link apart from the text around it", () => {
+    const { lines } = lay([
+      { runs: [{ text: "see " }, { text: "here", link: "https://a.example" }] },
+    ]);
+
+    expect(lines[0].spans.map(({ text, style }) => [text, style.link])).toEqual(
+      [
+        ["see ", null],
+        ["here", "https://a.example"],
+      ]
+    );
+  });
+});
+
 describe("toCssFont", () => {
   it("lists the style, weight, size and family", () => {
     expect(
@@ -138,6 +184,7 @@ describe("toCssFont", () => {
         italic: true,
         underline: false,
         strike: false,
+        link: null,
         color: "#000",
       })
     ).toBe("italic bold 16px serif");

@@ -157,8 +157,11 @@ export class SharedHistory implements History {
     this.#change({ type: "set-background", color });
   }
 
+  // It can't be undone, nor can this canvas's changes before it.
   clear(): void {
     this.#change({ type: "clear" });
+    this.#mine = [];
+    this.#undone = [];
   }
 
   undo(): void {

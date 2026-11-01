@@ -104,7 +104,7 @@ describe("mountCanvas", () => {
     const labels = [
       ...container.querySelectorAll(".canvas-toolbar button"),
     ].map((button) => button.getAttribute("aria-label"));
-    expect(labels).toEqual(["Undo", "Redo", "Color: black"]);
+    expect(labels).toEqual(["Undo", "Redo", "Color: Black"]);
   });
 
   it("copies an icon, so it can be used again", () => {
@@ -194,8 +194,10 @@ describe("mountCanvas", () => {
       toolbar: [[{ action: "undo", icon: createIcon() }]],
     });
 
-    const [top, bottom] =
-      container.querySelectorAll<HTMLElement>(".canvas-toolbar");
+    // Not the tools' options, which are toolbars of their own.
+    const [top, bottom] = container.querySelectorAll<HTMLElement>(
+      ".canvas-toolbar:not(.canvas-tool-options)"
+    );
     expect(top.dataset.position).toBe("top");
     expect(top.querySelector("button")!.getAttribute("aria-label")).toBe(
       "Export"

@@ -46,7 +46,6 @@ const CURSOR_KINDS: Record<string, CursorKind> = {
   eraser: "eraser",
   text: "text",
   note: "crosshair",
-  shape: "crosshair",
   bucket: "crosshair",
   dropper: "dropper",
 };

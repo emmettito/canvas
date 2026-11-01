@@ -102,3 +102,76 @@ export function getStrokePieces(
   }
   return pieces;
 }
+
+// How far apart, at most, the points a curve's followed through are, so it
+// still looks curved.
+const CURVE_STEP = 2;
+
+// Where a curve from `from`, bending towards `control`, is `t` of the way to
+// `to`.
+function along(from: Point, control: Point, to: Point, t: number): Point {
+  const u = 1 - t;
+  return {
+    x: u * u * from.x + 2 * u * t * control.x + t * t * to.x,
+    y: u * u * from.y + 2 * u * t * control.y + t * t * to.y,
+  };
+}
+
+// What an upright square `size` either side of its middle covers, moved
+// straight from `a` to `b`: its corners at each end, joined along the way,
+// always going around the same way.
+function sweepSquare(a: Point, b: Point, size: number): Point[] {
+  const x = (b.x < a.x ? -1 : 1) * size;
+  const y = (b.y < a.y ? -1 : 1) * size;
+  const outline = [
+    { x: a.x - x, y: a.y - y },
+    { x: a.x + x, y: a.y - y },
+    { x: b.x + x, y: b.y - y },
+    { x: b.x + x, y: b.y + y },
+    { x: b.x - x, y: b.y + y },
+    { x: a.x - x, y: a.y + y },
+  ];
+  return x * y < 0 ? outline.reverse() : outline;
+}
+
+/**
+ * A square-ended stroke's pieces (see `getStrokePieces`) as outlines that,
+ * filled together, cover what an upright square tip covers moved along
+ * them, like a highlighter's, so it doesn't turn with each little wobble
+ * the way a square line cap does. They all go around the same way, so where
+ * they overlap is still filled.
+ */
+export function getSquareOutlines(
+  stroke: Stroke,
+  from = 1,
+  end = true
+): Point[][] {
+  return getStrokePieces(stroke, from, end).flatMap(
+    ({ from: start, control, to, size }) => {
+      const steps = control
+        ? Math.min(
+            32,
+            Math.max(
+              1,
+              Math.ceil(
+                (Math.hypot(control.x - start.x, control.y - start.y) +
+                  Math.hypot(to.x - control.x, to.y - control.y)) /
+                  CURVE_STEP
+              )
+            )
+          )
+        : 1;
+      const outlines: Point[][] = [];
+      let before = start;
+      for (let step = 1; step <= steps; step++) {
+        const next =
+          control && step < steps
+            ? along(start, control, to, step / steps)
+            : to;
+        outlines.push(sweepSquare(before, next, size));
+        before = next;
+      }
+      return outlines;
+    }
+  );
+}

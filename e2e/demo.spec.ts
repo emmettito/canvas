@@ -32,22 +32,125 @@ test("the canvas fills the window, with the tools at the bottom and the zoom at 
 test("there's nothing but drawing: no File menu, timer, or people", async ({
   page,
 }) => {
-  await expect(page.locator(".canvas-toolbar")).toHaveCount(2);
+  // The tools, the pencil's options, and the zoom.
+  await expect(page.locator(".canvas-toolbar:visible")).toHaveCount(3);
+  await expect(
+    page.getByRole("toolbar", { name: "Pencil options" })
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: "File" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^Timer/ })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Export" })).toHaveCount(0);
+  for (const name of ["Move", "Dropper"]) {
+    await expect(page.getByRole("button", { name })).toHaveCount(0);
+  }
+  await expect(page.getByRole("button", { name: /^Color: / })).toHaveCount(0);
 });
 
-test("a refresh starts again", async ({ page }) => {
+test("a refresh keeps the drawing", async ({ page }) => {
   await page.getByRole("button", { name: "Sticky note" }).click();
   await page.mouse.click(400, 300);
-  await page.keyboard.type("Gone soon");
+  await page.keyboard.type("Still here");
   await page.keyboard.press("Escape");
   await expect(page.locator(".canvas-note")).toHaveCount(1);
 
   await page.reload();
 
-  await expect(page.locator(".canvas-note")).toHaveCount(0);
+  await expect(page.locator(".canvas-note")).toHaveText("Still here");
+  // With the tool last picked, but not what to undo.
+  await expect(
+    page.getByRole("button", { name: "Sticky note" })
+  ).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
-  expect(await page.evaluate(() => localStorage.length)).toBe(0);
+});
+
+test("a saved tool that isn't on the toolbar is put down for the pencil", async ({
+  page,
+}) => {
+  // As if the full test page had saved the move tool here.
+  await page.getByRole("button", { name: "Highlighter" }).click();
+  await page.evaluate(() => {
+    for (const [key, value] of Object.entries(localStorage)) {
+      if (value.includes('"activeTool":"highlighter"')) {
+        localStorage.setItem(
+          key,
+          value.replace('"activeTool":"highlighter"', '"activeTool":"move"')
+        );
+      }
+    }
+  });
+
+  await page.reload();
+
+  await expect(page.getByRole("button", { name: "Pencil" })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+});
+
+test("clearing asks first, and can't be undone", async ({ page }) => {
+  const clear = page.getByRole("button", { name: "Clear", exact: true });
+  await expect(clear).toBeDisabled();
+  await page.getByRole("button", { name: "Sticky note" }).click();
+  await page.mouse.click(400, 300);
+  await page.keyboard.type("Keep me");
+  await page.keyboard.press("Escape");
+  const popover = page.locator(".canvas-popover");
+
+  await clear.click();
+  await expect(popover.getByText("Clear the canvas?")).toBeVisible();
+  await popover.getByRole("button", { name: "Cancel" }).click();
+  await expect(popover).toBeHidden();
+  await expect(page.locator(".canvas-note")).toHaveCount(1);
+
+  await clear.click();
+  await popover.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(popover).toBeHidden();
+  await expect(page.locator(".canvas-note")).toHaveCount(0);
+  await expect(clear).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
+});
+
+test("the export dialog names the canvas as it's typed", async ({ page }) => {
+  await expect(page).toHaveTitle("Untitled – Canvas Demo");
+  await page.getByRole("button", { name: "Export" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  // In the middle of the window.
+  const box = (await dialog.boundingBox())!;
+  const viewport = page.viewportSize()!;
+  expect(box.x + box.width / 2).toBeCloseTo(viewport.width / 2, -1);
+
+  const name = dialog.getByRole("textbox", { name: "Name" });
+  await expect(name).toHaveValue("");
+  await name.fill("Sunset");
+  await expect(page).toHaveTitle("Sunset – Canvas Demo");
+
+  const downloading = page.waitForEvent("download");
+  await dialog.getByRole("button", { name: "Export" }).click();
+  expect((await downloading).suggestedFilename()).toBe("Sunset.png");
+  await expect(dialog).toBeHidden();
+
+  // It's kept, and the dialog starts from it.
+  await page.reload();
+  await expect(page).toHaveTitle("Sunset – Canvas Demo");
+  await page.getByRole("button", { name: "Export" }).click();
+  await expect(name).toHaveValue("Sunset");
+});
+
+test("the export dialog closes with Escape, or a press outside it", async ({
+  page,
+}) => {
+  const exportButton = page.getByRole("button", { name: "Export" });
+  const dialog = page.getByRole("dialog");
+
+  await exportButton.click();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+
+  await exportButton.click();
+  await expect(dialog).toBeVisible();
+  await page.mouse.click(10, 10);
+  await expect(dialog).toBeHidden();
+  // Nothing was drawn by the press.
+  await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
 });

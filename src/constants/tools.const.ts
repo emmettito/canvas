@@ -8,6 +8,5 @@ export const TOOLS: Tool[] = [
   "bucket",
   "note",
   "text",
-  "shape",
   "dropper",
 ];

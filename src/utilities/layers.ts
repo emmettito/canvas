@@ -27,9 +27,11 @@ export function isEraser(stroke: Stroke): boolean {
   return stroke.color === undefined;
 }
 
-// Runs of strokes side by side become one, e.g. once the item between them
-// is removed, and empty runs are dropped.
-function mergeRuns(order: Layer[]): Layer[] {
+/**
+ * Runs of strokes side by side become one, e.g. once the item between them
+ * is removed, and empty runs are dropped.
+ */
+export function mergeRuns(order: Layer[]): Layer[] {
   const merged: Layer[] = [];
   for (const layer of order) {
     const last = merged.at(-1);

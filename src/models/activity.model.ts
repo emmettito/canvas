@@ -41,6 +41,7 @@ export type SharedActivity =
       color?: string;
       size: number;
       opacity?: number;
+      cap?: "square";
       from: number;
       points: StrokePoint[];
     };

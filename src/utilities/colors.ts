@@ -8,7 +8,32 @@ import {
 import { getCssVariable } from "./get-css-variable";
 
 export function isCustomColor(value: unknown): value is CustomColor {
-  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
+  return (
+    typeof value === "string" && /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(value)
+  );
+}
+
+/**
+ * A color as "#rrggbb", and how much of it shows, from 0 to 1, from the alpha
+ * "#rrggbbaa" has. Any other color is solid.
+ */
+export function splitAlpha(color: string): { solid: string; alpha: number } {
+  const match = /^(#[0-9a-f]{6})([0-9a-f]{2})$/i.exec(color);
+  return match
+    ? { solid: match[1], alpha: parseInt(match[2], 16) / 255 }
+    : { solid: color, alpha: 1 };
+}
+
+/**
+ * "#rrggbb" with `alpha` of it showing, as "#rrggbbaa", or as it is if it's
+ * solid.
+ */
+export function withAlpha(color: CustomColor, alpha: number): CustomColor {
+  const solid = color.slice(0, 7) as CustomColor;
+  const value = Math.round(Math.min(Math.max(alpha, 0), 1) * 255);
+  return value === 255
+    ? solid
+    : `${solid}${value.toString(16).padStart(2, "0")}`;
 }
 
 export function isToolColor(value: unknown): value is ToolColor {
@@ -29,9 +54,16 @@ export function resolveColor(element: Element, color: ToolColor): string {
   return readCssColor(value) ?? value;
 }
 
-/** What the color's called, e.g. "red", or "#ff8800" for a custom one. */
+/**
+ * What the color's called, as its button and tooltip say, e.g. "Red", or
+ * "#ff8800" for a custom one.
+ */
 export function getColorName(color: ToolColor): string {
-  return isCustomColor(color) ? color : color.replace("--canvas-color-", "");
+  if (isCustomColor(color)) {
+    return color;
+  }
+  const name = color.replace("--canvas-color-", "");
+  return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 // Reads colors for `normalizeColor`, made the first time it's needed.
@@ -55,15 +87,17 @@ function normalizeColor(color: string): string | null {
   return context.fillStyle === fromBlack ? fromBlack : null;
 }
 
-// Red, green, blue and alpha, from "#rrggbb" or "rgba(...)".
+// Red, green, blue and alpha, from "#rrggbb", "#rrggbbaa" or "rgba(...)".
 function readChannels(value: string): number[] | null {
-  const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(value);
+  const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})?$/i.exec(
+    value
+  );
   if (hex) {
     return [
       parseInt(hex[1], 16),
       parseInt(hex[2], 16),
       parseInt(hex[3], 16),
-      1,
+      hex[4] ? parseInt(hex[4], 16) / 255 : 1,
     ];
   }
   const rgb = /^rgba?\(([\d.]+), ([\d.]+), ([\d.]+)(?:, ([\d.]+))?/.exec(value);
@@ -98,6 +132,23 @@ export function readCssColor(text: string): CustomColor | null {
     return null;
   }
   return toHex(channels);
+}
+
+/**
+ * Any CSS color, e.g. "red" or "rgb(255 0 0 / 50%)", as "#rrggbb", or
+ * "#rrggbbaa" if it can be seen through. Null if it isn't a color, or can't
+ * be seen at all.
+ */
+export function readColorWithAlpha(text: string): CustomColor | null {
+  const value = text.trim();
+  if (!value || /^(inherit|initial|unset|revert|currentcolor)$/i.test(value)) {
+    return null;
+  }
+  const channels = readChannels(normalizeColor(value) ?? value);
+  if (!channels || channels[3] <= 0) {
+    return null;
+  }
+  return withAlpha(toHex(channels), channels[3]);
 }
 
 /** Red, green and blue as "#rrggbb". */

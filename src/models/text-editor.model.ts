@@ -1,5 +1,6 @@
 import {
   type FontName,
+  type ListType,
   type RichText,
   type TextAlign,
 } from "./rich-text.model";
@@ -23,6 +24,12 @@ export interface Format {
   color?: string | null;
   // Null if the selected paragraphs are aligned differently.
   align: TextAlign | null;
+  // The list every selected paragraph is an item of, or null if they
+  // aren't all items of one kind.
+  list: ListType | null;
+  // Where the text at the cursor, or all of the selection, links to, if it
+  // does.
+  link?: string;
 }
 
 /**
@@ -36,6 +43,19 @@ export interface TextFormatting {
   /** Sets a font, size or color, or goes back to the text's own if undefined. */
   setValue: (mark: ValueMark, value: string | number | undefined) => void;
   setAlign: (align: TextAlign) => void;
+  /**
+   * Makes each selected paragraph an item of a `list`, or no list's with
+   * null, or if they're all its items already.
+   */
+  setList: (list: ListType | null) => void;
+  /** Nests the selected list items one further in, or out. */
+  indent: (step: 1 | -1) => void;
+  /**
+   * Links the selection, or the link at the cursor, to `href`, or unlinks it
+   * if undefined. With nothing selected and no link there, `href` is added
+   * as its own text.
+   */
+  setLink: (href: string | undefined) => void;
 }
 
 /**

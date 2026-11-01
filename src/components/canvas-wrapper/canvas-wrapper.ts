@@ -3,9 +3,6 @@ import { DEFAULT_EXPORT_OPTIONS } from "../../constants/default-export-options.c
 import { DEFAULT_NOTE_COLOR } from "../../constants/default-note-color.const";
 import { DEFAULT_TOOL_SIZES } from "../../constants/default-tool-sizes.const";
 import { HIGHLIGHTER } from "../../constants/highlighter.const";
-import { SHAPE_LAYOUT } from "../../constants/shape-layout.const";
-import { SHAPE_SHORTCUTS } from "../../constants/shape-shortcuts.const";
-import { SHAPE_TYPES } from "../../constants/shape-types.const";
 import { IMAGE_LAYOUT } from "../../constants/image-layout.const";
 import { ITEM_KINDS } from "../../constants/item-kinds.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
@@ -36,7 +33,6 @@ import { type History } from "../../models/history.model";
 import { type Note } from "../../models/note.model";
 import { type PersonName } from "../../models/person-name.model";
 import { type Point } from "../../models/point.model";
-import { type ShapeType } from "../../models/shape.model";
 import {
   type ToolbarControl,
   type ZoomAction,
@@ -61,6 +57,10 @@ import {
 } from "../../utilities/colors";
 import { blobToDataUrl, dataUrlToBlob } from "../../utilities/data-url";
 import { DrawingHistory } from "../../utilities/drawing-history";
+import {
+  type ColorFormats,
+  DEFAULT_COLOR_FORMATS,
+} from "../../utilities/color-formats";
 import { getCssVariable } from "../../utilities/get-css-variable";
 import { EXPORT_EXTENSIONS } from "../../utilities/export-drawing";
 import { getFileName } from "../../utilities/get-file-name";
@@ -292,9 +292,9 @@ export interface CollaborateOptions {
   onLeave?: () => void;
 }
 
-// Which of the tools' sizes is closest to `size`.
-function getNearestSize(size: number): number {
-  return TOOL_SIZES.reduce((nearest, each) =>
+// Which of the tool's sizes is closest to `size`.
+function getNearestSize(tool: StrokeTool, size: number): number {
+  return TOOL_SIZES[tool].reduce((nearest, each) =>
     Math.abs(each - size) < Math.abs(nearest - size) ? each : nearest
   );
 }
@@ -410,28 +410,38 @@ export function mountCanvas(
   let author = trimName(initialAuthor);
   let avatar = initialAvatar;
   let exportOptions = storage.loadExportOptions() ?? DEFAULT_EXPORT_OPTIONS;
-  let activeTool: Tool = saved?.activeTool ?? "pencil";
+  // A tool that isn't on a toolbar any more, e.g. one the page took off, is
+  // put down for the pencil, or else the first tool there is.
+  let activeTool: Tool =
+    saved && shortcutTools.includes(saved.activeTool)
+      ? saved.activeTool
+      : shortcutTools.includes("pencil") || shortcutTools.length === 0
+        ? "pencil"
+        : shortcutTools[0];
+  let bucketColor: ToolColor = saved?.bucketColor ?? COLORS[0];
   let noteColor: ToolColor = saved?.noteColor ?? DEFAULT_NOTE_COLOR;
   let recentColors: CustomColor[] = saved?.recentColors ?? [];
+  let colorFormats: ColorFormats = saved?.colorFormats ?? DEFAULT_COLOR_FORMATS;
+  // The color of the note being typed in, which its tool's options show.
+  let typingNoteColor: string | null = null;
   // The tool the dropper goes back to, whose color it picks.
   let previousTool: Tool = activeTool;
   let textSize = saved?.textSize ?? TEXT_LAYOUT.defaultSize;
-  let shapeType: ShapeType = saved?.shapeType ?? SHAPE_LAYOUT.defaultType;
   // Sizes saved before the tools offered the same few are the nearest one
   // now.
   let tools: Record<StrokeTool, ToolState> = saved
     ? {
         eraser: {
           ...saved.tools.eraser,
-          size: getNearestSize(saved.tools.eraser.size),
+          size: getNearestSize("eraser", saved.tools.eraser.size),
         },
         pencil: {
           ...saved.tools.pencil,
-          size: getNearestSize(saved.tools.pencil.size),
+          size: getNearestSize("pencil", saved.tools.pencil.size),
         },
         highlighter: {
           ...saved.tools.highlighter,
-          size: getNearestSize(saved.tools.highlighter.size),
+          size: getNearestSize("highlighter", saved.tools.highlighter.size),
         },
       }
     : {
@@ -580,10 +590,18 @@ export function mountCanvas(
       recentColors = addRecentColor(recentColors, color);
       update();
     },
+    onColorFormat: (format) => {
+      colorFormats = { ...colorFormats, text: format };
+      update();
+    },
     onActivity: (activity) => {
       if (session?.history) {
         session.activity.set(activity);
       }
+    },
+    onEditingNote: (color) => {
+      typingNoteColor = color;
+      updateToolbars();
     },
   });
   canvas.setViewport(storedViewport);
@@ -660,18 +678,21 @@ export function mountCanvas(
       }
       update();
     },
+    // A custom color is a note's own, rather than a light shade of it like
+    // the palette's, even if it's a palette color. The note being typed in
+    // changes to it too.
     onUpdateNoteColor: (color) => {
-      noteColor = keepColor(color);
+      noteColor = keepColor(color, false);
+      canvas.colorTypingNote(noteColor);
       canvas.focusTyping();
       update();
     },
-    onUpdateTextSize: (size) => {
-      textSize = size;
+    onUpdateBucketColor: (color) => {
+      bucketColor = keepColor(color);
       update();
     },
-    onSelectShape: (type) => {
-      shapeType = type;
-      activeTool = "shape";
+    onUpdateColorFormat: (target, format) => {
+      colorFormats = { ...colorFormats, [target]: format };
       update();
     },
     onInsertImage: () => fileInput.click(),
@@ -734,6 +755,8 @@ export function mountCanvas(
     "top"
   );
   const toolbars = [toolbar, topToolbar, topRightToolbar];
+  // Each toolbar's tools' options are in a bar beside it, toward the canvas.
+  topToolbar.options.classList.add("canvas-top-options");
   // The status sits beside the top right toolbar, rather than under it.
   const corner = createElement("div", "canvas-corner");
   // Who's here starts the top right toolbar.
@@ -755,11 +778,11 @@ export function mountCanvas(
   const hasControls = (groups: ToolbarControl[][]) =>
     groups.some((group) => group.length > 0);
   if (hasControls(topControls)) {
-    root.append(topToolbar.element);
+    root.append(topToolbar.element, topToolbar.options);
   }
   placeTopRightToolbar();
   if (hasControls(controls)) {
-    bottom.append(toolbar.element);
+    bottom.append(toolbar.options, toolbar.element);
   }
   // Last, so the bottom toolbar is last to tab to, as it's last on screen.
   root.append(bottom);
@@ -986,13 +1009,6 @@ export function mountCanvas(
       stepToolSize(step);
       return;
     }
-    // Each shape's key picks the shape tool with it, e.g. O for an ellipse.
-    const shape = getShapeShortcut(event);
-    if (shape && inUse && !canvas.isTyping) {
-      event.preventDefault();
-      toolbarActions.onSelectShape(shape);
-      return;
-    }
     // Tools' keys are letters, which type while text is typed in.
     const tool = getToolShortcut(event);
     if (tool && inUse && !canvas.isTyping) {
@@ -1026,24 +1042,6 @@ export function mountCanvas(
     );
   }
 
-  // A shape's key on its own, if the shape tool is on a toolbar.
-  function getShapeShortcut(event: KeyboardEvent): ShapeType | null {
-    if (
-      event.ctrlKey ||
-      event.metaKey ||
-      event.altKey ||
-      event.repeat ||
-      !shortcutTools.includes("shape")
-    ) {
-      return null;
-    }
-    return (
-      SHAPE_TYPES.find(
-        (type) => SHAPE_SHORTCUTS[type] === event.key.toUpperCase()
-      ) ?? null
-    );
-  }
-
   // [ steps the size down and ] up, by position, so they work on any layout.
   function getSizeShortcut(event: KeyboardEvent): -1 | 1 | null {
     if (event.ctrlKey || event.metaKey || event.altKey) {
@@ -1061,9 +1059,10 @@ export function mountCanvas(
     if (!isStrokeTool(activeTool)) {
       return;
     }
-    const index = TOOL_SIZES.indexOf(tools[activeTool].size) + step;
-    if (index >= 0 && index < TOOL_SIZES.length) {
-      toolbarActions.onUpdateTool(activeTool, { size: TOOL_SIZES[index] });
+    const sizes = TOOL_SIZES[activeTool];
+    const index = sizes.indexOf(tools[activeTool].size) + step;
+    if (index >= 0 && index < sizes.length) {
+      toolbarActions.onUpdateTool(activeTool, { size: sizes[index] });
     }
   }
 
@@ -1079,7 +1078,6 @@ export function mountCanvas(
       images: storage.loadItems(id, "images") ?? [],
       texts: storage.loadItems(id, "texts") ?? [],
       notes: storage.loadItems(id, "notes") ?? [],
-      shapes: storage.loadItems(id, "shapes") ?? [],
     };
     // A canvas saved before it had a stacking order, or whose order doesn't
     // match, e.g. as part of it couldn't be saved, is stacked the way it used
@@ -1237,10 +1235,19 @@ export function mountCanvas(
   }
 
   // The note and text tools draw nothing, so the canvas keeps the pencil's
-  // settings while they're active. The highlighter's strokes are see-through.
+  // settings while they're active. The highlighter's strokes are see-through,
+  // with square ends, like a highlighter's tip, and the bucket fills in its
+  // own color.
   function getStrokeToolState(): ToolState {
+    if (activeTool === "bucket") {
+      return { ...tools.pencil, color: bucketColor };
+    }
     if (activeTool === "highlighter") {
-      return { ...tools.highlighter, opacity: HIGHLIGHTER.opacity };
+      return {
+        ...tools.highlighter,
+        opacity: HIGHLIGHTER.opacity,
+        cap: "square",
+      };
     }
     return tools[isStrokeTool(activeTool) ? activeTool : "pencil"];
   }
@@ -1619,21 +1626,27 @@ export function mountCanvas(
   }
 
   // Whose color the color control and the dropper set: new notes', the
-  // highlighter's, or the pencil's, which text uses too.
+  // highlighter's, the bucket's, or the pencil's, which text uses too.
   function getColorTarget(): ColorTarget {
     const tool = activeTool === "dropper" ? previousTool : activeTool;
-    return tool === "note" || tool === "highlighter" ? tool : "pencil";
+    return tool === "note" || tool === "highlighter" || tool === "bucket"
+      ? tool
+      : "pencil";
   }
 
   // A custom color that's the palette's, e.g. "red" typed, is kept as the
-  // palette's, so it follows the palette. Others are offered again.
-  function keepColor(color: ToolColor): ToolColor {
+  // palette's, so it follows the palette, unless `matchPalette` is false.
+  // Others are offered again.
+  function keepColor(color: ToolColor, matchPalette = true): ToolColor {
     if (!isCustomColor(color)) {
       return color;
     }
-    const palette = COLORS.find(
-      (option) => toHex(parseColor(resolveColor(root, option)) ?? []) === color
-    );
+    const palette =
+      matchPalette &&
+      COLORS.find(
+        (option) =>
+          toHex(parseColor(resolveColor(root, option)) ?? []) === color
+      );
     if (palette) {
       return palette;
     }
@@ -1646,6 +1659,8 @@ export function mountCanvas(
     const target = getColorTarget();
     if (target === "note") {
       noteColor = color;
+    } else if (target === "bucket") {
+      bucketColor = color;
     } else {
       tools = { ...tools, [target]: { ...tools[target], color } };
     }
@@ -1672,21 +1687,13 @@ export function mountCanvas(
       : note;
   }
 
-  // Text is in the pencil's color, and shapes in its color and size.
+  // Text is in the pencil's color.
   function getPlacing(): Placing | null {
     if (activeTool === "note") {
       return {
         kind: "notes",
         color: noteColor,
         author: getFullName(author) ? author : null,
-      };
-    }
-    if (activeTool === "shape") {
-      return {
-        kind: "shapes",
-        type: shapeType,
-        color: tools.pencil.color ?? COLORS[0],
-        size: tools.pencil.size,
       };
     }
     if (activeTool === "text") {
@@ -1702,12 +1709,15 @@ export function mountCanvas(
   function getToolbarState() {
     return {
       activeTool,
+      previousTool,
       tools,
+      bucketColor,
       noteColor,
+      typingNoteColor,
+      colorFormats,
       colorTarget: getColorTarget(),
       recentColors,
       textSize,
-      shapeType,
       canUndo: history.canUndo,
       canRedo: history.canRedo,
       canClear: history.canClear,
@@ -1742,7 +1752,7 @@ export function mountCanvas(
     canvas.setPicking(activeTool === "dropper");
     canvas.setMoving(activeTool === "move");
     canvas.setFilling(activeTool === "bucket");
-    canvas.setRecentColors(recentColors);
+    canvas.setColorSettings(recentColors, colorFormats.text);
   }
 
   function update() {
@@ -1770,10 +1780,11 @@ export function mountCanvas(
       // what's kept.
       activeTool: activeTool === "dropper" ? previousTool : activeTool,
       tools,
+      bucketColor,
       noteColor,
       textSize,
-      shapeType,
       recentColors,
+      colorFormats,
       rulers: rulers.shown,
     });
     if (canvases !== storedCanvases) {

@@ -6,9 +6,12 @@ import {
   isDarkColor,
   isToolColor,
   parseColor,
+  readColorWithAlpha,
   readCssColor,
   resolveColor,
+  splitAlpha,
   toHex,
+  withAlpha,
 } from "./colors";
 
 describe("colors", () => {
@@ -17,11 +20,13 @@ describe("colors", () => {
     expect(isToolColor("#FF8800")).toBe(true);
     expect(isCustomColor("--canvas-color-red")).toBe(false);
     expect(isToolColor("#f80")).toBe(false);
+    // A custom color can be see-through.
+    expect(isCustomColor("#ff880080")).toBe(true);
     expect(isToolColor("red")).toBe(false);
   });
 
   it("names a color", () => {
-    expect(getColorName("--canvas-color-red")).toBe("red");
+    expect(getColorName("--canvas-color-red")).toBe("Red");
     expect(getColorName("#ff8800")).toBe("#ff8800");
   });
 
@@ -71,5 +76,23 @@ describe("colors", () => {
     expect(readCssColor("")).toBeNull();
     expect(readCssColor("inherit")).toBeNull();
     expect(readCssColor("nope")).toBeNull();
+  });
+
+  it("splits a see-through color's alpha from it, and adds it back", () => {
+    expect(splitAlpha("#ff880080")).toEqual({
+      solid: "#ff8800",
+      alpha: 128 / 255,
+    });
+    expect(splitAlpha("#ff8800")).toEqual({ solid: "#ff8800", alpha: 1 });
+    expect(withAlpha("#ff8800", 0.5)).toBe("#ff880080");
+    // Solid colors stay "#rrggbb".
+    expect(withAlpha("#ff880080", 1)).toBe("#ff8800");
+  });
+
+  it("reads a color that may be see-through", () => {
+    expect(readColorWithAlpha("#FF880080")).toBe("#ff880080");
+    expect(readColorWithAlpha("#ff8800")).toBe("#ff8800");
+    expect(readColorWithAlpha("#ff880000")).toBeNull();
+    expect(readColorWithAlpha("inherit")).toBeNull();
   });
 });

@@ -6,9 +6,11 @@ function createContext() {
   const widths: number[] = [];
   const context = {
     arc: vi.fn(),
+    rect: vi.fn(),
     beginPath: vi.fn(),
     fill: vi.fn(),
     lineTo: vi.fn(),
+    closePath: vi.fn(),
     moveTo: vi.fn(),
     quadraticCurveTo: vi.fn(),
     save: vi.fn(),
@@ -112,6 +114,42 @@ describe("drawStroke", () => {
     expect(alpha).toBe(0.4);
     expect(context.save).toHaveBeenCalled();
     expect(context.restore).toHaveBeenCalled();
+  });
+
+  it("draws a square-ended stroke, and its dot, square", () => {
+    const { context } = createContext();
+
+    drawStroke(context, { ...LINE, cap: "square" });
+    expect(context.fill).toHaveBeenCalledTimes(1);
+    expect(context.stroke).not.toHaveBeenCalled();
+
+    drawStroke(context, { ...LINE, cap: "square", points: [{ x: 3, y: 4 }] });
+    expect(context.rect).toHaveBeenCalledWith(-1, 0, 8, 8);
+    expect(context.arc).not.toHaveBeenCalled();
+  });
+
+  it("keeps a square end upright, however little it moves", () => {
+    const { context } = createContext();
+
+    drawStroke(context, {
+      ...LINE,
+      cap: "square",
+      points: [
+        { x: 0, y: 0 },
+        { x: 1, y: 1 },
+      ],
+    });
+
+    // Its corners are all a size from where it went, along each side.
+    const corners = [
+      ...vi.mocked(context.moveTo).mock.calls,
+      ...vi.mocked(context.lineTo).mock.calls,
+    ];
+    expect(corners.length).toBeGreaterThan(0);
+    for (const [x, y] of corners) {
+      expect([-4, 4, -3, 5, -3.5, 4.5]).toContain(x);
+      expect([-4, 4, -3, 5, -3.5, 4.5]).toContain(y);
+    }
   });
 
   it("erases when the stroke has no color", () => {

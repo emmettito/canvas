@@ -72,7 +72,8 @@ export class Loupe {
     }
     this.#pixels.style.backgroundImage = `url(${url})`;
     this.element.style.setProperty("--canvas-loupe-color", color);
-    this.#code.textContent = color;
+    // Written as the color picker writes hex.
+    this.#code.textContent = color.toUpperCase();
     this.element.style.left = `${point.x}px`;
     this.element.style.top = `${point.y}px`;
     this.element.hidden = false;

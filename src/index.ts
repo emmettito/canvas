@@ -21,6 +21,7 @@ export {
 } from "./models/toolbar-control.model";
 export {
   type FontName,
+  type ListType,
   type Paragraph,
   type RichText,
   type TextAlign,

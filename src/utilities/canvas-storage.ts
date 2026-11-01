@@ -1,3 +1,4 @@
+import { COLORS } from "../constants/colors.const";
 import { DEFAULT_NOTE_COLOR } from "../constants/default-note-color.const";
 import { DEFAULT_TOOL_SIZES } from "../constants/default-tool-sizes.const";
 import { EXPORT_FORMATS } from "../constants/export-formats.const";
@@ -7,8 +8,6 @@ import { ITEM_KINDS } from "../constants/item-kinds.const";
 import { MAX_RECENT_COLORS } from "../constants/recent-colors.const";
 import { MAX_TOOL_SIZE } from "../constants/max-tool-size.const";
 import { MIN_TOOL_SIZE } from "../constants/min-tool-size.const";
-import { SHAPE_LAYOUT } from "../constants/shape-layout.const";
-import { SHAPE_TYPES } from "../constants/shape-types.const";
 import { TEXT_LAYOUT } from "../constants/text-layout.const";
 import { TOOLS } from "../constants/tools.const";
 import { type CanvasEntry } from "../models/canvas-entry.model";
@@ -23,13 +22,18 @@ import { type ImageItem } from "../models/image-item.model";
 import { type Layer } from "../models/layer.model";
 import { type Note } from "../models/note.model";
 import { type RichText } from "../models/rich-text.model";
-import { type Shape, type ShapeType } from "../models/shape.model";
 import { type Stroke } from "../models/stroke.model";
 import { type TextBox } from "../models/text-box.model";
 import { type ToolSettings } from "../models/tool-settings.model";
 import { type Tool } from "../models/tool.model";
 import { type Viewport } from "../models/viewport.model";
+import {
+  type ColorFormats,
+  DEFAULT_COLOR_FORMATS,
+  isColorFormat,
+} from "./color-formats";
 import { isCustomColor, isToolColor } from "./colors";
+import { mergeRuns } from "./layers";
 import { getFullName, splitName } from "./person-names";
 import { fromPlainText, isRichText } from "./rich-text";
 import { clampZoom } from "./viewport";
@@ -60,6 +64,7 @@ function isStroke(value: unknown): value is Stroke {
     (value.color === undefined || typeof value.color === "string") &&
     isNumber(value.size) &&
     (value.opacity === undefined || isFraction(value.opacity)) &&
+    (value.cap === undefined || value.cap === "square") &&
     Array.isArray(value.points) &&
     value.points.every(
       (point) =>
@@ -209,39 +214,6 @@ function isLayer(value: unknown): value is Layer {
   );
 }
 
-function readShape(value: unknown): Shape | null {
-  if (
-    !isPlaced(value) ||
-    !SHAPE_TYPES.includes(value.type as ShapeType) ||
-    !isNumber(value.width) ||
-    !isNumber(value.height) ||
-    typeof value.color !== "string" ||
-    !isPositive(value.strokeWidth) ||
-    !(value.fill === null || typeof value.fill === "string")
-  ) {
-    return null;
-  }
-  const type = value.type as ShapeType;
-  // Only a line goes back the way it came.
-  if (
-    (type === "rectangle" || type === "ellipse") &&
-    (value.width < 0 || value.height < 0)
-  ) {
-    return null;
-  }
-  return {
-    id: value.id as string,
-    type,
-    x: value.x as number,
-    y: value.y as number,
-    width: value.width,
-    height: value.height,
-    color: value.color,
-    strokeWidth: value.strokeWidth,
-    fill: type === "line" || type === "arrow" ? null : value.fill,
-  };
-}
-
 // Each kind's items as they're used, or null if one isn't valid.
 const ITEM_READERS: {
   [K in ItemKind]: (value: unknown) => DrawingItem<K> | null;
@@ -258,7 +230,6 @@ const ITEM_READERS: {
       : null,
   texts: readTextBox,
   notes: readNote,
-  shapes: readShape,
 };
 
 /**
@@ -304,24 +275,30 @@ function isToolSize(value: unknown): value is number {
 }
 
 // Settings saved before notes, text, custom colors, rulers, the highlighter
-// and shapes have no note color, text size, recent colors, rulers,
-// highlighter or shape, so they're checked on their own.
+// and the bucket's own color have no note color, text size, recent colors,
+// rulers, highlighter or bucket color, so they're checked on their own. A
+// tool that's been removed, e.g. the shape tool, is checked on its own too.
 function isToolSettings(value: unknown): value is Omit<
   ToolSettings,
-  "tools" | "noteColor" | "textSize" | "shapeType" | "recentColors" | "rulers"
+  | "activeTool"
+  | "tools"
+  | "bucketColor"
+  | "noteColor"
+  | "textSize"
+  | "recentColors"
+  | "colorFormats"
+  | "rulers"
 > & {
+  activeTool: unknown;
   tools: Omit<ToolSettings["tools"], "highlighter"> & { highlighter?: unknown };
-  shapeType?: unknown;
+  bucketColor?: unknown;
   noteColor?: unknown;
   textSize?: unknown;
   recentColors?: unknown;
+  colorFormats?: unknown;
   rulers?: unknown;
 } {
-  if (
-    !isObject(value) ||
-    !TOOLS.includes(value.activeTool as Tool) ||
-    !isObject(value.tools)
-  ) {
+  if (!isObject(value) || !isObject(value.tools)) {
     return false;
   }
   const { eraser, pencil } = value.tools;
@@ -430,16 +407,21 @@ export class CanvasStorage {
     const {
       activeTool,
       tools,
+      bucketColor,
       noteColor,
       textSize,
-      shapeType,
       recentColors,
+      colorFormats,
       rulers,
     } = settings;
     const { highlighter } = tools;
     return {
-      // The dropper is only picked for a moment, so it isn't kept.
-      activeTool: activeTool === "dropper" ? "pencil" : activeTool,
+      // The dropper is only picked for a moment, so it isn't kept, and a
+      // tool that's been removed is the pencil.
+      activeTool:
+        TOOLS.includes(activeTool as Tool) && activeTool !== "dropper"
+          ? (activeTool as Tool)
+          : "pencil",
       tools: {
         ...tools,
         highlighter:
@@ -452,14 +434,24 @@ export class CanvasStorage {
                 size: DEFAULT_TOOL_SIZES.highlighter,
               },
       },
+      // The bucket filled in the pencil's color before it had its own. The
+      // pencil's is checked, so the fallback only satisfies the type.
+      bucketColor: isToolColor(bucketColor)
+        ? bucketColor
+        : (tools.pencil.color ?? COLORS[0]),
       noteColor: isToolColor(noteColor) ? noteColor : DEFAULT_NOTE_COLOR,
       textSize: isTextSize(textSize) ? textSize : TEXT_LAYOUT.defaultSize,
-      shapeType: SHAPE_TYPES.includes(shapeType as ShapeType)
-        ? (shapeType as ShapeType)
-        : SHAPE_LAYOUT.defaultType,
       recentColors: Array.isArray(recentColors)
         ? recentColors.filter(isCustomColor).slice(0, MAX_RECENT_COLORS)
         : [],
+      colorFormats: Object.fromEntries(
+        Object.entries(DEFAULT_COLOR_FORMATS).map(([target, fallback]) => {
+          const format = isObject(colorFormats)
+            ? colorFormats[target]
+            : undefined;
+          return [target, isColorFormat(format) ? format : fallback];
+        })
+      ) as ColorFormats,
       rulers: rulers === true,
     };
   }
@@ -540,12 +532,19 @@ export class CanvasStorage {
    * there was one. The caller checks it matches the drawing.
    */
   loadOrder(id: string): Layer[] | null {
-    const order = this.#store.read(this.#canvasKey(id, "order"));
-    return Array.isArray(order) && order.every(isLayer)
-      ? order.map((layer: Layer) =>
-          layer.kind === "strokes"
-            ? { kind: layer.kind, count: layer.count }
-            : { kind: layer.kind, id: layer.id }
+    const saved = this.#store.read(this.#canvasKey(id, "order"));
+    // Shapes have been removed, so the rest is stacked as it was without
+    // them.
+    const order = Array.isArray(saved)
+      ? saved.filter((layer) => !isObject(layer) || layer.kind !== "shapes")
+      : null;
+    return order?.every(isLayer)
+      ? mergeRuns(
+          order.map((layer: Layer) =>
+            layer.kind === "strokes"
+              ? { kind: layer.kind, count: layer.count }
+              : { kind: layer.kind, id: layer.id }
+          )
         )
       : null;
   }

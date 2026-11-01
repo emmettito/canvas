@@ -1,17 +1,36 @@
 import { baseKeymap, toggleMark } from "prosemirror-commands";
 import { history, redo, undo } from "prosemirror-history";
 import { keymap } from "prosemirror-keymap";
-import { type Mark, type MarkType, type Node, Schema } from "prosemirror-model";
-import { EditorState, Selection, type Transaction } from "prosemirror-state";
-import { EditorView } from "prosemirror-view";
+import {
+  type Mark,
+  type MarkType,
+  type Node,
+  type ResolvedPos,
+  Schema,
+} from "prosemirror-model";
+import {
+  type Command,
+  EditorState,
+  Plugin,
+  Selection,
+  type Transaction,
+} from "prosemirror-state";
+import { Decoration, DecorationSet, EditorView } from "prosemirror-view";
 import { FONTS } from "../../constants/fonts.const";
 import {
   type FontName,
+  type ListType,
   type Paragraph,
   type RichText,
   type TextAlign,
   type TextRun,
 } from "../../models/rich-text.model";
+import { LIST_INDENT } from "../../utilities/lay-out-rich-text";
+import {
+  getListMarkers,
+  isLinkAddress,
+  MAX_LIST_LEVEL,
+} from "../../utilities/rich-text";
 import {
   type Format,
   type TextEditor,
@@ -22,23 +41,49 @@ import {
   type ValueMark,
 } from "../../models/text-editor.model";
 
+// Shortcuts use Cmd on a Mac, and Ctrl elsewhere.
+const IS_MAC =
+  typeof navigator !== "undefined" &&
+  /Mac|iPhone|iPad/.test(navigator.userAgent);
+
 // The one value in `values`, or null if there's more than one.
 function getOnly<T>(values: Set<T>): T | null {
   return values.size === 1 ? [...values][0] : null;
 }
 
+// The names a list's DOM gives it, and its level, read back.
+function readList(dom: HTMLElement): { list: ListType | null; level: number } {
+  const list = dom.dataset.list;
+  if (list !== "bullet" && list !== "ordered") {
+    return { list: null, level: 0 };
+  }
+  const level = Number(dom.dataset.level);
+  return {
+    list,
+    level: Number.isInteger(level)
+      ? Math.min(Math.max(level, 0), MAX_LIST_LEVEL)
+      : 0,
+  };
+}
+
 /*
- * The editor's document: paragraphs of text, each with an alignment. Its
- * formatting marks copy and paste between notes and text boxes, through their
- * `data-` attributes. Text pasted from elsewhere keeps only bold, italic,
- * underline and lines through.
+ * The editor's document: paragraphs of text, each with an alignment, which
+ * can be items of a bulleted or numbered list, nested a level or more in.
+ * A list is the items next to each other, so there are no list nodes to
+ * keep in order. Its formatting marks copy and paste between notes and text
+ * boxes, through their `data-` attributes. Text pasted from elsewhere keeps
+ * only bold, italic, underline, lines through and links.
  */
 const schema = new Schema({
   nodes: {
     doc: { content: "paragraph+" },
     paragraph: {
       content: "text*",
-      attrs: { align: { default: "left" } },
+      attrs: {
+        align: { default: "left" },
+        list: { default: null },
+        level: { default: 0 },
+      },
       parseDOM: [
         {
           tag: "p",
@@ -46,20 +91,56 @@ const schema = new Schema({
             align: ["center", "right"].includes(dom.style.textAlign)
               ? dom.style.textAlign
               : "left",
+            ...readList(dom),
           }),
         },
       ],
-      toDOM: (node) => [
-        "p",
-        node.attrs.align === "left"
-          ? {}
-          : { style: `text-align: ${node.attrs.align}` },
-        0,
-      ],
+      // A list item is indented a step for each level, and one more, for its
+      // marker, which the decorations add.
+      toDOM: (node) => {
+        const { align, list, level } = node.attrs;
+        const styles = align === "left" ? [] : [`text-align: ${align}`];
+        if (list) {
+          styles.push(`padding-left: ${(level + 1) * LIST_INDENT}em`);
+        }
+        return [
+          "p",
+          {
+            ...(list && { "data-list": list, "data-level": String(level) }),
+            ...(styles.length > 0 && { style: styles.join("; ") }),
+          },
+          0,
+        ];
+      },
     },
     text: {},
   },
   marks: {
+    // Outside the rest, so a link with formatting inside it is one link.
+    // Typing at its end doesn't carry it on.
+    link: {
+      attrs: { href: {} },
+      inclusive: false,
+      parseDOM: [
+        {
+          tag: "a[href]",
+          getAttrs: (dom) => {
+            const href = dom.getAttribute("href") ?? "";
+            return isLinkAddress(href) ? { href } : false;
+          },
+        },
+      ],
+      toDOM: (mark) => [
+        "a",
+        {
+          href: mark.attrs.href,
+          title: `${mark.attrs.href}\n${IS_MAC ? "⌘" : "Ctrl"}-click to open`,
+          target: "_blank",
+          rel: "noopener noreferrer nofollow",
+        },
+        0,
+      ],
+    },
     bold: {
       parseDOM: [{ tag: "strong" }, { tag: "b" }],
       toDOM: () => ["strong", 0],
@@ -134,20 +215,25 @@ const TOGGLE_MARKS: ToggleMark[] = ["bold", "italic", "underline", "strike"];
 const VALUE_MARKS: ValueMark[] = ["font", "size", "color"];
 
 function toDoc(content: RichText): Node {
-  const paragraphs = (content.length > 0 ? content : [{ runs: [] }]).map(
-    ({ align = "left", runs }) =>
-      schema.nodes.paragraph.create(
-        { align },
-        runs
-          .filter(({ text }) => text !== "")
-          .map((run) => schema.text(run.text, toMarks(run)))
-      )
+  const paragraphs = (
+    content.length > 0 ? content : [{ runs: [] } as Paragraph]
+  ).map(({ align = "left", list, level = 0, runs }) =>
+    schema.nodes.paragraph.create(
+      { align, list: list ?? null, level: list ? level : 0 },
+      runs
+        .filter(({ text }) => text !== "")
+        .map((run) => schema.text(run.text, toMarks(run)))
+    )
   );
   return schema.nodes.doc.create(null, paragraphs);
 }
 
 function toMarks(run: TextRun): Mark[] {
   const marks: Mark[] = [];
+  // A peer's link could go anywhere, so only one that can is kept.
+  if (run.link && isLinkAddress(run.link)) {
+    marks.push(schema.marks.link.create({ href: run.link }));
+  }
   for (const name of TOGGLE_MARKS) {
     if (run[name]) {
       marks.push(schema.marks[name].create());
@@ -164,8 +250,10 @@ function toMarks(run: TextRun): Mark[] {
 function toRun(node: Node): TextRun {
   const run: TextRun = { text: node.text ?? "" };
   for (const mark of node.marks) {
-    const name = mark.type.name as ToggleMark | ValueMark;
-    if ((TOGGLE_MARKS as string[]).includes(name)) {
+    const name = mark.type.name as ToggleMark | ValueMark | "link";
+    if (name === "link") {
+      run.link = mark.attrs.href as string;
+    } else if ((TOGGLE_MARKS as string[]).includes(name)) {
       run[name as ToggleMark] = true;
     } else {
       (run as Record<ValueMark, unknown>)[name as ValueMark] = mark.attrs.value;
@@ -179,8 +267,16 @@ function fromDoc(doc: Node): RichText {
   doc.forEach((paragraph) => {
     const runs: TextRun[] = [];
     paragraph.forEach((node) => runs.push(toRun(node)));
-    const align = paragraph.attrs.align as TextAlign;
-    paragraphs.push(align === "left" ? { runs } : { align, runs });
+    const { align, list, level } = paragraph.attrs as {
+      align: TextAlign;
+      list: ListType | null;
+      level: number;
+    };
+    paragraphs.push({
+      ...(align !== "left" && { align }),
+      ...(list && { list, ...(level > 0 && { level }) }),
+      runs,
+    });
   });
   return paragraphs;
 }
@@ -202,6 +298,217 @@ function setValueMark(
   }
   const transaction = state.tr.removeMark(from, to, type);
   dispatch(mark ? transaction.addMark(from, to, mark) : transaction);
+}
+
+// Each paragraph from `from` to `to`, with where it starts.
+function getParagraphs(
+  doc: Node,
+  from: number,
+  to: number
+): { node: Node; position: number }[] {
+  const paragraphs: { node: Node; position: number }[] = [];
+  doc.nodesBetween(from, to, (node, position) => {
+    if (node.type === schema.nodes.paragraph) {
+      paragraphs.push({ node, position });
+      return false;
+    }
+    return true;
+  });
+  return paragraphs;
+}
+
+// Makes each selected paragraph an item of `list`, or no list's.
+function setList(list: ListType | null): Command {
+  return (state, dispatch) => {
+    const { from, to } = state.selection;
+    const paragraphs = getParagraphs(state.doc, from, to);
+    const all = paragraphs.every(({ node }) => node.attrs.list === list);
+    const next = all ? null : list;
+    if (dispatch) {
+      const transaction = state.tr;
+      for (const { node, position } of paragraphs) {
+        transaction.setNodeMarkup(position, undefined, {
+          ...node.attrs,
+          list: next,
+          level: next ? node.attrs.level : 0,
+        });
+      }
+      dispatch(transaction);
+    }
+    return true;
+  };
+}
+
+// Nests the selected list items a level further in, or out, and out of the
+// list from its first level. Nothing happens outside a list, e.g. so Tab
+// moves focus as usual.
+function indent(step: 1 | -1): Command {
+  return (state, dispatch) => {
+    const { from, to } = state.selection;
+    const items = getParagraphs(state.doc, from, to).filter(
+      ({ node }) => node.attrs.list
+    );
+    if (items.length === 0) {
+      return false;
+    }
+    if (dispatch) {
+      const transaction = state.tr;
+      for (const { node, position } of items) {
+        const level = (node.attrs.level as number) + step;
+        transaction.setNodeMarkup(
+          position,
+          undefined,
+          level < 0
+            ? { ...node.attrs, list: null, level: 0 }
+            : { ...node.attrs, level: Math.min(level, MAX_LIST_LEVEL) }
+        );
+      }
+      dispatch(transaction);
+    }
+    return true;
+  };
+}
+
+// Enter starts a new paragraph like the one it's in, e.g. the next item of
+// its list, or aligned the same. In an empty item, it goes a level out
+// instead, and out of the list from its first level, as in a word
+// processor.
+const splitParagraph: Command = (state, dispatch) => {
+  const { $from, empty } = state.selection;
+  const paragraph = $from.parent;
+  if (empty && paragraph.attrs.list && paragraph.content.size === 0) {
+    return indent(-1)(state, dispatch);
+  }
+  if (dispatch) {
+    const transaction = state.tr;
+    if (!empty) {
+      transaction.deleteSelection();
+    }
+    const at = transaction.selection.$from;
+    const marks = state.storedMarks ?? at.marks();
+    transaction.split(at.pos, 1, [
+      { type: schema.nodes.paragraph, attrs: at.parent.attrs },
+    ]);
+    // What's typed next looks like what was before it, but isn't linked.
+    transaction.ensureMarks(schema.marks.link.removeFromSet(marks));
+    dispatch(transaction.scrollIntoView());
+  }
+  return true;
+};
+
+// Backspace at the start of a list item takes it out of the list, keeping
+// its text, before it joins the paragraph above.
+const leaveList: Command = (state, dispatch) => {
+  const { $from, empty } = state.selection;
+  const paragraph = $from.parent;
+  if (!empty || $from.parentOffset > 0 || !paragraph.attrs.list) {
+    return false;
+  }
+  if (dispatch) {
+    dispatch(
+      state.tr.setNodeMarkup($from.before(), undefined, {
+        ...paragraph.attrs,
+        list: null,
+        level: 0,
+      })
+    );
+  }
+  return true;
+};
+
+// Starting a paragraph with "- " or "* " makes it a bulleted list's item,
+// and "1. " a numbered one's, as in Markdown.
+function startListAsTyped(
+  view: EditorView,
+  from: number,
+  to: number,
+  text: string
+): boolean {
+  const { state } = view;
+  const { $from } = state.selection;
+  if (text !== " " || from !== to || $from.parent.attrs.list) {
+    return false;
+  }
+  const before = $from.parent.textBetween(0, $from.parentOffset);
+  const list: ListType | null = /^[-*•]$/.test(before)
+    ? "bullet"
+    : /^1[.)]$/.test(before)
+      ? "ordered"
+      : null;
+  if (!list) {
+    return false;
+  }
+  const start = $from.start();
+  view.dispatch(
+    state.tr
+      .delete(start, start + before.length)
+      .setNodeMarkup($from.before(), undefined, {
+        ...$from.parent.attrs,
+        list,
+        level: 0,
+      })
+  );
+  return true;
+}
+
+// Each list item's bullet or number, as an attribute its paragraph's marker
+// shows.
+const listMarkers = new Plugin({
+  props: {
+    decorations: (state) => {
+      const paragraphs: { node: Node; position: number }[] = [];
+      state.doc.forEach((node, position) =>
+        paragraphs.push({ node, position })
+      );
+      const markers = getListMarkers(
+        paragraphs.map(({ node }) => ({
+          list: node.attrs.list ?? undefined,
+          level: node.attrs.level,
+          runs: [],
+        }))
+      );
+      return DecorationSet.create(
+        state.doc,
+        paragraphs.flatMap(({ node, position }, index) => {
+          const marker = markers[index];
+          return marker
+            ? [
+                Decoration.node(position, position + node.nodeSize, {
+                  "data-marker": marker,
+                }),
+              ]
+            : [];
+        })
+      );
+    },
+  },
+});
+
+// Where the link `type` at `$pos` reaches, either side of it, in its
+// paragraph, or null if there's none there.
+function getLinkRange(
+  $pos: ResolvedPos,
+  href: string
+): { from: number; to: number } | null {
+  const start = $pos.start();
+  const offset = $pos.parentOffset;
+  let range: { from: number; to: number } | null = null;
+  let run: { from: number; to: number } | null = null;
+  $pos.parent.forEach((child, childOffset) => {
+    const linked = child.marks.some(
+      (mark) => mark.type === schema.marks.link && mark.attrs.href === href
+    );
+    const end = childOffset + child.nodeSize;
+    if (!linked) {
+      run = null;
+      return;
+    }
+    run = run ? { from: run.from, to: end } : { from: childOffset, to: end };
+    if (run.from <= offset && offset <= run.to) {
+      range = { from: start + run.from, to: start + run.to };
+    }
+  });
+  return range;
 }
 
 // Formatted text that can be typed in, which notes and text boxes show their
@@ -238,6 +545,19 @@ class ProseMirrorEditor implements TextEditor, TextFormatting {
     });
     this.#contentDoc = this.#view.state.doc;
     this.element = this.#view.dom;
+    // Links open in a new tab with Cmd (Ctrl elsewhere) held, since a click
+    // types, or drags the note or text box.
+    this.element.addEventListener("click", (event) => {
+      const link = (event.target as Element).closest?.("a[href]");
+      if (!link) {
+        return;
+      }
+      event.preventDefault();
+      const href = link.getAttribute("href") ?? "";
+      if ((IS_MAC ? event.metaKey : event.ctrlKey) && isLinkAddress(href)) {
+        window.open(href, "_blank", "noopener,noreferrer");
+      }
+    });
   }
 
   get content(): RichText {
@@ -289,26 +609,36 @@ class ProseMirrorEditor implements TextEditor, TextFormatting {
       empty
         ? Boolean(type.isInSet(state.storedMarks ?? $from.marks()))
         : isAcross(state, from, to, (marks) => Boolean(type.isInSet(marks)));
+    // A link's value is where it goes.
+    const read = (mark: Mark | undefined) =>
+      mark?.type === schema.marks.link ? mark.attrs.href : mark?.attrs.value;
     const value = (type: MarkType): unknown => {
       if (empty) {
-        return type.isInSet(state.storedMarks ?? $from.marks())?.attrs.value;
+        return read(type.isInSet(state.storedMarks ?? $from.marks()));
       }
       const values = new Set<unknown>();
       state.doc.nodesBetween(from, to, (node) => {
         if (node.isText) {
-          values.add(type.isInSet(node.marks)?.attrs.value);
+          values.add(read(type.isInSet(node.marks)));
         }
       });
       return getOnly(values);
     };
-    const aligns = new Set<TextAlign>();
-    state.doc.nodesBetween(from, to, (node) => {
-      if (node.type === schema.nodes.paragraph) {
-        aligns.add(node.attrs.align as TextAlign);
-        return false;
-      }
-      return true;
-    });
+    const paragraphs = getParagraphs(state.doc, from, to);
+    const aligns = new Set(
+      paragraphs.map(({ node }) => node.attrs.align as TextAlign)
+    );
+    const lists = new Set(
+      paragraphs.map(({ node }) => node.attrs.list as ListType | null)
+    );
+    const link = empty
+      ? schema.marks.link.isInSet(state.storedMarks ?? $from.marks())?.attrs
+          .href
+      : isAcross(state, from, to, (marks) =>
+            Boolean(schema.marks.link.isInSet(marks))
+          )
+        ? value(schema.marks.link)
+        : undefined;
     return {
       bold: has(schema.marks.bold),
       italic: has(schema.marks.italic),
@@ -318,6 +648,8 @@ class ProseMirrorEditor implements TextEditor, TextFormatting {
       size: value(schema.marks.size) as number | null | undefined,
       color: value(schema.marks.color) as string | null | undefined,
       align: getOnly(aligns),
+      list: getOnly(lists),
+      ...(typeof link === "string" && { link }),
     };
   };
 
@@ -349,6 +681,43 @@ class ProseMirrorEditor implements TextEditor, TextFormatting {
     this.#view.dispatch(transaction);
   };
 
+  setList = (list: ListType | null): void => {
+    setList(list)(this.#view.state, this.#view.dispatch);
+  };
+
+  indent = (step: 1 | -1): void => {
+    indent(step)(this.#view.state, this.#view.dispatch);
+  };
+
+  setLink = (href: string | undefined): void => {
+    const { state } = this.#view;
+    const { empty, from, to, $from } = state.selection;
+    const type = schema.marks.link;
+    const transaction = state.tr;
+    if (!empty) {
+      transaction.removeMark(from, to, type);
+      if (href) {
+        transaction.addMark(from, to, type.create({ href }));
+      }
+    } else {
+      const current = type.isInSet(state.storedMarks ?? $from.marks());
+      const range = current && getLinkRange($from, current.attrs.href);
+      if (range) {
+        transaction.removeMark(range.from, range.to, type);
+        if (href) {
+          transaction.addMark(range.from, range.to, type.create({ href }));
+        }
+      } else if (href) {
+        // The address is its own text, which typing goes on after.
+        transaction.insertText(href, from);
+        transaction.addMark(from, from + href.length, type.create({ href }));
+      } else {
+        return;
+      }
+    }
+    this.#view.dispatch(transaction);
+  };
+
   destroy(): void {
     this.#view.destroy();
   }
@@ -358,7 +727,15 @@ class ProseMirrorEditor implements TextEditor, TextFormatting {
       doc: toDoc(content),
       plugins: [
         history(),
+        listMarkers,
+        new Plugin({ props: { handleTextInput: startListAsTyped } }),
         keymap({
+          Enter: splitParagraph,
+          Backspace: leaveList,
+          Tab: indent(1),
+          "Shift-Tab": indent(-1),
+          "Shift-Mod-7": setList("ordered"),
+          "Shift-Mod-8": setList("bullet"),
           "Mod-z": undo,
           "Shift-Mod-z": redo,
           "Mod-y": redo,
@@ -393,8 +770,8 @@ function isAcross(
 
 /**
  * Formats the text in notes and text boxes, with a bar above it while it's
- * typed in: its font, size, bold, italic, underline, line through, color and
- * alignment. Pass it as `textEditor` to `mountCanvas`. It needs ProseMirror's
+ * typed in: its font, size, bold, italic, underline, line through, color,
+ * links, lists and alignment. Pass it as `textEditor` to `mountCanvas`. It needs ProseMirror's
  * packages, which the canvas otherwise doesn't.
  */
 export const proseMirrorEditor: TextEditorFactory = (content, options) =>
