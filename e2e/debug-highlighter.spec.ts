@@ -1,23 +1,15 @@
 // TEMPORARY: diagnoses the highlighter test failing on Linux WebKit only.
 import { test } from "@playwright/test";
-import { getSquareOutlines } from "../src/utilities/stroke-pieces";
+import { readFileSync } from "node:fs";
 
-const points = [];
-for (let i = 0; i <= 10; i++) points.push({ x: 320 + 64 * i, y: 360 });
-for (let i = 1; i <= 10; i++)
-  points.push({ x: 960 - 64 * i, y: 360 + 0.2 * i });
-const outlines = getSquareOutlines({
-  color: "#fcfd00",
-  size: 10,
-  opacity: 0.4,
-  cap: "square",
-  points,
-});
+type Pt = { x: number; y: number };
+const outlines: Pt[][] = JSON.parse(
+  readFileSync(new URL("debug-outlines.json", import.meta.url), "utf8")
+);
 
 test("debug: which fills Linux WebKit draws", async ({ page }) => {
   await page.goto("/e2e/fixtures/full.html");
-  const results = await page.evaluate((outlines) => {
-    type Pt = { x: number; y: number };
+  const results = await page.evaluate((outlines: Pt[][]) => {
     const trace = (context: CanvasPath, list: Pt[][]) =>
       list.forEach(([first, ...rest]) => {
         context.moveTo(first.x, first.y);
