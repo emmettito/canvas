@@ -152,6 +152,23 @@ describe("drawStroke", () => {
     }
   });
 
+  it("draws a square-ended stroke heading one way as one outline", () => {
+    const { context } = createContext();
+
+    // Linux's WebKit fills nothing of many outlines along a level line.
+    drawStroke(context, {
+      ...LINE,
+      cap: "square",
+      points: Array.from({ length: 11 }, (_, index) => ({
+        x: index * 64,
+        y: 0,
+      })),
+    });
+
+    expect(context.moveTo).toHaveBeenCalledTimes(1);
+    expect(context.fill).toHaveBeenCalledTimes(1);
+  });
+
   it("erases when the stroke has no color", () => {
     const { context } = createContext();
 
