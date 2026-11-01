@@ -43,21 +43,3 @@ jobs:
       # Tests the built demo page, see `playwright.config.ts`. Firefox runs
       # on a virtual screen, for its clipboard.
       - run: xvfb-run --auto-servernum npm run test:e2e
-
-  # TEMPORARY: diagnoses the highlighter test failing on Linux WebKit only.
-  debug-webkit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npx playwright install --with-deps webkit
-      - run: npx playwright test e2e/debug-highlighter.spec.ts e2e/canvas.spec.ts:282 --project=webkit --retries=0 --trace=on
-        continue-on-error: true
-      - uses: actions/upload-artifact@v4
-        with:
-          name: debug-webkit
-          path: test-results/
