@@ -40,6 +40,10 @@ export default defineConfig({
       name: "firefox",
       use: {
         ...devices["Desktop Firefox"],
+        // Headless Firefox has a clipboard of its own, which pastes nothing
+        // of what's copied from the canvas, so CI runs it on a virtual screen
+        // with the system's, through xvfb-run.
+        headless: !process.env.CI,
         launchOptions: { env: firefoxEnv },
       },
     },
