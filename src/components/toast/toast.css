@@ -1,0 +1,32 @@
+/* Centered above the bottom toolbar, or at the bottom without one. */
+.canvas-toast {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background-color: var(--canvas-color-tooltip);
+  box-shadow: var(--canvas-shadow);
+  color: var(--canvas-color-tooltip-text);
+  font-size: 13px;
+  line-height: 18px;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition:
+    opacity 200ms,
+    visibility 0s 200ms;
+
+  &:not([data-shown]) {
+    visibility: hidden;
+    opacity: 0;
+  }
+
+  &[data-shown] {
+    transition: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}

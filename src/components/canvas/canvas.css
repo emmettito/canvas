@@ -5,17 +5,781 @@
   z-index: 1;
 }
 
-.canvas-drawing {
+/* A run of strokes, or the fills below everything else, on screen, which
+ * the canvas moves into place. */
+.canvas-drawing,
+.canvas-fills {
   position: absolute;
   top: 0;
   left: 0;
+  transform-origin: 0 0;
 }
 
+.canvas-fills {
+  z-index: 0;
+}
+
+/* Above the drawing, like the pointer. */
 .canvas-cursor {
   visibility: hidden;
   position: absolute;
+  z-index: 2;
   border-radius: 50%;
   background-color: var(--canvas-color-cursor);
   transform: translate(-50%, -50%);
   pointer-events: none;
+}
+
+/* Placing items has no size to preview, so the pointer shows what's placed. */
+[data-placing="notes"] > .canvas-input-layer {
+  cursor: crosshair;
+}
+
+[data-placing="texts"] > .canvas-input-layer {
+  cursor: text;
+}
+
+[data-placing="shapes"] > .canvas-input-layer {
+  cursor: crosshair;
+}
+
+/* The paint bucket fills where it's pressed. */
+[data-filling] > .canvas-input-layer {
+  cursor: crosshair;
+}
+
+/* With the move tool, dragging the drawing pans it. */
+[data-moving] > .canvas-input-layer {
+  cursor: default;
+}
+
+/* The drawing, on its own background, which the canvas sets. */
+.canvas-surface {
+  position: absolute;
+  inset: 0;
+}
+
+/* The dropper picks from anything on the drawing, at its tip, which is
+ * outlined so it shows on any color. */
+.canvas-surface[data-picking],
+.canvas-surface[data-picking] * {
+  cursor:
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='-16 -16 288 288'><path d='M224,67.3a35.79,35.79,0,0,0-11.26-25.66c-14-13.28-36.72-12.78-50.62,1.13L138.8,66.2a24,24,0,0,0-33.14.77l-5,5a16,16,0,0,0,0,22.64l2,2.06-51,51a39.75,39.75,0,0,0-10.53,38l-8,18.41A13.68,13.68,0,0,0,36,219.3a15.92,15.92,0,0,0,17.71,3.35L71.23,215a39.89,39.89,0,0,0,37.06-10.75l51-51,2.06,2.06a16,16,0,0,0,22.62,0l5-5a24,24,0,0,0,.74-33.18l23.75-23.87A35.75,35.75,0,0,0,224,67.3ZM97,193a24,24,0,0,1-24,6,8,8,0,0,0-5.55.31l-18.1,7.91L57,189.41a8,8,0,0,0,.25-5.75A23.88,23.88,0,0,1,63,159l51-51,33.94,34Z' fill='black' stroke='white' stroke-width='24' stroke-linejoin='round' paint-order='stroke'/></svg>")
+      4 19,
+    crosshair !important;
+}
+
+/* With the dropper's magnifier showing, its middle is the pointer. */
+.canvas-surface[data-picking][data-loupe],
+.canvas-surface[data-picking][data-loupe] * {
+  cursor: none !important;
+}
+
+/* Centered on the pointer, above everything, and edged in the color it
+ * picks. */
+.canvas-loupe {
+  --canvas-loupe-size: calc(
+    var(--canvas-loupe-pixels) * var(--canvas-loupe-pixel)
+  );
+  --canvas-loupe-edge: 4px;
+  position: absolute;
+  /* Its pixels are as big as they're shown, inside its edge. */
+  width: calc(var(--canvas-loupe-size) + var(--canvas-loupe-edge) * 2);
+  height: calc(var(--canvas-loupe-size) + var(--canvas-loupe-edge) * 2);
+  border: var(--canvas-loupe-edge) solid var(--canvas-loupe-color, transparent);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.2),
+    inset 0 0 0 1px rgb(0 0 0 / 0.2),
+    0 4px 16px rgb(0 0 0 / 0.2);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+/* Each pixel a square, rather than blurred into the next. */
+.canvas-loupe-pixels {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 50%;
+  /* Opaque, so what's under it never shows through, unenlarged. */
+  background-color: var(--canvas-loupe-color, #ffffff);
+  background-size: 100% 100%;
+  image-rendering: pixelated;
+
+  /* Faint lines between the pixels. */
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(to right, rgb(128 128 128 / 0.2) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(128 128 128 / 0.2) 1px, transparent 1px);
+    background-size: var(--canvas-loupe-pixel) var(--canvas-loupe-pixel);
+  }
+
+  /* The one that's picked, outlined dark and light, so it shows on any
+   * color. */
+  &::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: calc(var(--canvas-loupe-pixel) + 2px);
+    height: calc(var(--canvas-loupe-pixel) + 2px);
+    border: 1px solid rgb(0 0 0 / 0.6);
+    box-shadow: inset 0 0 0 1px #ffffff;
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* The color's code, below it. */
+.canvas-loupe-code {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--canvas-color-tooltip-text);
+  background: var(--canvas-color-tooltip);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+
+  &:empty {
+    display: none;
+  }
+}
+
+/* On a dark background, the tool's size shows light. */
+.canvas-surface[data-dark] .canvas-cursor {
+  background-color: rgb(255 255 255 / 0.25);
+}
+
+/* Moved and scaled by the zoom and pan, from its top left corner. */
+.canvas-items {
+  transform-origin: 0 0;
+}
+
+/* Holding Space, or dragging with the middle button, pans the drawing,
+ * whatever's under the pointer. */
+.canvas-surface[data-panning],
+.canvas-surface[data-panning] * {
+  cursor: grab !important;
+}
+
+.canvas-surface[data-panning]:active,
+.canvas-surface[data-panning] :active {
+  cursor: grabbing !important;
+}
+
+/* Over the drawing. Only its controls take pointer input. */
+.canvas-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* The box dragged with Shift held, with the move tool, to pick what it
+ * touches. */
+.canvas-marquee {
+  position: absolute;
+  border: 1px solid var(--canvas-color-accent);
+  background-color: color-mix(
+    in srgb,
+    var(--canvas-color-accent) 10%,
+    transparent
+  );
+}
+
+/* Lines showing what a note being moved lined up with, centered on the
+ * edges they follow. */
+.canvas-snap-guide {
+  position: absolute;
+  translate: -0.5px -0.5px;
+  background-color: var(--canvas-color-accent);
+}
+
+/* The drawing's strokes and items, in its order, which each one's z-index
+ * gives. The layers don't stack themselves, so their items can go between
+ * runs of strokes and each other. */
+.canvas-items,
+.canvas-images,
+.canvas-texts,
+.canvas-notes,
+.canvas-shapes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.canvas-items {
+  z-index: 2;
+}
+
+/* What others drawing together are drawing, over everything they draw on. */
+.canvas-peer-ink {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Something someone else is moving or typing in, in their color, as thick
+ * on screen at any zoom. */
+.canvas-images > [data-peer],
+.canvas-texts > [data-peer],
+.canvas-notes > [data-peer],
+.canvas-shapes > [data-peer] {
+  outline: calc(2px / var(--canvas-zoom, 1)) solid var(--canvas-peer-color);
+  outline-offset: calc(2px / var(--canvas-zoom, 1));
+}
+
+/* Theirs alone so far, e.g. a note they haven't finished adding. */
+.canvas-images > [data-peer-only],
+.canvas-texts > [data-peer-only],
+.canvas-notes > [data-peer-only],
+.canvas-shapes > [data-peer-only] * {
+  pointer-events: none !important;
+}
+
+/*
+ * The pencil and eraser draw over items, so items only take pointer input
+ * with the move tool, which moves them, or the tool that places their kind,
+ * which opens them. One being typed in always does.
+ */
+.canvas-note,
+.canvas-text,
+.canvas-image {
+  position: absolute;
+  pointer-events: none;
+  cursor: grab;
+
+  &:active {
+    cursor: grabbing;
+  }
+
+  [data-moving] &,
+  [data-placing="notes"] &.canvas-note,
+  [data-placing="texts"] &.canvas-text,
+  &[data-editing] {
+    pointer-events: auto;
+  }
+}
+
+/* Focused from the keyboard, or picked with the move tool, so Delete
+ * removes it, or what's picked, or Enter opens it. */
+:is(.canvas-note, .canvas-text, .canvas-image, .canvas-shape):focus-visible,
+[data-moving]
+  :is(.canvas-note, .canvas-text, .canvas-image, .canvas-shape):is(
+    :focus,
+    [data-selected]
+  ) {
+  outline: 2px solid var(--canvas-color-accent);
+  outline-offset: 2px;
+}
+
+/*
+ * Resize handles can't be seen: the pointer shows them, as a resize arrow
+ * over each side and corner. Sides are strips along the edge, half inside
+ * and half out, and corners are squares over the ends of them.
+ */
+:is(
+  .canvas-note-resize,
+  .canvas-text-resize,
+  .canvas-image-resize,
+  .canvas-shape-resize
+) {
+  /* The same size on screen at any zoom. */
+  --canvas-handle: calc(10px / var(--canvas-zoom, 1));
+  position: absolute;
+
+  &:is([data-handle="n"], [data-handle="s"]) {
+    left: calc(var(--canvas-handle) / 2);
+    right: calc(var(--canvas-handle) / 2);
+    height: var(--canvas-handle);
+    cursor: ns-resize;
+  }
+
+  &:is([data-handle="e"], [data-handle="w"]) {
+    top: calc(var(--canvas-handle) / 2);
+    bottom: calc(var(--canvas-handle) / 2);
+    width: var(--canvas-handle);
+    cursor: ew-resize;
+  }
+
+  &:is(
+    [data-handle="ne"],
+    [data-handle="se"],
+    [data-handle="sw"],
+    [data-handle="nw"]
+  ) {
+    z-index: 1;
+    width: var(--canvas-handle);
+    height: var(--canvas-handle);
+  }
+
+  &[data-handle^="n"] {
+    top: calc(var(--canvas-handle) / -2);
+  }
+
+  &[data-handle^="s"] {
+    bottom: calc(var(--canvas-handle) / -2);
+  }
+
+  &[data-handle$="w"] {
+    left: calc(var(--canvas-handle) / -2);
+  }
+
+  &[data-handle$="e"] {
+    right: calc(var(--canvas-handle) / -2);
+  }
+
+  &:is([data-handle="ne"], [data-handle="sw"]) {
+    cursor: nesw-resize;
+  }
+
+  &:is([data-handle="nw"], [data-handle="se"]) {
+    cursor: nwse-resize;
+  }
+}
+
+/*
+ * A shape is only pressed where it shows: along its line or outline, a
+ * little wider so a thin one is easy to press, or anywhere inside a filled
+ * one. Its box, e.g. the empty middle of a rectangle, lets presses through,
+ * like the pencil's strokes, so what's under it can be pressed.
+ */
+.canvas-shape {
+  position: absolute;
+  pointer-events: none;
+
+  /* A rectangle's or ellipse's outline is along its box's edges, where the
+   * handles would be, so they're just outside it, past where pressing the
+   * outline moves the shape. */
+  &:not([data-ends]) > .canvas-shape-resize {
+    --canvas-shape-reach: max(
+      calc(var(--canvas-shape-width) * 0.5px),
+      calc(6px / var(--canvas-zoom, 1))
+    );
+    --canvas-shape-handle: calc(
+      -1 * var(--canvas-shape-reach) - var(--canvas-handle)
+    );
+
+    &[data-handle^="n"] {
+      top: var(--canvas-shape-handle);
+    }
+
+    &[data-handle^="s"] {
+      bottom: var(--canvas-shape-handle);
+    }
+
+    &[data-handle$="w"] {
+      left: var(--canvas-shape-handle);
+    }
+
+    &[data-handle$="e"] {
+      right: var(--canvas-shape-handle);
+    }
+  }
+
+  /* Only a line's ends resize it. */
+  &[data-ends="nw-se"]
+    > .canvas-shape-resize:not([data-handle="nw"], [data-handle="se"]),
+  &[data-ends="ne-sw"]
+    > .canvas-shape-resize:not([data-handle="ne"], [data-handle="sw"]) {
+    display: none;
+  }
+}
+
+/* Its focus ring is clear of its outline. */
+.canvas-shape:focus-visible,
+[data-moving] .canvas-shape:is(:focus, [data-selected]) {
+  outline-offset: calc(
+    var(--canvas-shape-width) * 0.5px + 3px / var(--canvas-zoom, 1)
+  );
+}
+
+.canvas-shape-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.canvas-shape-path {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.canvas-shape-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: max(
+    calc(var(--canvas-shape-width) * 1px),
+    calc(12px / var(--canvas-zoom, 1))
+  );
+  stroke-linecap: round;
+  pointer-events: none;
+  cursor: grab;
+
+  &:active {
+    cursor: grabbing;
+  }
+
+  [data-moving] & {
+    pointer-events: stroke;
+  }
+
+  [data-moving] [data-filled] > .canvas-shape-svg > & {
+    pointer-events: all;
+  }
+}
+
+[data-moving] .canvas-shape-resize {
+  pointer-events: auto;
+}
+
+/* What ProseMirror needs from the page, so its text wraps and keeps its
+ * spaces. Spaces at a line break stay at the end of the line, the way the
+ * export lays text out. */
+.ProseMirror {
+  position: relative;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0;
+  outline: none;
+  cursor: inherit;
+
+  & p {
+    margin: 0;
+  }
+
+  &[contenteditable="true"] {
+    cursor: text;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+}
+
+.ProseMirror-hideselection *::selection {
+  background: transparent;
+}
+
+.ProseMirror-hideselection {
+  caret-color: transparent;
+}
+
+/*
+ * The plain text editor: a text box over a hidden copy of its text, in
+ * `data-value`, which sizes the element to fit the text. The extra space
+ * keeps a last empty line's height.
+ */
+[data-plain-text] {
+  position: relative;
+
+  &::after {
+    content: attr(data-value) " ";
+    display: block;
+    visibility: hidden;
+    white-space: inherit;
+    overflow-wrap: anywhere;
+  }
+}
+
+.canvas-plain-text {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: inherit;
+  overflow: hidden;
+  resize: none;
+  font: inherit;
+  line-height: inherit;
+  color: inherit;
+  white-space: inherit;
+  overflow-wrap: anywhere;
+  background: transparent;
+  border: 0;
+  outline: none;
+  /* Until it's opened for typing, pressing the text drags its item. */
+  pointer-events: none;
+
+  [data-editable] > & {
+    pointer-events: auto;
+    cursor: text;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+}
+
+.canvas-note {
+  border-radius: var(--canvas-note-radius);
+  box-shadow: var(--canvas-shadow);
+  outline: 1px solid rgb(0 0 0 / 0.06);
+
+  /* A shadow doesn't show on a dark background, so an edge does. */
+  [data-dark] & {
+    box-shadow: none;
+    outline-color: rgb(255 255 255 / 0.2);
+  }
+  color: var(--canvas-color-note-text);
+
+  &[data-editing] {
+    outline: 2px solid var(--canvas-color-accent);
+  }
+}
+
+/* Strokes drawn on the note, over its text, and its fills, below it, only
+ * inside it. */
+.canvas-note-ink,
+.canvas-note-fills {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* The padding matches the exported note's, so the text wraps the same way.
+ * Text past the bottom is hidden, as it's left out of exports. */
+.canvas-note-text {
+  height: 100%;
+  white-space: pre-wrap;
+  padding: var(--canvas-note-padding);
+  overflow: hidden;
+}
+
+/* A signed note's text stops above its byline, as exported notes' does. */
+[data-signed] > .canvas-note-text {
+  padding-bottom: calc(
+    var(--canvas-note-padding) + var(--canvas-note-byline-height)
+  );
+}
+
+/* Hidden, a signed note looks like any other. */
+[data-authors-hidden] {
+  & [data-signed] > .canvas-note-text {
+    padding-bottom: var(--canvas-note-padding);
+  }
+
+  & .canvas-note-byline {
+    display: none;
+  }
+}
+
+/* Who signed the note, on one line along its bottom, inside its padding.
+ * Exports draw it the same way, cut short with an ellipsis. */
+.canvas-note-byline {
+  position: absolute;
+  right: var(--canvas-note-padding);
+  bottom: var(--canvas-note-padding);
+  left: var(--canvas-note-padding);
+  overflow: hidden;
+  height: var(--canvas-note-byline-height);
+  font-size: var(--canvas-note-byline-size);
+  white-space: pre;
+  text-overflow: ellipsis;
+  opacity: var(--canvas-note-byline-opacity);
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* The text sizes the box: as wide as its longest line, until its width is
+ * set, and at least as tall as the text. */
+.canvas-text {
+  min-width: 2px;
+  border-radius: 2px;
+
+  /* Empty while it's typed in: wide enough to find, with a hint. */
+  &[data-empty] {
+    min-width: 4em;
+
+    &::before {
+      content: "Text";
+      position: absolute;
+      inset: 0;
+      opacity: 0.4;
+      pointer-events: none;
+    }
+  }
+
+  &:hover {
+    outline: 1px dashed var(--canvas-color-text-muted);
+  }
+
+  &[data-editing] {
+    outline: 1px solid var(--canvas-color-accent);
+  }
+}
+
+.canvas-text-text {
+  white-space: pre;
+
+  [data-wraps] > & {
+    white-space: pre-wrap;
+  }
+}
+
+.canvas-image {
+  /* Its file couldn't be found, e.g. the browser's storage was cleared. */
+  &[data-missing] {
+    background-color: var(--canvas-color-hover);
+    outline: 1px dashed var(--canvas-color-text-muted);
+  }
+}
+
+.canvas-image-file {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+
+  [data-missing] > & {
+    visibility: hidden;
+  }
+}
+
+/* An item's menu, e.g. to delete it, where it was right-clicked. */
+.canvas-context-menu {
+  position: absolute;
+  padding: 4px;
+  border: 1px solid var(--canvas-color-border);
+  border-radius: 8px;
+  background: var(--canvas-color-surface);
+  box-shadow: var(--canvas-shadow);
+  font-size: 13px;
+  line-height: normal;
+  pointer-events: auto;
+  cursor: default;
+}
+
+/* A note's colors, above its menu's actions. */
+.canvas-context-colors {
+  display: grid;
+  grid-template-columns: repeat(5, 24px);
+  gap: 6px;
+  padding: 6px 6px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--canvas-color-border);
+}
+
+.canvas-context-color.canvas-color-option {
+  width: 24px;
+  height: 24px;
+
+  &[aria-checked="true"] {
+    box-shadow:
+      inset 0 0 0 1px var(--canvas-color-swatch-outline),
+      0 0 0 2px var(--canvas-color-surface),
+      0 0 0 4px var(--canvas-color-accent);
+  }
+}
+
+/* Floats above the note or text being typed in. */
+.canvas-format-bar {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--canvas-color-border);
+  border-radius: 10px;
+  background: var(--canvas-color-surface);
+  box-shadow: var(--canvas-shadow);
+  color: var(--canvas-color-text);
+  font-size: 13px;
+  line-height: normal;
+  pointer-events: auto;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.canvas-format-select {
+  height: 28px;
+  padding: 0 4px;
+  border-radius: 6px;
+  color: var(--canvas-color-text);
+  background-color: transparent;
+  cursor: pointer;
+
+  &:hover {
+    background-color: var(--canvas-color-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--canvas-color-accent);
+    outline-offset: -2px;
+  }
+}
+
+.canvas-format-bold {
+  font-weight: bold;
+}
+
+.canvas-format-italic {
+  font-style: italic;
+  font-family: Georgia, serif;
+}
+
+.canvas-format-underline {
+  text-decoration: underline;
+}
+
+.canvas-format-strike {
+  text-decoration: line-through;
+}
+
+.canvas-format-color {
+  position: relative;
+}
+
+/*
+ * The palette opens below the color button, or above it where there's no
+ * room below. It's moved sideways to stay inside the canvas.
+ */
+.canvas-format-colors {
+  position: absolute;
+  width: max-content;
+  padding: 4px;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(calc(-50% + var(--colors-shift, 0px)));
+  border: 1px solid var(--canvas-color-border);
+  border-radius: 8px;
+  background: var(--canvas-color-surface);
+  box-shadow: var(--canvas-shadow);
+
+  &[data-above] {
+    top: auto;
+    bottom: calc(100% + 8px);
+  }
+
+  &[hidden] {
+    display: none;
+  }
 }

@@ -1,26 +1,130 @@
 /* Fills its container, so the host page decides the size. */
 .canvas-root {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  row-gap: 30px;
+  position: relative;
   width: 100%;
   height: 100%;
   min-height: 0;
+  overflow: hidden;
+  /* How far the floating toolbars sit from the edges. */
+  --canvas-toolbar-inset: 12px;
+  /* How thick the rulers are, while they're shown. */
+  --canvas-ruler-size: 0px;
+
+  &[data-rulers] {
+    --canvas-ruler-size: 20px;
+  }
 }
 
+/* The drawing surface, edge to edge, under the toolbars. */
 .canvas-wrapper {
-  position: relative;
-  flex: 1;
-  width: 100%;
-  max-width: 1000px;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
   overflow: hidden;
-  background-color: var(--canvas-color-canvas);
-  box-shadow: var(--canvas-shadow-control);
   cursor: none;
   /* Touch input draws instead of scrolling or zooming the page. */
   touch-action: none;
   user-select: none;
+  -webkit-user-select: none;
   -webkit-touch-callout: none;
+}
+
+/* The toolbars float above the canvas, so they don't change its size. */
+.canvas-root > .canvas-toolbar {
+  position: absolute;
+  z-index: 3;
+  max-width: calc(100% - var(--canvas-toolbar-inset) * 2);
+}
+
+.canvas-root > .canvas-toolbar[data-position="top"] {
+  top: calc(var(--canvas-toolbar-inset) + var(--canvas-ruler-size));
+  left: calc(var(--canvas-toolbar-inset) + var(--canvas-ruler-size));
+  max-width: calc(
+    100% - var(--canvas-toolbar-inset) * 2 - var(--canvas-ruler-size)
+  );
+}
+
+/* The bottom middle: the bottom toolbar, with toasts above it. */
+.canvas-bottom {
+  position: absolute;
+  bottom: var(--canvas-toolbar-inset);
+  left: 50%;
+  z-index: 3;
+  max-width: calc(100% - var(--canvas-toolbar-inset) * 2);
+  transform: translateX(-50%);
+  pointer-events: none;
+
+  & > .canvas-toolbar {
+    pointer-events: auto;
+  }
+}
+
+/* The top right corner: the top right toolbar, with the status beside it. */
+.canvas-corner {
+  position: absolute;
+  /* Below the top ruler, while it's shown. */
+  top: calc(var(--canvas-toolbar-inset) + var(--canvas-ruler-size));
+  right: var(--canvas-toolbar-inset);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - var(--canvas-toolbar-inset) * 2);
+  pointer-events: none;
+
+  & > * {
+    pointer-events: auto;
+  }
+}
+
+/* Its menus line up with the end of their button, inside the corner, and the
+ * last button's with the toolbar's edge. */
+.canvas-corner .canvas-toolbar[data-position="top"] .canvas-popover,
+.canvas-corner
+  .canvas-toolbar[data-position="top"]
+  > .canvas-toolbar-group:first-child
+  > .canvas-toolbar-item:first-child
+  .canvas-popover {
+  left: auto;
+  right: 0;
+}
+
+.canvas-corner
+  .canvas-toolbar[data-position="top"]
+  > .canvas-toolbar-group:not(:has(~ .canvas-toolbar-group))
+  > .canvas-toolbar-item:last-child
+  .canvas-popover {
+  right: -5px;
+}
+
+/* Ctrl+\ (Cmd+\ on a Mac) hides them, to see the whole canvas. */
+.canvas-root[data-toolbars-hidden] .canvas-toolbar {
+  display: none;
+}
+
+/* Shown while changes can't be saved, e.g. because storage is full, even with
+ * the toolbars hidden. */
+.canvas-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--canvas-color-border);
+  border-radius: 10px;
+  background: var(--canvas-color-surface);
+  box-shadow: var(--canvas-shadow);
+  color: var(--canvas-color-text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+
+  &:not([data-shown]) {
+    display: none;
+  }
+
+  &::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: var(--canvas-color-danger);
+  }
 }

@@ -11,5 +11,6 @@
     "rootDir": "./src"
   },
   "include": ["src"],
-  "exclude": ["src/main.ts", "src/theme.ts", "src/**/*.test.ts"]
+  // The demo page's files.
+  "exclude": ["src/main.ts", "src/demo-icons.ts", "src/**/*.test.ts"]
 }

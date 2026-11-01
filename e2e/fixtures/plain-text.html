@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Plain text</title>
+    <style>
+      body {
+        height: 100dvh;
+        margin: 0;
+        font-family: system-ui, sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- The canvas without a text editor plugin, as most pages use it. -->
+    <script type="module">
+      import { mountCanvas } from "/src/index.ts";
+      // The build leaves out `index.ts`'s own import of it, as `main.ts`
+      // says.
+      import "/src/styles.css";
+
+      const icon = () =>
+        document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      mountCanvas(document.body, {
+        toolbar: [
+          [
+            { action: "undo", icon: icon() },
+            { action: "note", icon: icon() },
+            { action: "text", icon: icon() },
+            { action: "color" },
+          ],
+        ],
+      });
+    </script>
+  </body>
+</html>

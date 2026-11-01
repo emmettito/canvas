@@ -1,25 +1,39 @@
 .canvas-popover {
-  --arrow-size: 10px;
-
   position: absolute;
-  bottom: calc(100% + var(--arrow-size) + 5px);
+  bottom: calc(100% + 8px);
   left: 50%;
   z-index: 10;
-  padding: 10px;
-  line-height: 0;
-  border-radius: 20px;
-  background: var(--canvas-color-popover);
+  padding: 4px;
+  border: 1px solid var(--canvas-color-border);
+  border-radius: 8px;
+  background: var(--canvas-color-surface);
+  box-shadow: var(--canvas-shadow);
+  color: var(--canvas-color-text);
+  font-size: 13px;
+  line-height: normal;
   /* Set by the component to keep the popover inside the viewport. */
   transform: translateX(calc(-50% + var(--popover-shift, 0px)));
+}
 
-  &::after {
-    content: "";
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    border-top: var(--arrow-size) solid var(--canvas-color-popover);
-    border-right: var(--arrow-size) solid transparent;
-    border-left: var(--arrow-size) solid transparent;
-    transform: translateX(calc(-50% - var(--popover-shift, 0px)));
-  }
+/*
+ * A toolbar at the top opens them downward, over the canvas, lined up with
+ * the start of their button like a menu bar's menus.
+ */
+.canvas-toolbar[data-position="top"] .canvas-popover {
+  top: calc(100% + 8px);
+  bottom: auto;
+  left: 0;
+  transform: translateX(var(--popover-shift, 0px));
+}
+
+/*
+ * The first button's edge is the toolbar's, e.g. a toolbar that's only a
+ * File button, so it lines up with that, past the toolbar's padding and
+ * border.
+ */
+.canvas-toolbar[data-position="top"]
+  > .canvas-toolbar-group:first-child
+  > .canvas-toolbar-item:first-child
+  .canvas-popover {
+  left: -5px;
 }

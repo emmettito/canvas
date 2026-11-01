@@ -1,45 +1,134 @@
+import { type DrawingChange } from "../models/drawing-change.model";
+import {
+  type Drawing,
+  type DrawingItem,
+  type ItemKind,
+} from "../models/drawing.model";
+import { type Fill } from "../models/fill.model";
+import { type History } from "../models/history.model";
 import { type Stroke } from "../models/stroke.model";
+import { applyChange, hasContent } from "./apply-change";
+import { type Restack } from "./layers";
 
 /**
- * The strokes drawn so far, and the undone strokes that can be redone. Each
- * change replaces `strokes` rather than changing it, so the canvas can tell
- * when strokes were only added.
+ * The current drawing, and the earlier and undone versions of it. Each change
+ * replaces the drawing and its `strokes` rather than changing them, so the
+ * canvas can tell when strokes were only added, and so old versions can be
+ * kept cheaply.
  */
-export class DrawingHistory {
-  #strokes: Stroke[] = [];
-  #undone: Stroke[] = [];
+export class DrawingHistory implements History {
+  #drawing: Drawing;
+  // Most recent last.
+  #past: Drawing[] = [];
+  // Next to redo first.
+  #undone: Drawing[] = [];
+
+  constructor(drawing: Drawing) {
+    this.#drawing = drawing;
+  }
+
+  get drawing(): Drawing {
+    return this.#drawing;
+  }
 
   get strokes(): Stroke[] {
-    return this.#strokes;
+    return this.#drawing.strokes;
   }
 
   get canUndo(): boolean {
-    return this.#strokes.length > 0;
+    return this.#past.length > 0;
   }
 
   get canRedo(): boolean {
     return this.#undone.length > 0;
   }
 
+  get canClear(): boolean {
+    return hasContent(this.#drawing);
+  }
+
   addStroke(stroke: Stroke): void {
-    this.#strokes = [...this.#strokes, stroke];
-    // A new stroke invalidates anything that could have been redone.
+    this.#apply({ type: "add-stroke", stroke });
+  }
+
+  addFill(fill: Fill): void {
+    this.#apply({ type: "add-fill", fill });
+  }
+
+  addItem<K extends ItemKind>(kind: K, item: DrawingItem<K>): void {
+    this.#apply({ type: "add-item", kind, item });
+  }
+
+  updateItem<K extends ItemKind>(kind: K, item: DrawingItem<K>): void {
+    this.#apply({ type: "update-item", kind, id: item.id, fields: item });
+  }
+
+  removeItem(kind: ItemKind, id: string): void {
+    this.#apply({ type: "remove-item", kind, id });
+  }
+
+  /**
+   * Nothing changes, so there's nothing to undo, if it's already at the
+   * front, or the back.
+   */
+  restackItem(kind: ItemKind, id: string, to: Restack): void {
+    this.#apply({ type: "restack-item", kind, id, to });
+  }
+
+  setBackground(color: string): void {
+    this.#apply({ type: "set-background", color });
+  }
+
+  batch(changes: DrawingChange[]): void {
+    this.#apply({ type: "batch", changes });
+  }
+
+  /** Like adding a stroke, it can be undone. */
+  clear(): void {
+    this.#apply({ type: "clear" });
+  }
+
+  /** Replaces the drawing, so it can be undone. */
+  change(drawing: Drawing): void {
+    this.#past = [...this.#past, this.#drawing];
+    this.#drawing = drawing;
+    // A new change invalidates anything that could have been redone.
+    this.#undone = [];
+  }
+
+  /** Starts again from `drawing`, forgetting everything to undo or redo. */
+  reset(drawing: Drawing): void {
+    this.#drawing = drawing;
+    this.#past = [];
     this.#undone = [];
   }
 
   undo(): void {
-    if (this.#strokes.length === 0) {
+    const previous = this.#past.at(-1);
+    if (!previous) {
       return;
     }
-    this.#undone = [this.#strokes[this.#strokes.length - 1], ...this.#undone];
-    this.#strokes = this.#strokes.slice(0, -1);
+    this.#past = this.#past.slice(0, -1);
+    this.#undone = [this.#drawing, ...this.#undone];
+    this.#drawing = previous;
   }
 
   redo(): void {
-    if (this.#undone.length === 0) {
+    const [next] = this.#undone;
+    if (!next) {
       return;
     }
-    this.#strokes = [...this.#strokes, this.#undone[0]];
     this.#undone = this.#undone.slice(1);
+    this.#past = [...this.#past, this.#drawing];
+    this.#drawing = next;
+  }
+
+  // A change that changes nothing, e.g. clearing a blank drawing, has nothing
+  // to undo.
+  #apply(change: DrawingChange): void {
+    const drawing = applyChange(this.#drawing, change);
+    if (drawing !== this.#drawing) {
+      this.change(drawing);
+    }
   }
 }
