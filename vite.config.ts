@@ -1,14 +1,15 @@
+import { readdirSync } from "node:fs";
 import { type Plugin } from "vite";
 import { configDefaults, defineConfig } from "vitest/config";
 import { attachCollaboration } from "./server/collaboration-socket.ts";
 
-// The event the demo page asks where other devices can open it with.
-const NETWORK_URL_EVENT = "canvas:network-url";
+// The test pages, beside the demo page in the build the tests run against.
+const FIXTURES_DIR = "e2e/fixtures";
 
 /**
- * Lets the demo page's canvases draw together while it's served by the dev
- * server, or `vite preview`, the same way `npm start`'s server does. Built
- * pages on GitHub Pages have no server, so they draw alone.
+ * Lets the test pages' canvases draw together while they're served by the dev
+ * server, or `vite preview`, through `CollaborationServer`. Built pages on
+ * GitHub Pages have no server, so they draw alone.
  */
 function collaborationServer(): Plugin {
   return {
@@ -18,11 +19,6 @@ function collaborationServer(): Plugin {
         const stop = attachCollaboration(server.httpServer as never);
         server.httpServer.on("close", stop);
       }
-      // Where other devices can open the page, if the server's on the
-      // network, e.g. with `--host`.
-      server.ws.on(NETWORK_URL_EVENT, (_data, client) => {
-        client.send(NETWORK_URL_EVENT, server.resolvedUrls?.network[0] ?? null);
-      });
     },
     configurePreviewServer(server) {
       const stop = attachCollaboration(server.httpServer as never);
@@ -38,13 +34,23 @@ export default defineConfig(({ mode }) => ({
   base: mode === "demo" ? "./" : "/",
   plugins: [collaborationServer()],
   // `build` makes the library, `build --mode demo` the demo page for GitHub
-  // Pages, and `build --mode app` the demo page for `npm start` to serve,
-  // which draws together.
+  // Pages, and `build --mode e2e` the demo page with the test pages, for CI's
+  // Playwright tests.
   build:
     mode === "demo"
       ? { outDir: "dist-demo" }
-      : mode === "app"
-        ? { outDir: "dist-app" }
+      : mode === "e2e"
+        ? {
+            outDir: "dist-e2e",
+            rollupOptions: {
+              input: [
+                "index.html",
+                ...readdirSync(FIXTURES_DIR)
+                  .filter((file) => file.endsWith(".html"))
+                  .map((file) => `${FIXTURES_DIR}/${file}`),
+              ],
+            },
+          }
         : {
             lib: {
               // The ProseMirror editor is its own entry, so only pages that

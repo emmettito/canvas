@@ -15,6 +15,9 @@
     <!-- The canvas without a text editor plugin, as most pages use it. -->
     <script type="module">
       import { mountCanvas } from "/src/index.ts";
+      // The build leaves out `index.ts`'s own import of it, as `main.ts`
+      // says.
+      import "/src/styles.css";
 
       const icon = () =>
         document.createElementNS("http://www.w3.org/2000/svg", "svg");

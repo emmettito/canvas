@@ -19,7 +19,6 @@ import dropper from "@phosphor-icons/core/regular/eyedropper.svg?raw";
 import text from "@phosphor-icons/core/regular/text-t.svg?raw";
 import shape from "@phosphor-icons/core/regular/shapes.svg?raw";
 import image from "@phosphor-icons/core/regular/image.svg?raw";
-import close from "@phosphor-icons/core/regular/x.svg?raw";
 import { type ToolbarAction } from "./index";
 
 // Each icon's SVG markup. They fill with `currentColor`, so they follow the
@@ -45,20 +44,6 @@ const ICONS: Record<ToolbarAction, string> = {
 
 const parser = new DOMParser();
 
-// The page's own buttons, outside the canvas.
-const PAGE_ICONS = { close };
-
-function parseIcon(svg: string): Element {
-  return parser.parseFromString(svg, "image/svg+xml").documentElement;
-}
-
 export function createIcon(action: ToolbarAction): Element {
-  return parseIcon(ICONS[action]);
-}
-
-// Hidden from screen readers, since each button has its own label.
-export function createPageIcon(name: keyof typeof PAGE_ICONS): Element {
-  const icon = parseIcon(PAGE_ICONS[name]);
-  icon.setAttribute("aria-hidden", "true");
-  return icon;
+  return parser.parseFromString(ICONS[action], "image/svg+xml").documentElement;
 }

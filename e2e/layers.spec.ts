@@ -2,7 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
-  await page.goto("/");
+  await page.goto("/e2e/fixtures/full.html");
   await expect(page.locator(".canvas-drawing")).toBeVisible();
 });
 

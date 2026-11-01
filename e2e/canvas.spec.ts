@@ -34,7 +34,7 @@ function isDrawnAt(page: Page, x: number, y: number) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/e2e/fixtures/full.html");
   await expect(page.locator("canvas")).toBeVisible();
 });
 
@@ -475,13 +475,13 @@ test("every change is kept in the history, to open again", async ({ page }) => {
   await drawLine(page);
 
   await chooseFromFileMenu(page, "New canvas");
-  await expect(page).toHaveTitle("Untitled – Canvas Demo");
+  await expect(page).toHaveTitle("Untitled – Canvas");
   await expect.poll(() => isDrawnAt(page, 0.5, 0.5)).toBe(false);
 
   await chooseFromFileMenu(page, "Open");
   await page.getByRole("button", { name: "Open Sunset" }).click();
 
-  await expect(page).toHaveTitle("Sunset – Canvas Demo");
+  await expect(page).toHaveTitle("Sunset – Canvas");
   await expect.poll(() => isDrawnAt(page, 0.5, 0.5)).toBe(true);
   // Undo doesn't reach back into another canvas.
   await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
@@ -556,13 +556,13 @@ test("deleting the open canvas opens the most recent one", async ({ page }) => {
   await page.getByRole("button", { name: "Delete New" }).click();
   await page.getByRole("button", { name: "Confirm deleting New" }).click();
 
-  await expect(page).toHaveTitle("Old – Canvas Demo");
+  await expect(page).toHaveTitle("Old – Canvas");
   await expect.poll(() => isDrawnAt(page, 0.5, 0.5)).toBe(true);
 
   // With none left, it's a blank one.
   await page.getByRole("button", { name: "Delete Old" }).click();
   await page.getByRole("button", { name: "Confirm deleting Old" }).click();
-  await expect(page).toHaveTitle("Untitled – Canvas Demo");
+  await expect(page).toHaveTitle("Untitled – Canvas");
   await expect.poll(() => isDrawnAt(page, 0.5, 0.5)).toBe(false);
 });
 
@@ -576,16 +576,16 @@ test("the open canvas and the history are restored after a reload", async ({
 
   await page.reload();
 
-  await expect(page).toHaveTitle("Second – Canvas Demo");
+  await expect(page).toHaveTitle("Second – Canvas");
   await chooseFromFileMenu(page, "Open");
   await page.getByRole("button", { name: "Open First" }).click();
-  await expect(page).toHaveTitle("First – Canvas Demo");
+  await expect(page).toHaveTitle("First – Canvas");
   await expect.poll(() => isDrawnAt(page, 0.5, 0.5)).toBe(true);
 
   // A blank canvas reopens blank.
   await chooseFromFileMenu(page, "New canvas");
   await page.reload();
-  await expect(page).toHaveTitle("Untitled – Canvas Demo");
+  await expect(page).toHaveTitle("Untitled – Canvas");
   // Opening First didn't edit it.
   expect(await getHistoryNames(page)).toEqual(["Second", "First"]);
 });
@@ -618,31 +618,31 @@ test("renaming asks for the name, saved or cancelled", async ({ page }) => {
   await page.keyboard.type("Sunset");
   await dialog.getByRole("button", { name: "Save" }).click();
   await expect(dialog).toBeHidden();
-  await expect(page).toHaveTitle("Sunset – Canvas Demo");
+  await expect(page).toHaveTitle("Sunset – Canvas");
 
   await chooseFromFileMenu(page, "Rename");
   await expect(field).toHaveValue("Sunset");
   await page.keyboard.type("Dawn");
   await dialog.getByRole("button", { name: "Cancel" }).click();
-  await expect(page).toHaveTitle("Sunset – Canvas Demo");
+  await expect(page).toHaveTitle("Sunset – Canvas");
 
   // Escape cancels too.
   await chooseFromFileMenu(page, "Rename");
   await page.keyboard.type("Dawn");
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
-  await expect(page).toHaveTitle("Sunset – Canvas Demo");
+  await expect(page).toHaveTitle("Sunset – Canvas");
 });
 
 test("the tab shows the canvas's name", async ({ page }) => {
-  await expect(page).toHaveTitle("Untitled – Canvas Demo");
+  await expect(page).toHaveTitle("Untitled – Canvas");
 
   await renameCanvas(page, "Sunset");
-  await expect(page).toHaveTitle("Sunset – Canvas Demo");
+  await expect(page).toHaveTitle("Sunset – Canvas");
 
   // It's kept with the canvas.
   await page.reload();
-  await expect(page).toHaveTitle("Sunset – Canvas Demo");
+  await expect(page).toHaveTitle("Sunset – Canvas");
 });
 
 test("the export is named after the canvas", async ({ page }) => {

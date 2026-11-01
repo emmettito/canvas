@@ -46,10 +46,11 @@ export default defineConfig({
     { name: "webkit", use: { ...devices["Desktop Safari"] } },
   ],
   webServer: {
-    // CI tests the built demo page, as published to GitHub Pages, since the dev
-    // server can hide build problems, e.g. styles the build leaves out.
+    // CI tests the built demo page, as published to GitHub Pages, and the test
+    // pages, since the dev server can hide build problems, e.g. styles the
+    // build leaves out.
     command: process.env.CI
-      ? `npm run build:demo && npm run preview -- --port ${PORT} --strictPort`
+      ? `npm run build:e2e && npx vite preview --outDir dist-e2e --port ${PORT} --strictPort`
       : `npm run dev -- --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,

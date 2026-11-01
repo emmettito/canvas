@@ -1,9 +1,20 @@
-import { join } from "node:path";
 import { type Browser, expect, type Page, test } from "@playwright/test";
 
-// CI tests the built page, as on GitHub Pages, which has no server to draw
-// together through.
-test.skip(!!process.env.CI, "Drawing together needs a server");
+// The test page, which draws together through the dev server, or `vite
+// preview`.
+const PAGE = "/e2e/fixtures/full.html";
+
+// What the test page keeps on `window`: the mounted canvas, and functions to
+// join a room and leave it.
+interface TestPage {
+  canvas: {
+    canvasId: string;
+    setAuthor: (name: { firstName: string; lastName: string }) => void;
+    setAvatar: (avatar: string) => void;
+  };
+  join: (room: string) => string;
+  leave: () => void;
+}
 
 // Plays the timer's sounds silently, so running the tests isn't noisy:
 // everything plays as it would, into a gain of 0 in front of the speakers.
@@ -32,7 +43,7 @@ function muteAudio() {
 
 // A page of its own, as someone else on another computer would have, with
 // their own storage.
-async function openPage(browser: Browser, url = "/"): Promise<Page> {
+async function openPage(browser: Browser, url = PAGE): Promise<Page> {
   const context = await browser.newContext();
   await context.addInitScript(muteAudio);
   const page = await context.newPage();
@@ -42,20 +53,24 @@ async function openPage(browser: Browser, url = "/"): Promise<Page> {
   return page;
 }
 
-async function setName(page: Page, firstName: string, lastName = "") {
-  await page.getByRole("button", { name: "Settings" }).click();
-  await page.getByRole("textbox", { name: "First name" }).fill(firstName);
-  await page.getByRole("textbox", { name: "Last name" }).fill(lastName);
-  await page.keyboard.press("Escape");
+// Signs the page with a name, as a page's own name fields would.
+function setName(page: Page, firstName: string, lastName = "") {
+  return page.evaluate(
+    (name) => (window as unknown as TestPage).canvas.setAuthor(name),
+    { firstName, lastName }
+  );
 }
 
-// Shares the open canvas, and returns its link.
+// Draws the open canvas together with anyone who opens the returned address.
 async function share(page: Page): Promise<string> {
-  await page.getByRole("button", { name: "Share", exact: true }).click();
-  await page.getByRole("button", { name: "Share this canvas" }).click();
-  const link = await page.getByRole("textbox", { name: "Link" }).inputValue();
-  await page.keyboard.press("Escape");
-  return link;
+  const room = await page.evaluate(() => {
+    const test = window as unknown as TestPage;
+    // As a page's Share button would, it takes focus from what was typed in
+    // last.
+    (document.activeElement as HTMLElement | null)?.blur();
+    return test.join(test.canvas.canvasId);
+  });
+  return `${PAGE}?room=${encodeURIComponent(room)}`;
 }
 
 // Places text at `x`, `y`, as shares of the canvas, and stops typing in it.
@@ -79,6 +94,17 @@ async function openTogether(browser: Browser) {
   const link = await share(a);
   const b = await openPage(browser, link);
   await setName(b, "Bo");
+  // Once each knows the other's name.
+  for (const [page, name] of [
+    [a, "Bo"],
+    [b, "Ada"],
+  ] as const) {
+    await expect(
+      page
+        .getByRole("list", { name: "People here" })
+        .getByRole("listitem", { name, exact: true })
+    ).toBeVisible();
+  }
   return { a, b };
 }
 
@@ -184,14 +210,9 @@ test("an image added while drawing together shows for everyone", async ({
     .toBe(120);
 });
 
-test("stopping sharing leaves the room, keeping the drawing", async ({
-  browser,
-}) => {
+test("leaving the room keeps the drawing", async ({ browser }) => {
   const { a, b } = await openTogether(browser);
-  await b.getByRole("button", { name: "Share", exact: true }).click();
-  await b.getByRole("button", { name: "Stop sharing" }).click();
-  await b.keyboard.press("Escape");
-  await expect(b).not.toHaveURL(/room=/);
+  await b.evaluate(() => (window as unknown as TestPage).leave());
 
   await addText(a, "After", 0.5, 0.5);
   await expect(getTexts(a)).toHaveCount(2);
@@ -203,12 +224,18 @@ test("each person's photo shows in the corner, but not by their pointer", async 
   browser,
 }) => {
   const { a, b } = await openTogether(browser);
-  await b.getByRole("button", { name: "Settings" }).click();
-  await b
-    .getByLabel("Photo file")
-    .setInputFiles(join(import.meta.dirname, "../public/icon-192.png"));
-  await expect(b.getByRole("img", { name: "Your photo" })).toBeVisible();
-  await b.keyboard.press("Escape");
+  // A small square photo, as a page would make from the one picked.
+  await b.evaluate(() => {
+    const photo = document.createElement("canvas");
+    photo.width = 128;
+    photo.height = 128;
+    const context = photo.getContext("2d")!;
+    context.fillStyle = "#3b82f6";
+    context.fillRect(0, 0, 128, 128);
+    (window as unknown as TestPage).canvas.setAvatar(
+      photo.toDataURL("image/jpeg")
+    );
+  });
 
   const person = a
     .getByRole("list", { name: "People here" })
@@ -224,8 +251,7 @@ test("each person's photo shows in the corner, but not by their pointer", async 
   await expect(a.locator(".canvas-peer-cursor img")).toHaveCount(0);
 
   // Removing it shows their initial again.
-  await b.getByRole("button", { name: "Settings" }).click();
-  await b.getByRole("button", { name: "Remove" }).click();
+  await b.evaluate(() => (window as unknown as TestPage).canvas.setAvatar(""));
   await expect(photo).toHaveCount(0);
   await expect(person).toHaveText(/^B/);
 });
@@ -265,7 +291,7 @@ test("pointers show first names, and more once two people share one", async ({
   await setName(a, "Ada", "Lovelace");
   const box = (await b.locator("canvas").first().boundingBox())!;
   const cursor = a.locator(".canvas-peer-cursor");
-  // Settings covers the canvas, so Bo points again once it's closed.
+  // Bo points again after each rename.
   const rename = async (firstName: string, lastName: string) => {
     await setName(b, firstName, lastName);
     await b.mouse.move(box.x + 300, box.y + 200);
@@ -423,6 +449,7 @@ test("others see shapes, and what's picked moving together", async ({
   };
   await a.keyboard.press("r");
   await drag([300, 300], [400, 400]);
+
   await a.keyboard.press("o");
   await drag([500, 300], [600, 400]);
   const shapes = b.locator(".canvas-shape");

@@ -12,12 +12,5 @@
   },
   "include": ["src"],
   // The demo page's files.
-  "exclude": [
-    "src/main.ts",
-    "src/settings.ts",
-    "src/share.ts",
-    "src/theme.ts",
-    "src/demo-icons.ts",
-    "src/**/*.test.ts"
-  ]
+  "exclude": ["src/main.ts", "src/demo-icons.ts", "src/**/*.test.ts"]
 }

@@ -3,7 +3,8 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { CollaborationServer } from "../src/collaboration-server.ts";
 
 // The path canvases connect to, at the end of the page's own, so the page
-// can be served from a folder.
+// can be served from a folder. Only the test pages connect, through the dev
+// server or `vite preview`.
 export const COLLABORATION_PATH = "/collaborate";
 
 // The largest message a canvas can send, e.g. an image's file as a data URL.

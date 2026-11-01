@@ -2,7 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
-  await page.goto("/");
+  await page.goto("/e2e/fixtures/full.html");
   await expect(page.locator(".canvas-drawing")).toBeVisible();
   // Three filled rectangles in a row, then the move tool.
   for (const x of [200, 400, 600]) {

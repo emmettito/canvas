@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Canvas</title>
+    <style>
+      body {
+        height: 100dvh;
+        margin: 0;
+        overflow: hidden;
+        font-family: system-ui, sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- The canvas with every control, saving, formatted text and drawing
+         together, for the tests of what the demo page leaves out. The tests
+         call the mounted canvas, `window.canvas`, for what a page would set
+         from its own controls, e.g. the author or background. -->
+    <script type="module">
+      import { mountCanvas } from "/src/index.ts";
+      import { proseMirrorEditor } from "/src/prosemirror.ts";
+      // The build leaves out `index.ts`'s own import of it, as `main.ts`
+      // says.
+      import "/src/styles.css";
+
+      const icon = () =>
+        document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      const button = (action) => ({ action, icon: icon() });
+
+      const canvas = mountCanvas(document.body, {
+        storageKey: "canvas",
+        textEditor: proseMirrorEditor,
+        onNameChange: (name) => {
+          document.title = `${name || "Untitled"} – Canvas`;
+        },
+        // The last background shown, for the tests to read.
+        onBackgroundChange: (color) => {
+          window.background = color;
+        },
+        topToolbar: [
+          [
+            {
+              action: "file-menu",
+              items: ["new-canvas", "history", "rename", "export"],
+            },
+          ],
+        ],
+        toolbar: [
+          [button("undo"), button("redo")],
+          [
+            button("move"),
+            button("pencil"),
+            button("highlighter"),
+            button("eraser"),
+            button("bucket"),
+            button("note"),
+            button("text"),
+            button("shape"),
+            { action: "color" },
+            button("dropper"),
+          ],
+          [button("image")],
+        ],
+        topRightToolbar: [[{ action: "timer" }], [{ action: "zoom" }]],
+      });
+      window.canvas = canvas;
+
+      // Draws together in room `room`, through the dev server's
+      // `/collaborate`, until `leave` is called.
+      window.join = (room) => {
+        const url = new URL("/collaborate", location.href);
+        url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+        const socket = new WebSocket(url);
+        const waiting = [];
+        socket.addEventListener("open", () => {
+          for (const message of waiting.splice(0)) {
+            socket.send(message);
+          }
+        });
+        window.leave = canvas.collaborate(
+          {
+            send: (message) => {
+              const data = JSON.stringify(message);
+              if (socket.readyState === WebSocket.OPEN) {
+                socket.send(data);
+              } else {
+                waiting.push(data);
+              }
+            },
+            listen: (listener) => {
+              const onMessage = (event) => listener(JSON.parse(event.data));
+              socket.addEventListener("message", onMessage);
+              return () => socket.removeEventListener("message", onMessage);
+            },
+          },
+          { room, onLeave: () => socket.close() }
+        );
+        return room;
+      };
+      const room = new URL(location.href).searchParams.get("room");
+      if (room) {
+        window.join(room);
+      }
+    </script>
+  </body>
+</html>

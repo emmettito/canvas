@@ -11,8 +11,15 @@ given, with its toolbars floating above it.
 
 ## Using it in another project
 
-Build the library, then install it in the other project. It works with any
+Install it from GitHub, which builds it as it installs. It works with any
 framework, or none, and has no dependencies.
+
+```sh
+npm install github:emmettito/canvas
+```
+
+Or, to try changes to it before they're pushed, build it and install the copy
+next to it:
 
 ```sh
 npm run build
@@ -494,7 +501,7 @@ const leave = canvas.collaborate(
       return () => socket.removeEventListener("message", onMessage);
     },
   },
-  { room: canvas.canvasId, onLeave: () => socket.close() },
+  { room: canvas.canvasId, onLeave: () => socket.close() }
 );
 ```
 
@@ -512,7 +519,7 @@ import { WebSocketServer } from "ws";
 const rooms = new CollaborationServer();
 new WebSocketServer({ port: 8080 }).on("connection", (socket) => {
   const connection = rooms.connect((message) =>
-    socket.send(JSON.stringify(message)),
+    socket.send(JSON.stringify(message))
   );
   socket.on("message", (data) => connection.receive(JSON.parse(String(data))));
   socket.on("close", () => connection.close());
@@ -596,8 +603,7 @@ npm run dev
 | `npm run dev`          | Start the dev server                     |
 | `npm run build`        | Type-check and build the library         |
 | `npm run build:demo`   | Type-check and build the demo page       |
-| `npm run build:app`    | Build the demo page for `npm start`      |
-| `npm start`            | Serve that build, and draw together      |
+| `npm run build:e2e`    | Build the demo and test pages for CI     |
 | `npm run preview`      | Serve the demo page build                |
 | `npm run lint`         | Lint with oxlint, failing on warnings    |
 | `npm run typecheck`    | Type-check without building              |
@@ -615,42 +621,24 @@ once before the first run:
 npx playwright install
 ```
 
+The demo page only draws, so most tests use a test page with every control
+instead, `e2e/fixtures/full.html`: it saves under `storageKey`, has the File
+menu and the timer, and keeps the mounted canvas as `window.canvas`, for the
+tests to call what a page would from its own controls, e.g. `setAuthor`. It
+draws together in the room in its address's `room`, through a WebSocket at
+`/collaborate` that the dev server and `vite preview` run with
+`CollaborationServer` (see `server/collaboration-socket.ts`).
+
 ## Demo page
 
 `npm run dev` serves the demo page, where the canvas fills the window, with
-formatted text. Its Settings dialog, beside the File menu, picks a theme:
-System, Light, or Dark, which is true black, for the page and its toolbars.
-New canvases start on the theme's background. System
-follows the system's light or dark mode, and is the default. The page
-remembers your choice. Below it, Canvas background picks the open canvas's
-background from a few swatches or any color, through `setBackground`. Above
-them, Profile's First name and Last name fields sign new notes and exports,
-through `author` and `setAuthor`. The page remembers them, and splits a whole
-name it kept before into the two. Its Photo is shown to everyone drawing
-together with you, through `avatar` and `setAvatar`: the middle square of the
-picture picked, made 128 pixels across, which the page remembers too.
-Unchecking Show names on sticky notes hides bylines, through
-`setShowAuthors`, and the page remembers that too. The dialog has a section
-per group of settings, so more can be added beside Profile and Appearance.
+the drawing tools at the bottom and the zoom at the top right, and formatted
+text. It's only for drawing: there's no File menu, timer, settings or drawing
+together, and nothing's saved, so a refresh starts again.
 
-A Share button beside Settings shares the open canvas, with a link to copy.
-Anyone who opens the link draws on it with you. A server passes the drawing
-between you, over a WebSocket at `/collaborate` beside the page, which
-`server/collaboration-socket.ts` runs with `CollaborationServer`. If the
-connection's lost, e.g. as the server restarts, the page joins again.
-
-- **In development**, `npm run dev` runs it on the dev server, through a Vite
-  plugin in `vite.config.ts`. Only this computer can open the link, unless
-  the dev server's on your network, with `npm run dev -- --host`, which the
-  link then uses.
-- **In production**, `npm run build:app` builds the page into `dist-app`, and
-  `npm start` serves it and runs the rooms, with Node alone, no Vite. It
-  listens on port 8080 on every address, or `PORT` and `HOST`. Put it behind
-  a proxy that passes WebSocket upgrades on, with HTTPS, so the page's
-  clipboard and `wss://` work. `ws`, its one dependency, is a development
-  dependency, so install with them, e.g. `npm ci`.
-- GitHub Pages has no server, so the demo built for it, `npm run build:demo`,
-  has no Share button.
+The full app built on the library, with saving, naming canvases, profiles,
+themes, the timer and drawing together, is
+[canvas-app](https://github.com/emmettito/canvas-app).
 
 The demo's toolbar icons are [Phosphor](https://phosphoricons.com)'s regular
 weight, under the MIT license, which the demo page ships in

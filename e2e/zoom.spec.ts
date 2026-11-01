@@ -1,7 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/e2e/fixtures/full.html");
   await expect(page.locator("canvas")).toBeVisible();
 });
 
@@ -231,7 +231,7 @@ test("pinching with two fingers zooms and pans", async ({
   test.skip(browserName !== "chromium");
   const context = await browser.newContext({ hasTouch: true });
   const page = await context.newPage();
-  await page.goto("/");
+  await page.goto("/e2e/fixtures/full.html");
   await addNote(page);
   const before = await getNoteBox(page);
   const client = await context.newCDPSession(page);
