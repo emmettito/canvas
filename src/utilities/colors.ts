@@ -15,9 +15,18 @@ export function isToolColor(value: unknown): value is ToolColor {
   return COLORS.includes(value as Color) || isCustomColor(value);
 }
 
-/** The color's value, read from `element`'s CSS if it's the palette's. */
+/**
+ * The color's value, read from `element`'s CSS if it's the palette's. That's
+ * kept as "#rrggbb", however the stylesheet writes it, e.g. "red" for
+ * "#ff0000" once it's minified, so what's drawn and exported doesn't depend
+ * on it.
+ */
 export function resolveColor(element: Element, color: ToolColor): string {
-  return isCustomColor(color) ? color : getCssVariable(element, color);
+  if (isCustomColor(color)) {
+    return color;
+  }
+  const value = getCssVariable(element, color);
+  return readCssColor(value) ?? value;
 }
 
 /** What the color's called, e.g. "red", or "#ff8800" for a custom one. */
@@ -25,12 +34,16 @@ export function getColorName(color: ToolColor): string {
   return isCustomColor(color) ? color : color.replace("--canvas-color-", "");
 }
 
+// Reads colors for `normalizeColor`, made the first time it's needed.
+let colorContext: CanvasRenderingContext2D | null | undefined;
+
 // The browser's reading of a CSS color, as "#rrggbb" or "rgba(...)", or null
 // if it isn't one. The canvas keeps its last fill for anything that isn't a
 // color, so the color is set over two different fills, and only a color
 // gives the same result from both.
 function normalizeColor(color: string): string | null {
-  const context = document.createElement("canvas").getContext("2d");
+  colorContext ??= document.createElement("canvas").getContext("2d");
+  const context = colorContext;
   if (!context) {
     return null;
   }

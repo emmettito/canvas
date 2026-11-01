@@ -4,8 +4,11 @@ import { TEXT_LAYOUT } from "../../constants/text-layout.const";
 import { type CustomColor } from "../../models/color.model";
 import { type TextAlign } from "../../models/rich-text.model";
 import { createElement } from "../../utilities/create-element";
-import { getColorName, readCssColor } from "../../utilities/colors";
-import { getCssVariable } from "../../utilities/get-css-variable";
+import {
+  getColorName,
+  readCssColor,
+  resolveColor,
+} from "../../utilities/colors";
 import { createColorPicker } from "../color-picker/color-picker";
 import {
   type Format,
@@ -314,7 +317,7 @@ export class FormatBar {
     const color = this.#formatting?.getFormat().color;
     const own = readCssColor(this.#defaults.color);
     const swatches = COLORS.map((palette) => {
-      const value = getCssVariable(root, palette);
+      const value = resolveColor(root, palette);
       return { label: getColorName(palette), value, shown: value };
     });
     // The color shown, as hex. None for a selection with more than one.
