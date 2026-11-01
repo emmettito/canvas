@@ -443,6 +443,9 @@ export class CanvasToolbar {
    */
   readonly options = createElement("div", "canvas-toolbar canvas-tool-options");
   #optionsTool: OptionsTool | null = null;
+  // Whether the options were made before the bar was on the page, when the
+  // palette's CSS colors can't be read, e.g. for notes' shades.
+  #optionsDetached = false;
   #sizeButtons = new Map<number, HTMLButtonElement>();
   #selectSwatch: ((value: string | null) => void) | null = null;
   #chip: ColorChip | null = null;
@@ -997,14 +1000,19 @@ export class CanvasToolbar {
     return OPTIONS_TOOLS.includes(tool) && this.#buttons[tool] ? tool : null;
   }
 
-  // Shows the picked tool's options, made again once another tool's picked.
+  // Shows the picked tool's options, made again once another tool's picked,
+  // or once the bar's on the page, if they were made before it was.
   #updateOptions(state: CanvasToolbarState): void {
     const tool = this.#getOptionsTool(state);
-    if (tool !== this.#optionsTool) {
+    if (
+      tool !== this.#optionsTool ||
+      (this.#optionsDetached && this.options.isConnected)
+    ) {
       if (this.#openPopover === "custom-color") {
         this.#closePopover();
       }
       this.#optionsTool = tool;
+      this.#optionsDetached = !this.options.isConnected;
       this.#createOptions(tool);
     }
     if (!tool) {

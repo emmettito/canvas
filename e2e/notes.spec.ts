@@ -370,6 +370,19 @@ test("the note's options offer light shades, and a custom color as it is", async
   );
 });
 
+test("the note's options keep their shades after a reload", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Sticky note" }).click();
+  const shade = await getShade(page, "Blue");
+  // The note tool is still picked, so its options are made as the page loads.
+  await page.reload();
+  await expect(
+    page.getByRole("toolbar", { name: "Sticky note options" })
+  ).toBeVisible();
+  expect(await getShade(page, "Blue")).toBe(shade);
+});
+
 test("picking a color in the note's options while typing in it recolors it, and is undone", async ({
   page,
 }) => {
