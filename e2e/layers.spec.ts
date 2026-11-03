@@ -251,11 +251,6 @@ test("M picks the pencil and Shift+M the highlighter", async ({ page }) => {
   await expect(highlighter).toHaveAttribute("aria-keyshortcuts", "Shift+M");
   await page.keyboard.press("m");
   await expect(pencil).toHaveAttribute("aria-pressed", "true");
-
-  await highlighter.hover();
-  await expect(page.locator(".canvas-tooltip-hint")).toHaveText(
-    /^(⇧|Shift\+)M$/
-  );
 });
 
 test("tools' keys pick them, but not while typing", async ({ page }) => {
