@@ -1,0 +1,29 @@
+# Merges Dependabot's minor and patch npm updates once the required checks pass.
+# Major versions and GitHub Actions updates wait for a review.
+#
+# DEPENDABOT_MERGE_TOKEN must be a Dependabot secret holding a fine-grained token
+# for this repository, with write access to contents and pull requests. A merge
+# made with GITHUB_TOKEN wouldn't start the workflows that run on pushes to main.
+name: Dependabot auto-merge
+
+on: pull_request
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - id: metadata
+        uses: dependabot/fetch-metadata@v3
+      - if: >-
+          steps.metadata.outputs.package-ecosystem == 'npm_and_yarn' &&
+          (steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-patch')
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.DEPENDABOT_MERGE_TOKEN }}
