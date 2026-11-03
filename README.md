@@ -15,8 +15,12 @@ Install it from GitHub, which builds it as it installs. It works with any
 framework, or none, and has no dependencies.
 
 ```sh
-npm install github:emmettito/canvas
+npm install github:emmettito/canvas --allow-git=root
 ```
+
+npm 12 blocks git dependencies by default. `--allow-git=root` allows the ones
+your own `package.json` lists. To skip the flag on later installs, add
+`allow-git=root` to your project's `.npmrc`.
 
 Or, to try changes to it before they're pushed, build it and install the copy
 next to it:
@@ -680,7 +684,7 @@ that color.
 
 ## Development
 
-Requires Node 24 (Vite 8 needs at least 20.19 or 22.12).
+Requires Node 24 (Vite 8 needs at least 20.19 or 22.12) and npm 12.
 
 ```sh
 npm install
