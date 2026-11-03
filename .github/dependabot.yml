@@ -12,6 +12,9 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+        # A new version can change its output, which would fail `format:check`
+        # and hold back the rest of the group.
+        exclude-patterns: [oxfmt]
     ignore:
       # The types follow the Node version CI runs on, see `checks.yml`.
       - dependency-name: "@types/node"
