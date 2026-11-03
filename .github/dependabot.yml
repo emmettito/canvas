@@ -16,7 +16,7 @@ updates:
         # and hold back the rest of the group.
         exclude-patterns: [oxfmt]
     ignore:
-      # The types follow the Node version CI runs on, see `checks.yml`.
+      # The types follow the Node version CI runs on, see `setup/action.yml`.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
 
