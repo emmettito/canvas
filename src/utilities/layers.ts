@@ -14,9 +14,6 @@ export type ResolvedLayer =
       // Where the run's first stroke is in the drawing's strokes.
       start: number;
       strokes: Stroke[];
-      // Where every eraser stroke above the run is, in the drawing's strokes.
-      // They erase it too, since an eraser erases every stroke before it.
-      erasedBy: number[];
     }
   | { [K in ItemKind]: { kind: K; item: DrawingItem<K> } }[ItemKind];
 
@@ -103,6 +100,26 @@ export function addStrokeLayer(order: Layer[]): Layer[] {
 }
 
 /** The order once an item is added, on top of everything. */
+/**
+ * `order` with each stroke, by where it is in the drawing's strokes, replaced
+ * by as many as `counts` says, e.g. none once it's removed, or the pieces
+ * it's cut into.
+ */
+export function resizeStrokeLayers(order: Layer[], counts: number[]): Layer[] {
+  let next = 0;
+  const resized = order.flatMap<Layer>((layer) => {
+    if (layer.kind !== "strokes") {
+      return [layer];
+    }
+    const count = counts
+      .slice(next, next + layer.count)
+      .reduce((total, each) => total + each, 0);
+    next += layer.count;
+    return count > 0 ? [{ kind: "strokes", count }] : [];
+  });
+  return mergeRuns(resized);
+}
+
 export function addItemLayer(
   order: Layer[],
   kind: ItemKind,
@@ -165,9 +182,6 @@ export function resolveLayers(drawing: Drawing): ResolvedLayer[] {
       items.set(`${kind}:${item.id}`, { kind, item } as ResolvedLayer);
     }
   }
-  const erasers = drawing.strokes.flatMap((stroke, index) =>
-    isEraser(stroke) ? [index] : []
-  );
   const layers: ResolvedLayer[] = [];
   let start = 0;
   for (const layer of drawing.order) {
@@ -183,9 +197,36 @@ export function resolveLayers(drawing: Drawing): ResolvedLayer[] {
       kind: "strokes",
       start,
       strokes: drawing.strokes.slice(start, end),
-      erasedBy: erasers.filter((index) => index >= end),
     });
     start = end;
   }
   return layers;
+}
+
+/** Whether the stroke at `index` of `count` can't go any further towards `to`. */
+export function isStrokeAtEdge(
+  order: Layer[],
+  index: number,
+  count: number,
+  to: Restack
+): boolean {
+  return to === "front"
+    ? index === count - 1 && order.at(-1)?.kind === "strokes"
+    : index === 0 && order[0]?.kind === "strokes";
+}
+
+/** `order` once the stroke at `index` of `count` is moved to the front or back. */
+export function restackStrokeLayer(
+  order: Layer[],
+  index: number,
+  count: number,
+  to: Restack
+): Layer[] {
+  const counts = Array.from({ length: count }, (_, each) =>
+    each === index ? 0 : 1
+  );
+  const without = resizeStrokeLayers(order, counts);
+  return to === "front"
+    ? addStrokeLayer(without)
+    : mergeRuns([{ kind: "strokes", count: 1 }, ...without]);
 }

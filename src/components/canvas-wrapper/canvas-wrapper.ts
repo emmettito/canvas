@@ -40,9 +40,15 @@ import {
 import { type ToolState } from "../../models/tool-state.model";
 import { type Timer, type TimerSound } from "../../models/timer.model";
 import { type TextEditorFactory } from "../../models/text-editor.model";
+import { type Stroke } from "../../models/stroke.model";
 import { type StrokeTool, type Tool } from "../../models/tool.model";
 import { type Viewport } from "../../models/viewport.model";
-import { CanvasStorage, readItem } from "../../utilities/canvas-storage";
+import {
+  CanvasStorage,
+  isStroke,
+  readItem,
+} from "../../utilities/canvas-storage";
+import { moveStroke } from "../../utilities/stroke-shape";
 import { createElement } from "../../utilities/create-element";
 import { createId } from "../../utilities/create-id";
 import { downloadBlob } from "../../utilities/download-blob";
@@ -81,6 +87,7 @@ import {
   trimName,
 } from "../../utilities/person-names";
 import { SharedHistory } from "../../utilities/shared-history";
+import { upgradeDrawing } from "../../utilities/upgrade-drawing";
 import { DEFAULT_VIEWPORT } from "../../utilities/viewport";
 import {
   CanvasToolbar,
@@ -89,7 +96,7 @@ import {
   getToolbarActions,
   validateToolbar,
 } from "../canvas-toolbar/canvas-toolbar";
-import { Canvas, type ItemRef, type Placing } from "../canvas/canvas";
+import { Canvas, type PickRef, type Placing } from "../canvas/canvas";
 import { plainTextEditor } from "../canvas/plain-text-editor";
 import { Presence } from "../presence/presence";
 import { Rulers } from "../rulers/rulers";
@@ -180,6 +187,8 @@ const CLIPBOARD_TYPE = "application/x-canvas-items+json";
 interface CopiedItems {
   canvas: string;
   items: { kind: ItemKind; item: DrawingItem<ItemKind> }[];
+  // As they'd be on the drawing, wherever they were drawn.
+  strokes: Stroke[];
 }
 
 // Items copied, from the clipboard, which may have come from another page,
@@ -207,7 +216,16 @@ function readCopiedItems(data: string | undefined): CopiedItems | null {
       ITEM_KINDS.includes(kind as ItemKind) && readItem(kind as ItemKind, item);
     return read ? [{ kind: kind as ItemKind, item: read }] : [];
   });
-  return items.length > 0 ? { canvas: value.canvas, items } : null;
+  const strokes =
+    "strokes" in value && Array.isArray(value.strokes)
+      ? (value.strokes as unknown[]).filter(
+          (each): each is Stroke =>
+            isStroke(each) && each.color !== undefined && !!each.id
+        )
+      : [];
+  return items.length > 0 || strokes.length > 0
+    ? { canvas: value.canvas, items, strokes }
+    : null;
 }
 
 // Ctrl+A (Cmd on a Mac) to pick everything, and Ctrl+D to copy what's
@@ -564,7 +582,14 @@ export function mountCanvas(
       update();
     },
     onBatch: (changes) => {
-      history.batch(changes);
+      // A note can gain or lose strokes along with everything else.
+      history.batch(
+        changes.map((change) =>
+          change.type === "update-item" && change.kind === "notes"
+            ? { ...change, fields: sign(change.fields as Note) }
+            : change
+        )
+      );
       update();
     },
     getImage: (id) => imageStore.get(open.id, id),
@@ -835,13 +860,20 @@ export function mountCanvas(
 
   // What's picked, as it is, from this canvas, for pasting.
   function getPicked(): CopiedItems | null {
-    const items = canvas.selection.flatMap(({ kind, id }) => {
+    const items = canvas.selection.flatMap((ref) => {
+      if (ref.kind === "strokes") {
+        return [];
+      }
+      const { kind, id } = ref;
       const item = (history.drawing[kind] as DrawingItem<ItemKind>[]).find(
         (each) => each.id === id
       );
       return item ? [{ kind, item }] : [];
     });
-    return items.length > 0 ? { canvas: open.id, items } : null;
+    const strokes = canvas.pickedStrokes;
+    return items.length > 0 || strokes.length > 0
+      ? { canvas: open.id, items, strokes }
+      : null;
   }
 
   // What's picked is copied to the clipboard, to paste on this canvas or
@@ -900,7 +932,15 @@ export function mountCanvas(
   // copied from, and one that can't be found is left out.
   async function pasteItems(copied: CopiedItems, offset: number) {
     const changes: DrawingChange[] = [];
-    const pasted: ItemRef[] = [];
+    const pasted: PickRef[] = [];
+    for (const stroke of copied.strokes) {
+      const id = createId();
+      changes.push({
+        type: "add-stroke",
+        stroke: { ...moveStroke(stroke, offset, offset), id },
+      });
+      pasted.push({ kind: "strokes", id, note: null });
+    }
     for (const { kind, item } of copied.items) {
       const id = createId();
       if (kind === "images") {
@@ -920,8 +960,8 @@ export function mountCanvas(
       return;
     }
     history.batch(changes);
-    if (shortcutTools.includes("move")) {
-      activeTool = "move";
+    if (shortcutTools.includes("select")) {
+      activeTool = "select";
     }
     update();
     canvas.setSelection(pasted);
@@ -984,9 +1024,9 @@ export function mountCanvas(
     // the browser's selecting the page and bookmarking it.
     const pickAction = getPickShortcut(event);
     if (pickAction && inUse && !canvas.isTyping) {
-      if (pickAction === "all" && shortcutTools.includes("move")) {
+      if (pickAction === "all" && shortcutTools.includes("select")) {
         event.preventDefault();
-        activeTool = "move";
+        activeTool = "select";
         update();
         canvas.selectAll();
       } else if (pickAction === "duplicate") {
@@ -1012,6 +1052,23 @@ export function mountCanvas(
       stepToolSize(step);
       return;
     }
+    // A stroke picked has no focus to take these from, as an item does.
+    if (
+      inUse &&
+      !canvas.isTyping &&
+      !event.defaultPrevented &&
+      canvas.selection.some(({ kind }) => kind === "strokes")
+    ) {
+      if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        canvas.deleteSelection();
+        return;
+      }
+      if (event.key === "Escape") {
+        canvas.pickLess();
+        return;
+      }
+    }
     // Tools' keys are letters, which type while text is typed in.
     const tool = getToolShortcut(event);
     if (tool && inUse && !canvas.isTyping) {
@@ -1033,16 +1090,14 @@ export function mountCanvas(
   }
   document.addEventListener("keydown", onKeyDown);
 
-  // A tool's key on its own picks it, e.g. V for the move tool.
+  // A tool's key on its own, or with Shift, picks it, e.g. V for the select
+  // tool.
   function getToolShortcut(event: KeyboardEvent): Tool | null {
     if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) {
       return null;
     }
-    return (
-      shortcutTools.find(
-        (tool) => TOOL_SHORTCUTS[tool] === event.key.toUpperCase()
-      ) ?? null
-    );
+    const key = `${event.shiftKey ? "Shift+" : ""}${event.key.toUpperCase()}`;
+    return shortcutTools.find((tool) => TOOL_SHORTCUTS[tool] === key) ?? null;
   }
 
   // [ steps the size down and ] up, by position, so they work on any layout.
@@ -1078,6 +1133,7 @@ export function mountCanvas(
     const parts = {
       strokes: storage.loadStrokes(id) ?? [],
       fills: storage.loadFills(id) ?? [],
+      erasers: storage.loadErasers(id) ?? [],
       images: storage.loadItems(id, "images") ?? [],
       texts: storage.loadItems(id, "texts") ?? [],
       notes: storage.loadItems(id, "notes") ?? [],
@@ -1099,7 +1155,16 @@ export function mountCanvas(
       id,
       drawing.images.map((image) => image.id)
     );
-    return drawing;
+    const upgraded = upgradeDrawing(drawing);
+    // All together, since fills saved before erasers cut strokes count from
+    // the strokes as they were.
+    if (upgraded !== drawing) {
+      storage.saveErasers(id, upgraded.erasers);
+      storage.saveFills(id, upgraded.fills);
+      storage.saveOrder(id, upgraded.order);
+      storage.saveStrokes(id, upgraded.strokes);
+    }
+    return upgraded;
   }
 
   // Replaces what's being worked on, with nothing to undo. What it replaces
@@ -1133,7 +1198,7 @@ export function mountCanvas(
   }
 
   // Inserts images one after another, from `at` or the middle of what the
-  // canvas shows, each a little further down and right. The move tool is
+  // canvas shows, each a little further down and right. The select tool is
   // picked, if there is one, with the last image, to move or resize it.
   async function insertImages(files: File[], at?: Point) {
     const { x, y, width, height } = canvas.visibleArea;
@@ -1147,8 +1212,8 @@ export function mountCanvas(
           y: start.y + offset,
         })) ?? last;
     }
-    if (last !== null && shortcutTools.includes("move")) {
-      activeTool = "move";
+    if (last !== null && shortcutTools.includes("select")) {
+      activeTool = "select";
       update();
       canvas.select("images", last);
     }
@@ -1387,7 +1452,7 @@ export function mountCanvas(
         }
         const sent = new Set(message.images.map(({ id }) => id));
         shared.history = new SharedHistory(
-          message.drawing,
+          upgradeDrawing(message.drawing),
           message.edits,
           message.you,
           (edit) => shared.connection.send({ type: "edit", edit })
@@ -1682,7 +1747,7 @@ export function mountCanvas(
       return note;
     }
     const edited =
-      note.strokes.length !== before.strokes.length ||
+      note.strokes !== before.strokes ||
       note.fills.length !== before.fills.length ||
       JSON.stringify(note.content) !== JSON.stringify(before.content);
     return edited
@@ -1748,12 +1813,18 @@ export function mountCanvas(
     for (const kind of ITEM_KINDS) {
       canvas.setItems(kind, drawing[kind]);
     }
-    canvas.setLayers(drawing.strokes, drawing.order, drawing.fills);
+    canvas.setLayers(
+      drawing.strokes,
+      drawing.order,
+      drawing.fills,
+      drawing.erasers
+    );
     canvas.setBackground(drawing.background);
     canvas.setToolState(getStrokeToolState());
     canvas.setPlacing(getPlacing());
     canvas.setPicking(activeTool === "dropper");
-    canvas.setMoving(activeTool === "move");
+    canvas.setMoving(activeTool === "select");
+    canvas.setHand(activeTool === "hand");
     canvas.setFilling(activeTool === "bucket");
     canvas.setColorSettings(recentColors, colorFormats.text);
   }
@@ -1818,6 +1889,13 @@ export function mountCanvas(
       if (drawing.fills !== stored.fills) {
         if (storage.saveFills(open.id, drawing.fills)) {
           stored = { ...stored, fills: drawing.fills };
+        } else {
+          saved = false;
+        }
+      }
+      if (drawing.erasers !== stored.erasers) {
+        if (storage.saveErasers(open.id, drawing.erasers)) {
+          stored = { ...stored, erasers: drawing.erasers };
         } else {
           saved = false;
         }

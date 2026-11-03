@@ -202,7 +202,7 @@ test("the picked tool's options show above the toolbar, for the tools with any",
   ).toHaveAttribute("aria-pressed", "true");
 
   // Other tools have none.
-  for (const tool of ["Move", "Text"]) {
+  for (const tool of ["Select", "Hand", "Text"]) {
     await page.getByRole("button", { name: tool, exact: true }).click();
     await expect(options).toHaveCount(0);
   }
@@ -282,7 +282,7 @@ test("each stroke tool has sizes of its own, thin, medium and thick", async ({
 test("the highlighter draws see-through, in a color of its own", async ({
   page,
 }) => {
-  await page.keyboard.press("h");
+  await page.keyboard.press("Shift+M");
   await expect(
     page.getByRole("button", { name: "Color: Yellow" })
   ).toBeVisible();
@@ -313,7 +313,7 @@ test("the highlighter draws see-through, in a color of its own", async ({
   );
   expect(strokes).toEqual([expect.objectContaining({ cap: "square" })]);
   // The pencil keeps its own color.
-  await page.keyboard.press("p");
+  await page.keyboard.press("m");
   await expect(
     page.getByRole("button", { name: "Color: Black" })
   ).toBeVisible();
@@ -761,7 +761,7 @@ test("hovering a button shows its name after a moment", async ({ page }) => {
   // It waits, rather than flashing up as the pointer passes.
   await expect(tooltip).toBeHidden();
   // With its key, after its name.
-  await expect(tooltip).toHaveText("Pencil P");
+  await expect(tooltip).toHaveText("Pencil M");
   await expect(tooltip).toBeVisible();
 
   // The next one shows straight away.
@@ -794,7 +794,7 @@ test("tabbing to a button shows its name", async ({ page, browserName }) => {
 
   await expect(highlighter).toBeFocused();
   const tooltip = page.locator(".canvas-tooltip:visible");
-  await expect(tooltip).toHaveText("Highlighter H");
+  await expect(tooltip).toHaveText(/^Highlighter (⇧|Shift\+)M$/);
 });
 
 test("the file menu opens below its button, lined up with it", async ({

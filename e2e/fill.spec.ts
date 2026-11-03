@@ -214,7 +214,7 @@ test("fills a note's area on the note, and keeps fills", async ({ page }) => {
 
   // Moving the note moves its fill.
   await page.reload();
-  await page.getByRole("button", { name: "Move" }).click();
+  await page.getByRole("button", { name: "Select" }).click();
   await page.mouse.move(440, 250);
   await page.mouse.down();
   await page.mouse.move(540, 250, { steps: 5 });

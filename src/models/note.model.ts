@@ -18,6 +18,9 @@ export interface Note {
   // Drawn on the note, from its top left corner, so they move with it. They
   // don't stretch when it's resized, and only show inside it.
   strokes: Stroke[];
+  // What's been erased from its fills, oldest first. Erasing cuts its strokes
+  // instead.
+  erasers: Stroke[];
   // Filled with the paint bucket, below its text and strokes, from its top
   // left corner like them.
   fills: Fill[];

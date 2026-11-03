@@ -31,7 +31,7 @@ export interface PresenceOptions {
 // How someone's pointer looks, like the cursor of the tool they're pointing
 // with: a ring as big as a stroke tool draws or erases, an I-beam for text,
 // a crosshair for placing or filling, and the dropper. Anything else, e.g.
-// the move tool, is an arrow.
+// the select tool, is an arrow.
 type CursorKind =
   | "arrow"
   | "brush"

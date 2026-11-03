@@ -39,10 +39,29 @@ test("there's nothing but drawing: no File menu, timer, or people", async ({
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "File" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^Timer/ })).toHaveCount(0);
-  for (const name of ["Move", "Dropper"]) {
-    await expect(page.getByRole("button", { name })).toHaveCount(0);
-  }
+  await expect(page.getByRole("button", { name: "Dropper" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^Color: / })).toHaveCount(0);
+});
+
+test("it can select and pan, and undoes from the keyboard, with no buttons", async ({
+  page,
+}) => {
+  await expect(page.getByRole("button", { name: "Select" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Hand" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Redo" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Sticky note" }).click();
+  await page.mouse.click(400, 300);
+  await page.keyboard.type("Back soon");
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".canvas-note")).toHaveCount(1);
+
+  await page.mouse.move(600, 500);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(page.locator(".canvas-note")).toHaveCount(0);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(page.locator(".canvas-note")).toHaveCount(1);
 });
 
 test("a refresh keeps the drawing", async ({ page }) => {
@@ -59,31 +78,9 @@ test("a refresh keeps the drawing", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Sticky note" })
   ).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
-});
-
-test("a saved tool that isn't on the toolbar is put down for the pencil", async ({
-  page,
-}) => {
-  // As if the full test page had saved the move tool here.
-  await page.getByRole("button", { name: "Highlighter" }).click();
-  await page.evaluate(() => {
-    for (const [key, value] of Object.entries(localStorage)) {
-      if (value.includes('"activeTool":"highlighter"')) {
-        localStorage.setItem(
-          key,
-          value.replace('"activeTool":"highlighter"', '"activeTool":"move"')
-        );
-      }
-    }
-  });
-
-  await page.reload();
-
-  await expect(page.getByRole("button", { name: "Pencil" })).toHaveAttribute(
-    "aria-pressed",
-    "true"
-  );
+  await page.mouse.move(400, 300);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(page.locator(".canvas-note")).toHaveCount(1);
 });
 
 test("clearing asks first, and can't be undone", async ({ page }) => {
@@ -106,7 +103,9 @@ test("clearing asks first, and can't be undone", async ({ page }) => {
   await expect(popover).toBeHidden();
   await expect(page.locator(".canvas-note")).toHaveCount(0);
   await expect(clear).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
+  await page.mouse.move(400, 300);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(page.locator(".canvas-note")).toHaveCount(0);
 });
 
 test("the export dialog names the canvas as it's typed", async ({ page }) => {
@@ -152,5 +151,7 @@ test("the export dialog closes with Escape, or a press outside it", async ({
   await page.mouse.click(10, 10);
   await expect(dialog).toBeHidden();
   // Nothing was drawn by the press.
-  await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Clear", exact: true })
+  ).toBeDisabled();
 });

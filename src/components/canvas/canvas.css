@@ -59,9 +59,14 @@
   cursor: crosshair;
 }
 
-/* With the move tool, dragging the drawing pans it. */
+/* With the select tool, dragging the drawing draws a box. */
 [data-moving] > .canvas-input-layer {
   cursor: default;
+}
+
+/* With the hand, dragging anywhere pans. */
+[data-hand] > .canvas-input-layer {
+  cursor: grab;
 }
 
 /* The drawing, on its own background, which the canvas sets. */
@@ -201,8 +206,76 @@
   pointer-events: none;
 }
 
-/* The box dragged with Shift held, with the move tool, to pick what it
- * touches. */
+/* Outlines of the strokes picked with the select tool, which drag them. */
+.canvas-stroke-boxes {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.canvas-stroke-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--canvas-color-accent);
+  pointer-events: auto;
+  cursor: grab;
+
+  &:active {
+    cursor: grabbing;
+  }
+
+  /* What's left of an eraser doesn't show but on fills. */
+  &[data-eraser] {
+    border-style: dashed;
+  }
+}
+
+/* The stroke under the mouse, which clicking would pick. */
+.canvas-stroke-hover {
+  position: absolute;
+  z-index: 2;
+  box-sizing: border-box;
+  border: 1px solid var(--canvas-color-accent);
+  opacity: 0.5;
+  pointer-events: none;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+/* A note whose ink is under the mouse, or has a stroke picked: it's part of
+ * the note. */
+.canvas-note:is([data-ink-hover], [data-ink-picked]) {
+  outline: 1px solid
+    color-mix(in srgb, var(--canvas-color-accent) 50%, transparent);
+  outline-offset: 2px;
+}
+
+/* Strokes being dragged, over everything. */
+.canvas-floating-strokes {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* The note a stroke being dragged would land on. */
+.canvas-note[data-drop-target] {
+  outline: 2px solid var(--canvas-color-accent);
+  outline-offset: 2px;
+}
+
+/* A stroke to pick, under the pointer. */
+[data-over-stroke] > .canvas-input-layer {
+  cursor: grab;
+}
+
+/* The box dragged with the select tool, to pick what it touches. */
 .canvas-marquee {
   position: absolute;
   border: 1px solid var(--canvas-color-accent);
@@ -265,7 +338,7 @@
 
 /*
  * The pencil and eraser draw over items, so items only take pointer input
- * with the move tool, which moves them, or the tool that places their kind,
+ * with the select tool, which moves them, or the tool that places their kind,
  * which opens them. One being typed in always does.
  */
 .canvas-note,
@@ -293,7 +366,7 @@
   cursor: text;
 }
 
-/* Focused from the keyboard, or picked with the move tool, so Delete
+/* Focused from the keyboard, or picked with the select tool, so Delete
  * removes it, or what's picked, or Enter opens it. */
 :is(.canvas-note, .canvas-text, .canvas-image):focus-visible,
 [data-moving]
@@ -307,7 +380,12 @@
  * over each side and corner. Sides are strips along the edge, half inside
  * and half out, and corners are squares over the ends of them.
  */
-:is(.canvas-note-resize, .canvas-text-resize, .canvas-image-resize) {
+:is(
+  .canvas-note-resize,
+  .canvas-text-resize,
+  .canvas-image-resize,
+  .canvas-stroke-resize
+) {
   /* The same size on screen at any zoom. */
   --canvas-handle: calc(10px / var(--canvas-zoom, 1));
   position: absolute;
@@ -465,18 +543,19 @@
 
 /* Strokes drawn on the note, over its text, and its fills, below it, only
  * inside it. */
+/* Their size is set in whole steps, usually bigger than the note. They're
+ * drawn on only inside it. */
 .canvas-note-ink,
 .canvas-note-fills {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
+  top: 0;
+  left: 0;
   pointer-events: none;
 }
 
 /* The padding matches the exported note's, so the text wraps the same way.
- * Text past the bottom is hidden, as it's left out of exports. */
+ * A note grows to fit what's typed. Text past the bottom of one made smaller is
+ * hidden, as it's left out of exports. */
 .canvas-note-text {
   height: 100%;
   white-space: pre-wrap;

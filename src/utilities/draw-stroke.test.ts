@@ -22,6 +22,7 @@ function createContext() {
 }
 
 const LINE: Stroke = {
+  id: "s6",
   color: "#ff0000",
   points: [
     { x: 0, y: 0 },

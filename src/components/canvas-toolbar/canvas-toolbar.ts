@@ -103,7 +103,8 @@ const ACTION_LABELS: Record<ToolbarAction, string> = {
   "new-canvas": "New canvas",
   history: "History",
   export: "Export",
-  move: "Move",
+  select: "Select",
+  hand: "Hand",
   pencil: "Pencil",
   highlighter: "Highlighter",
   eraser: "Eraser",
@@ -362,7 +363,7 @@ function createIconButton(action: ToolbarAction, icon: Element) {
   // A tool's key is shown after its name.
   const shortcut = TOOL_SHORTCUTS[action as Tool] as string | undefined;
   if (shortcut) {
-    button.dataset.shortcut = shortcut;
+    button.dataset.shortcut = shortcut.replace("Shift+", SHIFT);
     button.setAttribute("aria-keyshortcuts", shortcut);
   }
   const history = HISTORY_SHORTCUTS[action];
@@ -761,7 +762,8 @@ export class CanvasToolbar {
       redo: () => actions.onRedo(),
       clear: () => this.#togglePopover("clear"),
       ...fileActions,
-      move: () => this.#onToolClick("move"),
+      select: () => this.#onToolClick("select"),
+      hand: () => this.#onToolClick("hand"),
       pencil: () => this.#onToolClick("pencil"),
       highlighter: () => this.#onToolClick("highlighter"),
       eraser: () => this.#onToolClick("eraser"),

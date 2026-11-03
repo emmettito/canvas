@@ -9,7 +9,8 @@ import clear from "@phosphor-icons/core/regular/trash.svg?raw";
 import newCanvas from "@phosphor-icons/core/regular/file-plus.svg?raw";
 import history from "@phosphor-icons/core/regular/clock-counter-clockwise.svg?raw";
 import exportIcon from "@phosphor-icons/core/regular/download-simple.svg?raw";
-import move from "@phosphor-icons/core/regular/cursor.svg?raw";
+import select from "@phosphor-icons/core/regular/cursor.svg?raw";
+import hand from "@phosphor-icons/core/regular/hand.svg?raw";
 import pencil from "@phosphor-icons/core/regular/pencil-simple.svg?raw";
 import highlighter from "@phosphor-icons/core/regular/highlighter.svg?raw";
 import eraser from "@phosphor-icons/core/regular/eraser.svg?raw";
@@ -29,7 +30,8 @@ const ICONS: Record<ToolbarAction, string> = {
   "new-canvas": newCanvas,
   history,
   export: exportIcon,
-  move,
+  select,
+  hand,
   pencil,
   highlighter,
   eraser,

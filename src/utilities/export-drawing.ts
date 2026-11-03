@@ -356,35 +356,21 @@ function createLayer(
   return layerContext;
 }
 
-// Draws strokes on their own layer, then onto `context`, so erasers only
-// erase them. `erasers` are drawn after them, e.g. ones drawn above them.
 function drawStrokes(
   context: CanvasRenderingContext2D,
-  strokes: Stroke[],
-  erasers: Stroke[] = []
+  strokes: Stroke[]
 ): void {
-  if (!strokes.some((stroke) => stroke.color !== undefined)) {
-    return;
+  for (const stroke of strokes) {
+    drawStroke(context, stroke);
   }
-  const layer = createLayer(context);
-  if (!layer) {
-    return;
-  }
-  for (const stroke of [...strokes, ...erasers]) {
-    drawStroke(layer, stroke);
-  }
-  context.save();
-  context.resetTransform();
-  context.drawImage(layer.canvas, 0, 0);
-  context.restore();
 }
 
 // Draws fills on their own layer, then onto `context`, so erasers only erase
-// them. `strokes` are the strokes they count from.
+// them. `erasers` are what they count from.
 function drawFillLayer(
   context: CanvasRenderingContext2D,
   fills: Fill[],
-  strokes: Stroke[]
+  erasers: Stroke[]
 ): void {
   if (fills.length === 0) {
     return;
@@ -393,7 +379,7 @@ function drawFillLayer(
   if (!layer) {
     return;
   }
-  drawFills(layer, fills, strokes);
+  drawFills(layer, fills, erasers);
   context.save();
   context.resetTransform();
   context.drawImage(layer.canvas, 0, 0);
@@ -422,7 +408,7 @@ function drawNote(
   context.save();
   context.clip(shape);
   context.translate(note.x, note.y);
-  drawFillLayer(context, note.fills, note.strokes);
+  drawFillLayer(context, note.fills, note.erasers);
   context.restore();
   drawSpans(context, layOutNote(note, textStyle, measurer));
   const byline = layOutByline(note, textStyle, measurer, shortName);
@@ -472,16 +458,12 @@ export function renderDrawing(
   const measurer = createMeasurer();
   const shortName = getSignerNames(drawing.notes);
   // Fills are below everything else.
-  drawFillLayer(context, drawing.fills, drawing.strokes);
+  drawFillLayer(context, drawing.fills, drawing.erasers);
   // Bottom to top, the way the canvas shows them.
   for (const layer of resolveLayers(drawing)) {
     switch (layer.kind) {
       case "strokes":
-        drawStrokes(
-          context,
-          layer.strokes,
-          layer.erasedBy.map((index) => drawing.strokes[index])
-        );
+        drawStrokes(context, layer.strokes);
         break;
       case "images": {
         const { item } = layer;
@@ -603,55 +585,32 @@ function createImageElement(
   return `<image href="${escapeAttribute(url)}" x="${round(x)}" y="${round(y)}" width="${round(width)}" height="${round(height)}" preserveAspectRatio="none"/>`;
 }
 
-// Strokes as SVG, each eraser masking the strokes before it. `masks` gets
-// each eraser's mask, named by `name` with the stroke's index. Erasers in
-// `erasedBy` are drawn above them, and their masks are made elsewhere.
-function createStrokes(
-  strokes: Stroke[],
-  bounds: string,
-  name: (index: number) => string,
-  masks: string[],
-  erasedBy: number[] = [],
-  start = 0
-): string {
-  let content = "";
-  strokes.forEach((stroke, offset) => {
-    if (stroke.points.length === 0) {
-      return;
-    }
-    if (stroke.color !== undefined) {
-      content += createShape(stroke, stroke.color);
-      return;
-    }
-    // White keeps what's under the mask, and the eraser's black hides it.
-    const id = name(start + offset);
-    masks.push(
-      `<mask id="${id}" maskUnits="userSpaceOnUse" ${bounds}><rect ${bounds} fill="#fff"/>${createShape(stroke, "#000")}</mask>`
-    );
-    if (content) {
-      content = `<g mask="url(#${id})">${content}</g>`;
-    }
-  });
-  if (!content) {
-    return "";
-  }
-  for (const index of erasedBy) {
-    content = `<g mask="url(#${name(index)})">${content}</g>`;
-  }
-  return content;
+// Strokes as SVG.
+function createStrokes(strokes: Stroke[]): string {
+  return strokes
+    .filter((stroke) => stroke.points.length > 0)
+    .map((stroke) => createShape(stroke, stroke.color!))
+    .join("");
 }
 
-// Fills as SVG, each eraser after them masking them. Its masks are made with
-// the strokes', named by `name`.
+// Fills as SVG, each eraser after them masking them. `masks` gets each
+// eraser's mask, named by `name` with where it is in `erasers`.
 function createFills(
   fills: Fill[],
-  strokes: Stroke[],
-  name: (index: number) => string
+  erasers: Stroke[],
+  bounds: string,
+  name: (index: number) => string,
+  masks: string[]
 ): string {
   let content = "";
-  for (const step of getFillSteps(fills, strokes)) {
+  for (const step of getFillSteps(fills, erasers)) {
     if ("eraser" in step) {
-      content = `<g mask="url(#${name(step.index)})">${content}</g>`;
+      const id = name(step.index);
+      // White keeps what's under the mask, and the eraser's black hides it.
+      masks.push(
+        `<mask id="${id}" maskUnits="userSpaceOnUse" ${bounds}><rect ${bounds} fill="#fff"/>${createShape(step.eraser, "#000")}</mask>`
+      );
+      content = `<g mask="url(#${id})">${content}</g>`;
       continue;
     }
     const path = step.fill.rings
@@ -692,13 +651,14 @@ function createNote(
       : "");
   // Its strokes and fills are from its top left corner, like the note's own.
   const name = (stroke: number) => `note-${index}-erase-${stroke}`;
-  const ink = createStrokes(
-    note.strokes,
+  const ink = createStrokes(note.strokes);
+  const fills = createFills(
+    note.fills,
+    note.erasers,
     `x="0" y="0" width="${round(note.width)}" height="${round(note.height)}"`,
     name,
     masks
   );
-  const fills = createFills(note.fills, note.strokes, name);
   if (!ink && !fills) {
     return rect + text;
   }
@@ -714,8 +674,7 @@ function createNote(
 /**
  * The part of the drawing in `area` as SVG, `scale` times its size in drawing
  * units, so it opens at the chosen size and stays sharp at any other. The
- * eraser only erases strokes drawn before it, so each eraser stroke masks
- * them, but nothing placed. `imageUrls` are the images' files as `data:`
+ * erasers kept mask the fills drawn before them, but nothing else. `imageUrls` are the images' files as `data:`
  * URLs, by id. `author`, if there is one, is kept as the file's creator.
  */
 export function createSvg(
@@ -741,21 +700,16 @@ export function createSvg(
   // Fills are below everything else.
   let content = createFills(
     drawing.fills,
-    drawing.strokes,
-    (index) => `erase-${index}`
+    drawing.erasers,
+    bounds,
+    (index) => `erase-${index}`,
+    masks
   );
   // Bottom to top, the way the canvas shows them.
   for (const layer of resolveLayers(drawing)) {
     switch (layer.kind) {
       case "strokes":
-        content += createStrokes(
-          layer.strokes,
-          bounds,
-          (index) => `erase-${index}`,
-          masks,
-          layer.erasedBy,
-          layer.start
-        );
+        content += createStrokes(layer.strokes);
         break;
       case "images": {
         const url = imageUrls.get(layer.item.id);

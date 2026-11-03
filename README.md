@@ -74,7 +74,8 @@ mountCanvas(document.getElementById("drawing")!, {
 | `new-canvas`       | Start a blank canvas                              |
 | `history`          | Open or delete canvases drawn earlier             |
 | `export`           | Name and export as PNG, JPEG or SVG (see below)   |
-| `move`             | Move, resize and pick what's placed (see below)   |
+| `select`           | Pick, move and resize what's placed (see below)   |
+| `hand`             | Pan by dragging from anywhere (see below)         |
 | `pencil`, `eraser` | Pick the tool, showing its options (see below)    |
 | `highlighter`      | The same, drawing see-through (see below)         |
 | `bucket`           | Fill areas with its own color (see below)         |
@@ -150,9 +151,13 @@ without an icon, before anything is
 added to the page.
 
 Each tool has a key, shown in its button's tooltip, which picks it while the
-canvas is in use and nothing's being typed: V for `move`, P for `pencil`, H
-for `highlighter`, E for `eraser`, G for `bucket`, N for `note`, T for
-`text` and I for `dropper`. Only tools on a toolbar have one.
+canvas is in use and nothing's being typed: V for `select`, H for `hand`, M
+for `pencil`, Shift+M for `highlighter`, E for `eraser`, G for `bucket`, S for
+`note`, T for `text` and I for `dropper`. They're like FigJam's where it has
+the same tool. Only tools on a toolbar have one.
+
+`select` used to be called `move`, which a toolbar can't list any more: mounting
+one that does throws an error. A saved `move` is put down for the pencil.
 
 While `pencil`, `highlighter`, `eraser`, `bucket` or `note` is picked, its
 options show
@@ -202,7 +207,7 @@ not pixels, so they stay sharp at any zoom and export to SVG as shapes.
   background.
 - On a note, it fills the area inside lines drawn on the note, below its text
   and strokes, and moves and resizes with the note like its strokes.
-- The eraser erases fills made before it, like strokes. Clicking an image
+- The eraser erases fills made before it. Clicking an image
   does nothing.
 
 The area is found in what the canvas shows, and a little more on each side,
@@ -216,37 +221,72 @@ are included in exports. Strokes and what's placed are stacked in one order,
 each new one on top, so a stroke drawn after a note is drawn over it, and one
 drawn before is hidden under it. The eraser only erases strokes, never what's
 placed, and the pencil and eraser draw over items rather than moving them.
+It cuts the strokes it touches into pieces, each a stroke of its own, leaving
+nothing under it, so a thick stroke it only grazes is cut across its whole
+width. Saved canvases are cut the same way when they're opened. Fills are
+erased, rather than cut, so what the eraser left on one can be clicked with
+`select`, and moved, resized or deleted, which puts the fill back. A box or
+Ctrl+A doesn't pick it, since it can't be seen.
 
-With `move` picked:
+With `select` picked, the same goes for strokes on the drawing, which show a
+box around them once they're picked:
 
-- Drag one to move it. Dragging anywhere else pans.
+- Drag one to move it. Drag anywhere else for a box that picks everything it
+  touches, in place of what's picked. A box picks a note whole, rather than the
+  strokes on it.
 - Drag its edges to resize it. The pointer turns into a resize arrow over
   each side and corner, so there are no handles to see. The side or corner
   across from the one dragged stays where it is.
 - Click it to pick it, then Delete or Backspace to delete it. Pressing Tab
   reaches it too, with any tool.
 - Shift-click others to pick them too, or Shift-click a picked one to leave
-  it out. Shift-drag anywhere else for a box that picks everything it
-  touches, as well as what's picked already. Ctrl+A (Cmd on a Mac) picks
-  everything, even with another tool, which picks `move`. Clicking anywhere
-  else, or Escape, picks nothing.
+  it out. Shift-drag anywhere else for a box that keeps what's picked
+  already. Ctrl+A (Cmd on a Mac) picks everything, even with another tool,
+  which picks `select`. Clicking anywhere else, or Escape, picks nothing.
 - With several picked, dragging any of them moves them all, and Delete
   deletes them all. Either is one change, which one undo puts back.
 - Double-click text or a note, or press Enter on it, to type in it.
 
+With `hand` picked, dragging anywhere pans, even over an item, and pressing an
+item does nothing: it can't be picked, moved or typed in. Picking `hand` picks
+nothing, and finishes any typing. Holding Space, the middle button and two
+fingers on a touch screen pan with any tool.
+
+Dropping a stroke moves it onto what's under the pointer: a note, which is
+outlined as soon as the pointer is over it, or else the drawing. It goes on top
+of what it lands on, and on a note it moves with the note from then on. What's
+past a note's edge is hidden, not lost, whether it was dropped there or the note
+was made smaller: it shows again if the note grows, or the stroke's dragged off.
+A stroke pressed over a note, and dropped without the pointer leaving it, stays
+where it is, so nudging a line that crosses a note doesn't put it on the note.
+Strokes dragged along with an item stay on whatever they're on.
+
+A note's strokes are part of it, so pressing one picks or moves the note,
+double-clicking one types in it, and right-clicking one opens the note's menu,
+as they do anywhere else on the note. Pointing at one outlines the note. Once
+the note is picked, clicking a stroke on it picks the stroke, which leaves the
+note faintly outlined. It can then be moved, resized, deleted, or right-clicked
+for its own menu, and the note's other strokes can be clicked in turn. Escape
+goes back to the note, then to nothing. Pointing at a stroke clicking would
+pick outlines it.
+
+A stroke's menu has the same choices as an item's, and a stroke on a note goes
+to the front or back of the note's strokes. Only one stroke, picked on its own,
+resizes, and its line gets thicker or thinner with it. While drawing together,
+everyone else sees a stroke where it ends up once it's dropped, rather than as
+it's dragged.
+
 Ctrl+C copies what's picked, and Ctrl+X cuts it. Ctrl+V pastes it, on this
 canvas or another, even in another tab, a little further down and right each
 time it's pasted, so the copies don't hide each other. Ctrl+D copies what's
-picked straight away, in the same way. What's pasted is picked, with `move`,
-ready to move. Strokes can't be picked, so they're left where they are.
+picked straight away, in the same way. What's pasted is picked, with `select`,
+ready to move. Copies of strokes go on the drawing, even from a note.
 
 With `note` or `text` picked, notes or text can be moved and resized the same
 way, and clicking one types in it. With `text` picked, clicking a note types in
 the note, rather than adding text over it. Whichever tool is picked, right-click an
-item, or press and hold one on a touch screen with `move`, for a menu to bring
-it to the front, send it to the back, or delete it. A note's menu also has
-its colors, to change it to, with its own marked, which can be undone like
-any change. Right-clicking text being typed opens the same menu, rather than
+item, or press and hold one on a touch screen with `select`, for a menu to
+bring it to the front, send it to the back, or delete it. Right-clicking text being typed opens the same menu, rather than
 the browser's.
 
 **Text**: with `text` picked, clicking the canvas starts text there, in the
@@ -264,9 +304,11 @@ stays readable, and yellow is the default. Each shade is one of the color
 picker's grid, its third row down, so it can be picked there too. A color picked in the color
 picker is used as it is, so a note can be any color, including the palette's
 own. While a note's typed in, its options show its color, and picking another
-changes it, which can be undone; its menu has the palette's too. While `note`
-is picked, `color` picks the same. Text that doesn't fit in a note is hidden,
-and left out of the export.
+changes it, which can be undone. While `note`
+is picked, `color` picks the same. A note grows downward as it's typed in, to
+fit its text, and undoing the text undoes that too. It doesn't shrink again by
+itself. Text past the bottom of a note made smaller is hidden, and left out of
+the export, until it's typed in again.
 
 A note being moved snaps to the notes on screen near it: its edges or middle
 line up with theirs, or it sits a small gap beside one it's level with, and
@@ -280,7 +322,7 @@ stay where they are, and any outside the note are hidden until it's made big
 enough again. The eraser started on a note only erases the note's strokes,
 and one started off it only erases the drawing's.
 
-**Typing**: with `move` picked, double-clicking text or a note, or pressing
+**Typing**: with `select` picked, double-clicking text or a note, or pressing
 Enter on one, types in it. With `note` or `text` picked, clicking one does.
 Clicking away or pressing Escape finishes, and one left empty is removed. The
 text is plain unless the page adds a text editor that formats it (see
@@ -289,7 +331,7 @@ text is plain unless the page adds a text editor that formats it (see
 **Images**: `image` opens a file picker. Images can also be pasted, where the
 pointer is over the canvas, or dropped onto it, where they're dropped. Each is
 scaled down to fit the canvas if it's bigger, and resizes from its corners,
-keeping its shape. Once they're in, `move` is picked, if a toolbar has it,
+keeping its shape. Once they're in, `select` is picked, if a toolbar has it,
 with the last image picked, ready to move, resize or delete. Images are kept byte for byte, so nothing is lost, and SVG
 exports include them unchanged.
 
@@ -442,8 +484,8 @@ Figma:
   scroll a mouse wheel sideways.
 - Hold Space and drag, or drag with the middle button, to pan.
 - Ctrl+scroll (Cmd on a Mac) or pinch a trackpad to zoom around the pointer.
-- On a touch screen, pinch and drag with two fingers. One finger draws, or
-  pans with `move` picked.
+- On a touch screen, pinch and drag with two fingers. One finger draws, draws
+  a box to pick with `select` picked, or pans with `hand` picked.
 - Ctrl+= and Ctrl+- zoom in and out, Ctrl+0 or Shift+0 goes back to 100%, and
   Shift+1 fits the whole drawing in the window. They work while the pointer is
   over the canvas, or nothing else on the page has focus.
@@ -503,7 +545,8 @@ in their own color, and a row of who's there, with their photos, at the start
 of the top right toolbar. Each pointer looks like the tool it's pointing with:
 a ring as big as the pencil, highlighter or eraser draws, an I-beam for text,
 a crosshair for notes and the paint bucket, the dropper, or an arrow
-for the move tool. Its name is the first name, with more of it for two people
+for the select tool and the hand. Its name is the first name, with more of it
+for two people
 here who share one, as bylines do, and the row shows whole names. It's added while anyone's there, even without
 `topRightToolbar`, and hidden with the toolbars. What they're in the middle of shows too: a stroke as it's drawn, an
 item as it's moved or resized, outlined in their color, and a note or text
@@ -667,7 +710,8 @@ once before the first run:
 npx playwright install
 ```
 
-The demo page only draws, so most tests use a test page with every control
+The demo page has only the drawing tools, so most tests use a test page with
+every control
 instead, `e2e/fixtures/full.html`: it saves under `storageKey`, has the File
 menu and the timer, and keeps the mounted canvas as `window.canvas`, for the
 tests to call what a page would from its own controls, e.g. `setAuthor`. It
@@ -678,9 +722,11 @@ draws together in the room in its address's `room`, through a WebSocket at
 ## Demo page
 
 `npm run dev` serves the demo page, where the canvas fills the window, with
-undo, redo, clear and export, then the drawing tools, at the bottom, the zoom
-at the top right, and formatted text. It's only for drawing: there's no File
-menu, timer, settings or drawing together. What's drawn is saved in the
+clear and export, then select, hand and the drawing tools, at the bottom, the
+zoom at the top right, and formatted text. It's only for drawing: there's no
+File menu, timer, settings or drawing together, and undo and redo are from the
+keyboard, so there's no way to undo on a touch screen without one. What's
+drawn is saved in the
 browser, so a refresh keeps it, and the export dialog names it.
 
 The full app built on the library, with saving, naming canvases, profiles,

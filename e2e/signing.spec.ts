@@ -58,7 +58,7 @@ test("editing a note adds the name to its byline, once", async ({ page }) => {
   await setName(page, "Ada");
   await addNote(page);
   await setName(page, "Bo");
-  await page.getByRole("button", { name: "Move" }).click();
+  await page.getByRole("button", { name: "Select" }).click();
   const note = page.locator(".canvas-note");
 
   // Moving it doesn't sign it.

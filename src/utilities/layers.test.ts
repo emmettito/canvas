@@ -9,8 +9,12 @@ import {
   restackItemLayer,
 } from "./layers";
 
-const pencil: Stroke = { color: "#000000", points: [{ x: 0, y: 0 }], size: 1 };
-const eraser: Stroke = { points: [{ x: 0, y: 0 }], size: 1 };
+const pencil: Stroke = {
+  id: "s15",
+  color: "#000000",
+  points: [{ x: 0, y: 0 }],
+  size: 1,
+};
 const image = { id: "i", x: 0, y: 0, width: 10, height: 10 };
 
 function createDrawing(parts: Partial<Drawing>): Drawing {
@@ -18,6 +22,7 @@ function createDrawing(parts: Partial<Drawing>): Drawing {
     background: "#ffffff",
     strokes: [],
     fills: [],
+    erasers: [],
     images: [],
     texts: [],
     notes: [],
@@ -98,9 +103,9 @@ describe("restackItemLayer", () => {
 });
 
 describe("resolveLayers", () => {
-  it("gives each run its strokes, and the erasers above it", () => {
+  it("gives each run its strokes", () => {
     const drawing = createDrawing({
-      strokes: [pencil, eraser, pencil, eraser],
+      strokes: [pencil, pencil, pencil, pencil],
       images: [image],
       order: [
         { kind: "strokes", count: 2 },
@@ -110,9 +115,9 @@ describe("resolveLayers", () => {
     });
 
     expect(resolveLayers(drawing)).toEqual([
-      { kind: "strokes", start: 0, strokes: [pencil, eraser], erasedBy: [3] },
+      { kind: "strokes", start: 0, strokes: [pencil, pencil] },
       { kind: "images", item: image },
-      { kind: "strokes", start: 2, strokes: [pencil, eraser], erasedBy: [] },
+      { kind: "strokes", start: 2, strokes: [pencil, pencil] },
     ]);
   });
 });

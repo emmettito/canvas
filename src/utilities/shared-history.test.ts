@@ -11,11 +11,12 @@ function createStroke(
   x: number,
   color: string | undefined = "#000000"
 ): Stroke {
-  return { color, points: [{ x, y: 0 }], size: 1 };
+  return { id: "s20", color, points: [{ x, y: 0 }], size: 1 };
 }
 
 function createNote(id: string): Note {
   return {
+    erasers: [],
     id,
     x: 0,
     y: 0,
@@ -29,6 +30,7 @@ function createNote(id: string): Note {
 }
 
 const BLANK: Drawing = {
+  erasers: [],
   background: "#ffffff",
   strokes: [],
   fills: [],
@@ -195,14 +197,21 @@ describe("SharedHistory", () => {
     const a = room.join().history;
     const b = room.join().history;
 
-    b.addStroke(createStroke(1));
-    // Filled before hearing of B's stroke.
-    a.addFill({ color: "#ff0000", rings: [], after: 0 });
+    const rings = [
+      [
+        { x: 0, y: 0 },
+        { x: 20, y: 0 },
+        { x: 20, y: 20 },
+      ],
+    ];
+    a.addFill({ color: "#ff0000", rings, after: 0 });
+    room.flush();
+    b.addStroke({ id: "e", points: [{ x: 5, y: 5 }], size: 2 });
+    // Filled before hearing of B's eraser.
+    a.addFill({ color: "#00ff00", rings, after: 0 });
     room.flush();
 
-    expect(a.drawing.fills).toEqual([
-      { color: "#ff0000", rings: [], after: 1 },
-    ]);
+    expect(a.drawing.fills.map(({ after }) => after)).toEqual([0, 1]);
     expect(b.drawing).toEqual(a.drawing);
   });
 

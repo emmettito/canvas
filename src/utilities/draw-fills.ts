@@ -20,27 +20,27 @@ export function getFillPath({ rings }: Fill): Path2D {
 
 /**
  * The order fills are drawn and erased in: each fill, then each eraser
- * stroke drawn after it, so an eraser only erases fills before it, as a
- * stroke's would. `strokes` are the strokes fills count from.
+ * drawn after it, so an eraser only erases fills before it. `erasers` are
+ * what fills count from.
  */
 export function getFillSteps(
   fills: Fill[],
-  strokes: Stroke[]
+  erasers: Stroke[]
 ): ({ fill: Fill } | { eraser: Stroke; index: number })[] {
   const steps: ({ fill: Fill } | { eraser: Stroke; index: number })[] = [];
   let next = 0;
-  for (let index = 0; index <= strokes.length; index++) {
+  for (let index = 0; index <= erasers.length; index++) {
     while (next < fills.length && fills[next].after <= index) {
       steps.push({ fill: fills[next++] });
     }
-    const stroke = strokes[index];
+    const eraser = erasers[index];
     // An eraser before any fill has nothing to erase.
-    if (stroke?.color === undefined && stroke && next > 0) {
-      steps.push({ eraser: stroke, index });
+    if (eraser && next > 0) {
+      steps.push({ eraser, index });
     }
   }
-  // Fills counted from more strokes than there are, e.g. once they're
-  // cleared, are drawn too.
+  // Fills counted from more erasers than there are, e.g. once they're
+  // removed, are drawn too.
   for (const fill of fills.slice(next)) {
     steps.push({ fill });
   }
@@ -54,9 +54,9 @@ export function getFillSteps(
 export function drawFills(
   context: CanvasRenderingContext2D,
   fills: Fill[],
-  strokes: Stroke[]
+  erasers: Stroke[]
 ): void {
-  for (const step of getFillSteps(fills, strokes)) {
+  for (const step of getFillSteps(fills, erasers)) {
     if ("eraser" in step) {
       drawStroke(context, step.eraser);
     } else {

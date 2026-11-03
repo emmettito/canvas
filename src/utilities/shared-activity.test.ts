@@ -23,6 +23,7 @@ describe("createActivitySender", () => {
     const sent: (SharedActivity | null)[] = [];
     const sender = createActivitySender((activity) => sent.push(activity), 50);
     const stroke: Stroke = {
+      id: "s17",
       color: "#000000",
       points: [{ x: 0, y: 0 }],
       size: 2,
@@ -81,7 +82,7 @@ describe("createActivitySender", () => {
   it("sends nothing once it's cancelled", () => {
     const sent: (SharedActivity | null)[] = [];
     const sender = createActivitySender((activity) => sent.push(activity), 50);
-    const stroke: Stroke = { points: [{ x: 0, y: 0 }], size: 2 };
+    const stroke: Stroke = { id: "s16", points: [{ x: 0, y: 0 }], size: 2 };
 
     sender.set(drawing(stroke));
     stroke.points.push({ x: 1, y: 0 });
@@ -114,6 +115,7 @@ describe("receiveActivity", () => {
       type: "stroke",
       note: "n",
       stroke: {
+        id: "",
         size: 3,
         points: [
           { x: 0, y: 0 },

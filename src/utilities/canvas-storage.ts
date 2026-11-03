@@ -1,3 +1,4 @@
+import { isOldInk, upgradeInk } from "./upgrade-drawing";
 import { COLORS } from "../constants/colors.const";
 import { DEFAULT_NOTE_COLOR } from "../constants/default-note-color.const";
 import { DEFAULT_TOOL_SIZES } from "../constants/default-tool-sizes.const";
@@ -57,10 +58,11 @@ function isFraction(value: unknown): value is number {
 }
 
 // Strokes saved before pens pressed or strokes could be see-through have no
-// pressure or opacity.
-function isStroke(value: unknown): value is Stroke {
+// pressure or opacity, and ones saved before they could be picked have no id.
+export function isStroke(value: unknown): value is Stroke {
   return (
     isObject(value) &&
+    (value.id === undefined || typeof value.id === "string") &&
     (value.color === undefined || typeof value.color === "string") &&
     isNumber(value.size) &&
     (value.opacity === undefined || isFraction(value.opacity)) &&
@@ -156,18 +158,25 @@ function readNote(value: unknown): Note | null {
   const content = readContent(saved);
   // Notes saved before they could be drawn on or filled have no strokes or
   // fills.
-  const strokes = saved.strokes ?? [];
-  const fills = saved.fills ?? [];
+  const savedStrokes = saved.strokes ?? [];
+  const savedFills = saved.fills ?? [];
+  const savedErasers = saved.erasers ?? [];
   if (
     !content ||
     typeof saved.color !== "string" ||
-    !Array.isArray(strokes) ||
-    !strokes.every(isStroke) ||
-    !Array.isArray(fills) ||
-    !fills.every(isFill)
+    !Array.isArray(savedStrokes) ||
+    !savedStrokes.every(isStroke) ||
+    !Array.isArray(savedFills) ||
+    !savedFills.every(isFill) ||
+    !Array.isArray(savedErasers) ||
+    !savedErasers.every(isStroke)
   ) {
     return null;
   }
+  // Strokes saved before erasers cut them are as they are now.
+  const { strokes, erasers, fills } = isOldInk(savedStrokes)
+    ? upgradeInk(savedStrokes, savedFills)
+    : { strokes: savedStrokes, erasers: savedErasers, fills: savedFills };
   const { id, x, y, width, height } = value;
   const note: Note = {
     id,
@@ -178,6 +187,7 @@ function readNote(value: unknown): Note | null {
     color: saved.color,
     content,
     strokes,
+    erasers,
     fills,
   };
   // Notes saved before they could be signed have no authors, and ones saved
@@ -499,6 +509,16 @@ export class CanvasStorage {
     return this.#store.write(this.#canvasKey(id, "strokes"), strokes);
   }
 
+  /** What's erased from a canvas's fills. Null if none's saved, e.g. old ones. */
+  loadErasers(id: string): Stroke[] | null {
+    const erasers = this.#store.read(this.#canvasKey(id, "erasers"));
+    return Array.isArray(erasers) && erasers.every(isStroke) ? erasers : null;
+  }
+
+  saveErasers(id: string, erasers: Stroke[]): boolean {
+    return this.#store.write(this.#canvasKey(id, "erasers"), erasers);
+  }
+
   /** A canvas's fills. Null if it has none saved, e.g. from before them. */
   loadFills(id: string): Fill[] | null {
     const fills = this.#store.read(this.#canvasKey(id, "fills"));
@@ -584,6 +604,7 @@ export class CanvasStorage {
     for (const part of [
       "strokes",
       "fills",
+      "erasers",
       "background",
       "viewport",
       "order",
@@ -595,7 +616,14 @@ export class CanvasStorage {
 
   #canvasKey(
     id: string,
-    part: "strokes" | "fills" | "background" | "viewport" | "order" | ItemKind
+    part:
+      | "strokes"
+      | "fills"
+      | "erasers"
+      | "background"
+      | "viewport"
+      | "order"
+      | ItemKind
   ): string {
     return `${this.#key}:canvas:${id}:${part}`;
   }

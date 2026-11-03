@@ -11,7 +11,7 @@ export interface Fill {
   color: string;
   // Each closed outline, as its corners.
   rings: Point[][];
-  // How many strokes were drawn before it, so the eraser strokes after them
+  // How many of the erasers kept were drawn before it, so the ones after them
   // erase it, and ones before them don't.
   after: number;
 }

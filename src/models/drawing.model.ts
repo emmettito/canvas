@@ -7,7 +7,7 @@ import { type TextBox } from "./text-box.model";
 
 // One version of the drawing in the undo history. Strokes, images, text and
 // notes are stacked in one order, and the eraser only erases
-// strokes.
+// strokes and fills.
 export interface Drawing {
   // The color behind everything, e.g. "#ffffff". It's the drawing's own, so
   // the page's theme doesn't change it, and exports keep it.
@@ -15,6 +15,9 @@ export interface Drawing {
   strokes: Stroke[];
   // Filled with the paint bucket, oldest first, below everything else.
   fills: Fill[];
+  // What's been erased from the fills, oldest first. Erasing cuts strokes
+  // instead, so an eraser that touched no fill isn't kept.
+  erasers: Stroke[];
   images: ImageItem[];
   texts: TextBox[];
   notes: Note[];

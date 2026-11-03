@@ -1,14 +1,16 @@
 import { type Tool } from "../models/tool.model";
 
-// The key that picks each tool, like Figma's where it has the same tool.
+// The key that picks each tool, like FigJam's where it has the same tool. A
+// key with Shift is written "Shift+M".
 export const TOOL_SHORTCUTS: Record<Tool, string> = {
-  move: "V",
-  pencil: "P",
-  highlighter: "H",
+  select: "V",
+  hand: "H",
+  pencil: "M",
+  highlighter: "Shift+M",
   eraser: "E",
   // Like Photoshop's.
   bucket: "G",
-  note: "N",
+  note: "S",
   text: "T",
   dropper: "I",
 };
