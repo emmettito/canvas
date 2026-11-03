@@ -57,6 +57,13 @@ async function pick(page: Page, name: string) {
 
 const outlines = (page: Page) => page.locator(".canvas-stroke-box");
 
+// Clicks a note, then, long enough after not to be a double-click, its ink.
+async function pickInk(page: Page, x: number, y: number) {
+  await page.mouse.click(x, y);
+  await page.waitForTimeout(450);
+  await page.mouse.click(x, y);
+}
+
 // A line across the canvas, then the select tool.
 async function drawLine(page: Page, y = 300) {
   await pick(page, "Pencil");
@@ -253,6 +260,7 @@ test("a stroke on a note can be picked, moved and deleted, and the note stays", 
   await drag(page, [middle.x - 30, middle.y], [middle.x + 30, middle.y]);
   await pick(page, "Select");
 
+  await pickInk(page, middle.x, middle.y);
   await drag(page, [middle.x, middle.y], [middle.x, middle.y + 20]);
   await expect(outlines(page)).toHaveCount(1);
   expect(await note.boundingBox()).toEqual(box);
@@ -274,6 +282,290 @@ test("a stroke on a note can be picked, moved and deleted, and the note stays", 
     )
     .toBe(0);
   await expect(note).toHaveCount(1);
+});
+
+test.describe("dropping a stroke", () => {
+  // A note, and a short stroke to the left of it, and its box.
+  async function addNoteAndStroke(page: Page) {
+    await pick(page, "Sticky note");
+    await page.keyboard.down("Alt");
+    await page.mouse.click(600, 300);
+    await page.keyboard.up("Alt");
+    await page.keyboard.press("Escape");
+    await pick(page, "Pencil");
+    await drag(page, [200, 300], [240, 300]);
+    await pick(page, "Select");
+    await getStrokes(page, 1);
+    return (await page.locator(".canvas-note").boundingBox())!;
+  }
+
+  const getNoteStrokes = async (page: Page) =>
+    (
+      (await readSaved(page, "notes"))[0] as unknown as {
+        strokes: SavedStroke[];
+      }
+    ).strokes;
+
+  test("onto a note puts it on the note, which it then moves with", async ({
+    page,
+  }) => {
+    const box = await addNoteAndStroke(page);
+    const middle = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+
+    await page.mouse.move(220, 300);
+    await page.mouse.down();
+    await page.mouse.move(middle.x, middle.y, { steps: 8 });
+    await expect(page.locator(".canvas-note[data-drop-target]")).toHaveCount(1);
+    await page.mouse.up();
+    await expect(page.locator(".canvas-note[data-drop-target]")).toHaveCount(0);
+
+    await getStrokes(page, 0);
+    await expect.poll(async () => (await getNoteStrokes(page)).length).toBe(1);
+    // From the note's corner, and still picked.
+    const [stroke] = await getNoteStrokes(page);
+    expect(stroke.points[0].y).toBeCloseTo(box.height / 2, 0);
+    await expect(outlines(page)).toHaveCount(1);
+
+    // One change to undo.
+    await page.getByRole("button", { name: "Undo" }).click();
+    await getStrokes(page, 1);
+    await expect.poll(async () => (await getNoteStrokes(page)).length).toBe(0);
+  });
+
+  test("off a note puts it on the drawing", async ({ page }) => {
+    const box = await addNoteAndStroke(page);
+    const middle = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    await drag(page, [220, 300], [middle.x, middle.y]);
+    await expect.poll(async () => (await getNoteStrokes(page)).length).toBe(1);
+
+    await drag(page, [middle.x, middle.y], [200, 500]);
+
+    await expect.poll(async () => (await getNoteStrokes(page)).length).toBe(0);
+    const [stroke] = await getStrokes(page, 1);
+    expect(stroke.points[0].y).toBeCloseTo(500, 0);
+    await expect(outlines(page)).toHaveCount(1);
+    expect(await page.locator(".canvas-note").boundingBox()).toEqual(box);
+  });
+
+  test("stays on the drawing if it doesn't fit inside the note", async ({
+    page,
+  }) => {
+    const box = await addNoteAndStroke(page);
+    await pick(page, "Pencil");
+    const y = box.y + box.height + 40;
+    await drag(page, [box.x - 100, y], [box.x + box.width + 100, y]);
+    await pick(page, "Select");
+    await getStrokes(page, 2);
+
+    // Its middle lands on the note, but it's wider.
+    await drag(
+      page,
+      [box.x + box.width / 2, y],
+      [box.x + box.width / 2, box.y + box.height / 2]
+    );
+
+    await expect(page.locator(".canvas-note[data-drop-target]")).toHaveCount(0);
+    await expect
+      .poll(async () => (await readSaved(page, "strokes"))[1].points[0].y)
+      .toBeCloseTo(box.y + box.height / 2, 0);
+    expect(await getNoteStrokes(page)).toEqual([]);
+  });
+
+  test("shows it unclipped as it's dragged off a note", async ({ page }) => {
+    const box = await addNoteAndStroke(page);
+    const middle = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    await drag(page, [220, 300], [middle.x, middle.y]);
+    await expect.poll(async () => (await getNoteStrokes(page)).length).toBe(1);
+
+    await page.mouse.move(middle.x, middle.y);
+    await page.mouse.down();
+    await page.mouse.move(200, 500, { steps: 8 });
+    const alpha = await page
+      .locator(".canvas-floating-strokes")
+      .evaluate((canvas: HTMLCanvasElement) => {
+        const ratio = window.devicePixelRatio || 1;
+        return canvas
+          .getContext("2d")!
+          .getImageData(200 * ratio, 500 * ratio, 1, 1).data[3];
+      });
+    await page.mouse.up();
+
+    expect(alpha).toBeGreaterThan(0);
+  });
+
+  test("dragged with an item, it stays on what it's on", async ({ page }) => {
+    const box = await addNoteAndStroke(page);
+    await page.keyboard.press("ControlOrMeta+a");
+
+    // Far enough to land on nothing else, and with the note along with it.
+    await drag(page, [220, 300], [220 + 20, 300 + 20]);
+
+    await getStrokes(page, 1);
+    expect(await getNoteStrokes(page)).toEqual([]);
+    await expect
+      .poll(async () => (await page.locator(".canvas-note").boundingBox())!.x)
+      .toBeCloseTo(box.x + 20, 0);
+  });
+});
+
+test.describe("a note's ink", () => {
+  // A note with a line across its middle, and the middle of the line.
+  async function addInkedNote(page: Page) {
+    await pick(page, "Sticky note");
+    await page.keyboard.down("Alt");
+    await page.mouse.click(640, 370);
+    await page.keyboard.up("Alt");
+    await page.keyboard.press("Escape");
+    const box = (await page.locator(".canvas-note").boundingBox())!;
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await pick(page, "Pencil");
+    await drag(page, [x - 40, y], [x + 40, y]);
+    await pick(page, "Select");
+    await page.mouse.click(1000, 620);
+    return { box, x, y };
+  }
+  const note = (page: Page) => page.locator(".canvas-note");
+
+  test("is part of the note: pressing it moves the note", async ({ page }) => {
+    const { box, x, y } = await addInkedNote(page);
+
+    await drag(page, [x, y], [x + 100, y + 50]);
+
+    await expect(outlines(page)).toHaveCount(0);
+    const moved = (await note(page).boundingBox())!;
+    expect(moved.x).toBeCloseTo(box.x + 100, 0);
+  });
+
+  test("double-clicking it types in the note, picked or not", async ({
+    page,
+  }) => {
+    const { x, y } = await addInkedNote(page);
+
+    await page.mouse.dblclick(x, y);
+    await expect(page.locator(".canvas-note[data-editing]")).toHaveCount(1);
+    await page.keyboard.type("Hi");
+    await page.keyboard.press("Escape");
+    await expect(note(page)).toContainText("Hi");
+    await expect(outlines(page)).toHaveCount(0);
+
+    // With the note already picked.
+    await page.waitForTimeout(450);
+    await page.mouse.click(x, y);
+    await page.waitForTimeout(450);
+    await page.mouse.dblclick(x, y);
+    await expect(page.locator(".canvas-note[data-editing]")).toHaveCount(1);
+  });
+
+  test("pressing a picked stroke straight after clicking it drags it", async ({
+    page,
+  }) => {
+    const { box, x, y } = await addInkedNote(page);
+    await pickInk(page, x, y);
+
+    await drag(page, [x, y], [x, y + 20]);
+
+    await expect(page.locator(".canvas-note[data-editing]")).toHaveCount(0);
+    expect(await note(page).boundingBox()).toEqual(box);
+    await expect(outlines(page)).toHaveCount(1);
+  });
+
+  test("right-clicking it opens the note's menu, until the stroke's picked", async ({
+    page,
+  }) => {
+    const { x, y } = await addInkedNote(page);
+
+    await page.mouse.click(x, y, { button: "right" });
+    await page.getByRole("menuitem", { name: "Delete" }).click();
+    await expect(note(page)).toHaveCount(0);
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(note(page)).toHaveCount(1);
+    await page.mouse.click(1000, 620);
+
+    await pickInk(page, x, y);
+    await page.mouse.click(x, y, { button: "right" });
+    await page.getByRole("menuitem", { name: "Delete" }).click();
+    await expect(note(page)).toHaveCount(1);
+    await expect
+      .poll(() =>
+        readSaved(page, "notes").then(
+          (notes) =>
+            (notes[0] as unknown as { strokes: SavedStroke[] }).strokes.length
+        )
+      )
+      .toBe(0);
+  });
+
+  test("a second click picks the stroke, and Escape goes back a step", async ({
+    page,
+  }) => {
+    const { x, y } = await addInkedNote(page);
+
+    await page.mouse.click(x, y);
+    await expect(note(page)).toHaveAttribute("data-selected");
+    await expect(outlines(page)).toHaveCount(0);
+
+    await page.waitForTimeout(450);
+    await page.mouse.click(x, y);
+    await expect(outlines(page)).toHaveCount(1);
+    await expect(note(page)).not.toHaveAttribute("data-selected");
+    await expect(note(page)).toHaveAttribute("data-ink-picked");
+
+    await page.keyboard.press("Escape");
+    await expect(outlines(page)).toHaveCount(0);
+    await expect(note(page)).toHaveAttribute("data-selected");
+    await expect(note(page)).not.toHaveAttribute("data-ink-picked");
+
+    await page.keyboard.press("Escape");
+    await expect(note(page)).not.toHaveAttribute("data-selected");
+  });
+
+  test("pointing shows what clicking would pick", async ({ page }) => {
+    const { x, y } = await addInkedNote(page);
+    await pick(page, "Pencil");
+    await drag(page, [200, 300], [300, 300]);
+    await pick(page, "Select");
+    await page.mouse.click(1000, 620);
+    const hover = page.locator(".canvas-stroke-hover");
+
+    // A stroke on the drawing, and it goes when the mouse does.
+    await page.mouse.move(250, 300);
+    await expect(hover).toBeVisible();
+    await page.mouse.move(1000, 620);
+    await expect(hover).toBeHidden();
+
+    // Ink on a note is the note, until the note is picked.
+    await page.mouse.move(x, y);
+    await expect(note(page)).toHaveAttribute("data-ink-hover");
+    await expect(hover).toBeHidden();
+    await page.mouse.click(x, y);
+    await page.mouse.move(x + 1, y);
+    await expect(note(page)).not.toHaveAttribute("data-ink-hover");
+    await expect(hover).toBeVisible();
+
+    // Nothing with another tool.
+    await pick(page, "Hand");
+    await page.mouse.move(250, 300);
+    await expect(hover).toBeHidden();
+  });
+
+  test("works by touch: a tap picks the note, and another the stroke", async ({
+    browser,
+    browserName,
+  }) => {
+    test.skip(browserName !== "chromium");
+    const context = await browser.newContext({ hasTouch: true });
+    const page = await context.newPage();
+    await page.goto(PAGE);
+    const { x, y } = await addInkedNote(page);
+
+    await page.touchscreen.tap(x, y);
+    await expect(note(page)).toHaveAttribute("data-selected");
+    await page.waitForTimeout(450);
+    await page.touchscreen.tap(x, y);
+    await expect(outlines(page)).toHaveCount(1);
+    await expect(note(page)).toHaveAttribute("data-ink-picked");
+  });
 });
 
 test("the eraser cuts a note's strokes too", async ({ page }) => {

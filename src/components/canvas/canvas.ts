@@ -163,6 +163,10 @@ function getKey(ref: PickRef): string {
     : `${ref.kind}:${ref.id}`;
 }
 
+// How soon after a press another in the same place, in milliseconds, makes it
+// a double-click, rather than a second click.
+const DOUBLE_PRESS = 400;
+
 // How far from a stroke, on screen, a press still picks it.
 const STROKE_SLACK = 4;
 
@@ -182,6 +186,9 @@ interface StrokeGesture {
   // Whether a press on one of several picked picks it alone, if it's only a
   // click.
   pickAlone: boolean;
+  // The note to type in if it's only clicked: it's the end of a double-click
+  // on its ink.
+  opensNote: string | null;
   longPress: ReturnType<typeof setTimeout> | undefined;
 }
 
@@ -456,8 +463,18 @@ export class Canvas {
   // until the change is made.
   #shownStrokes = new Map<string, Stroke>();
   #strokeGesture: StrokeGesture | null = null;
+  // The last press with the select tool, to tell a double-click on a note's
+  // ink from a second click.
+  #lastPress: { time: number; x: number; y: number } | null = null;
+  // Shows what's under the mouse, if clicking would pick a stroke.
+  #strokeHover = createElement("div", "canvas-stroke-hover");
   // Outlines of the strokes picked, which also take presses to drag them.
   #strokeBoxes = createElement("div", "canvas-stroke-boxes");
+  // Strokes being dragged show on this, over everything, rather than where
+  // they are, since a note would clip them, and one above them hide them.
+  // It's only on the page while they are.
+  #floatingStrokes = createElement("canvas", "canvas-floating-strokes");
+  #floating = false;
   // Set while focus moves to an item that's already picked, so it isn't
   // then the only one.
   #keepingSelection = false;
@@ -561,9 +578,11 @@ export class Canvas {
     this.#items.addEventListener("focusin", this.#onItemFocus);
     this.#items.addEventListener("keydown", this.#onItemKeyDown);
     this.#peerInk.setAttribute("aria-hidden", "true");
+    this.#strokeHover.hidden = true;
     this.#surface.append(
       layer,
       this.#items,
+      this.#strokeHover,
       this.#strokeBoxes,
       this.#cursor,
       this.#noteGhost
@@ -593,6 +612,7 @@ export class Canvas {
     });
     surface.addEventListener("pointerleave", () => {
       this.#hovered = false;
+      this.#clearStrokeHover();
       this.#hideLoupe();
     });
     document.addEventListener("pointerdown", this.#onDocumentPress, true);
@@ -667,7 +687,7 @@ export class Canvas {
       this.#showSelection();
     }
     if (!moving) {
-      this.#surface.removeAttribute("data-over-stroke");
+      this.#clearStrokeHover();
     }
   }
 
@@ -1114,9 +1134,17 @@ export class Canvas {
 
   // Strokes as they're shown, the same ones if none's on its way anywhere.
   #getShownStrokes(strokes: Stroke[], note: string | null): Stroke[] {
-    return this.#shownStrokes.size === 0
-      ? strokes
-      : strokes.map((stroke) => this.#getShownStroke(stroke, note));
+    if (this.#shownStrokes.size === 0) {
+      return strokes;
+    }
+    return strokes.flatMap((stroke) =>
+      // It's on the floating strokes' canvas instead.
+      this.#floating &&
+      !isEraser(stroke) &&
+      this.#shownStrokes.has(getKey({ kind: "strokes", id: stroke.id, note }))
+        ? []
+        : [this.#getShownStroke(stroke, note)]
+    );
   }
 
   // Outlines each stroke picked, and, with only one picked, lets its sides
@@ -1126,8 +1154,14 @@ export class Canvas {
     const refs = [...this.#selection.values()].filter(
       (ref): ref is StrokeRef => ref.kind === "strokes"
     );
+    // The note a picked stroke is on shows it's still part of it.
+    for (const view of this.#layers.notes.views) {
+      view.element.toggleAttribute(
+        "data-ink-picked",
+        refs.some((ref) => ref.note === view.item.id)
+      );
+    }
     const resizable = this.#selection.size === 1;
-    const { x, y, zoom } = this.#viewport;
     const boxes = refs.flatMap((ref) => {
       const found = this.#findStroke(ref);
       if (!found) {
@@ -1142,10 +1176,7 @@ export class Canvas {
       const element = createElement("div", "canvas-stroke-box");
       element.dataset.strokeKey = getKey(ref);
       element.toggleAttribute("data-eraser", isEraser(stroke));
-      element.style.left = px((box.x - x) * zoom);
-      element.style.top = px((box.y - y) * zoom);
-      element.style.width = px(box.width * zoom);
-      element.style.height = px(box.height * zoom);
+      this.#placeStrokeBox(element, box);
       if (resizable) {
         for (const handle of RESIZE_HANDLES) {
           const edge = createElement("div", "canvas-stroke-resize");
@@ -1156,6 +1187,93 @@ export class Canvas {
       return [element];
     });
     this.#strokeBoxes.replaceChildren(...boxes);
+  }
+
+  // Puts an outline around a box on the drawing.
+  #placeStrokeBox(element: HTMLElement, box: Box): void {
+    const { x, y, zoom } = this.#viewport;
+    element.style.left = px((box.x - x) * zoom);
+    element.style.top = px((box.y - y) * zoom);
+    element.style.width = px(box.width * zoom);
+    element.style.height = px(box.height * zoom);
+  }
+
+  // Whether clicking a stroke picks it. A note's strokes are part of it, so
+  // clicking one picks the note, and only once the note or another of its
+  // strokes is picked does it pick the stroke.
+  #canPickStroke(ref: StrokeRef): boolean {
+    return (
+      !ref.note ||
+      this.#selection.has(getKey(ref)) ||
+      this.#selection.has(`notes:${ref.note}`) ||
+      [...this.#selection.values()].some(
+        (each) => each.kind === "strokes" && each.note === ref.note
+      )
+    );
+  }
+
+  // Shows what clicking would pick, if it's to do with a stroke: the stroke,
+  // or the note whose ink it's over.
+  #showStrokeHover(event: PointerEvent): void {
+    const ref = this.#getStrokeAt(event.clientX, event.clientY);
+    const canPick = ref !== null && this.#canPickStroke(ref);
+    this.#surface.toggleAttribute("data-over-stroke", canPick);
+    const stroke = ref && canPick ? this.#findStroke(ref) : null;
+    const box =
+      ref && stroke && !this.#selection.has(getKey(ref))
+        ? getStrokeBox(this.#onDrawing(ref, stroke))
+        : null;
+    this.#strokeHover.hidden = !box;
+    if (box) {
+      this.#placeStrokeBox(this.#strokeHover, box);
+    }
+    for (const view of this.#layers.notes.views) {
+      view.element.toggleAttribute(
+        "data-ink-hover",
+        ref?.note === view.item.id && !canPick
+      );
+    }
+  }
+
+  #clearStrokeHover(): void {
+    this.#surface.removeAttribute("data-over-stroke");
+    this.#strokeHover.hidden = true;
+    for (const view of this.#layers.notes.views) {
+      view.element.removeAttribute("data-ink-hover");
+    }
+  }
+
+  // Whether a press could be the second of a double-click, if it's released
+  // without moving.
+  #isDoublePress(event: PointerEvent): boolean {
+    const last = this.#lastPress;
+    this.#lastPress = {
+      time: event.timeStamp,
+      x: event.clientX,
+      y: event.clientY,
+    };
+    return (
+      last !== null &&
+      event.timeStamp - last.time < DOUBLE_PRESS &&
+      Math.hypot(event.clientX - last.x, event.clientY - last.y) <
+        DRAG_THRESHOLD
+    );
+  }
+
+  /**
+   * Goes back a step from what's picked: from strokes on a note to the note,
+   * or else to nothing.
+   */
+  pickLess(): void {
+    const picked = [...this.#selection.values()];
+    const [first] = picked;
+    const note =
+      first?.kind === "strokes" &&
+      first.note &&
+      picked.every((ref) => ref.kind === "strokes" && ref.note === first.note)
+        ? first.note
+        : null;
+    this.setSelection(note ? [{ kind: "notes", id: note }] : []);
   }
 
   // The top stroke drawn at a point on screen, unless an image or a note is
@@ -1214,9 +1332,11 @@ export class Canvas {
       ? (this.#selection.get(outline.dataset.strokeKey!) as StrokeRef)
       : undefined;
     const editing = this.#editing?.view.element.contains(target);
-    const found = editing
+    const hit = editing
       ? null
       : this.#getStrokeAt(event.clientX, event.clientY);
+    const isDouble = this.#isDoublePress(event);
+    const found = hit && this.#canPickStroke(hit) ? hit : null;
     // A thin stroke's sides are over its line, which moves it. Its corners
     // still resize it.
     const pressedEdge = target.closest<HTMLElement>(".canvas-stroke-resize");
@@ -1260,6 +1380,7 @@ export class Canvas {
       box: handle && stroke ? getStrokeBox(stroke) : null,
       moved: false,
       pickAlone: wasPicked && !event.shiftKey && this.#selection.size > 1,
+      opensNote: isDouble && !event.shiftKey && !edge ? ref.note : null,
       // Touch has no right-click, so resting on it opens its menu.
       longPress:
         event.pointerType === "touch"
@@ -1296,15 +1417,197 @@ export class Canvas {
       this.#showStrokeBoxes();
       return;
     }
-    this.#showStrokes(this.#getLooseStrokes(), (stroke) =>
-      moveStroke(stroke, dx, dy)
-    );
+    const refs = this.#getLooseStrokes();
+    this.#floating = true;
+    this.#showStrokes(refs, (stroke) => moveStroke(stroke, dx, dy));
+    this.#paintFloatingStrokes(refs);
+    this.#markDropNotes(this.#isOnlyStrokes() ? refs : []);
     for (const other of this.#selection.values()) {
       if (other.kind !== "strokes") {
         this.#getAnyLayer(other.kind).showMoved(other.id, dx, dy);
       }
     }
     this.#showStrokeBoxes();
+  }
+
+  // Whether only strokes are picked. Dragged with an item, they stay on
+  // whatever they're on.
+  #isOnlyStrokes(): boolean {
+    return [...this.#selection.values()].every(
+      ({ kind }) => kind === "strokes"
+    );
+  }
+
+  // Draws the strokes being dragged, as they'd be on the drawing.
+  #paintFloatingStrokes(refs: StrokeRef[]): void {
+    const canvas = this.#floatingStrokes;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return;
+    }
+    if (!canvas.isConnected) {
+      this.#strokeBoxes.before(canvas);
+    }
+    const pixelRatio = window.devicePixelRatio || 1;
+    canvas.width = Math.round(this.#width * pixelRatio);
+    canvas.height = Math.round(this.#height * pixelRatio);
+    const { x, y, zoom } = this.#viewport;
+    const scale = pixelRatio * zoom;
+    context.setTransform(scale, 0, 0, scale, -x * scale, -y * scale);
+    for (const ref of refs) {
+      const stroke = this.#shownStrokes.get(getKey(ref));
+      if (stroke && !isEraser(stroke)) {
+        drawStroke(context, this.#onDrawing(ref, stroke));
+      }
+    }
+  }
+
+  #stopFloatingStrokes(): void {
+    this.#floating = false;
+    this.#floatingStrokes.remove();
+    this.#markDropNotes([]);
+  }
+
+  // Marks the notes the strokes being dragged would land on if they're
+  // dropped now.
+  #markDropNotes(refs: StrokeRef[]): void {
+    const notes = new Set(
+      refs.flatMap((ref) => {
+        const stroke = this.#shownStrokes.get(getKey(ref));
+        return (
+          (stroke && !isEraser(stroke) && this.#getDropNote(ref, stroke)) || []
+        );
+      })
+    );
+    for (const view of this.#layers.notes.views) {
+      view.element.toggleAttribute("data-drop-target", notes.has(view.item.id));
+    }
+  }
+
+  // The top note at a point on the drawing, unless an image is above it.
+  #getNoteOver({ x, y }: Point): Note | null {
+    const isOver = (box: Box) =>
+      x >= box.x &&
+      x <= box.x + box.width &&
+      y >= box.y &&
+      y <= box.y + box.height;
+    for (const layer of [...this.#order].reverse()) {
+      if (layer.kind === "notes" || layer.kind === "images") {
+        const item = this.#layers[layer.kind].getView(layer.id)?.item;
+        if (item && isOver(item)) {
+          return layer.kind === "notes" ? (item as Note) : null;
+        }
+      }
+    }
+    return null;
+  }
+
+  // The id of the note a stroke belongs on, once it's `moved`, or null for
+  // the drawing: a note it fits inside, so dropping it never hides any of it.
+  // One already past its note's edge stays until it's dragged off it.
+  #getDropNote(ref: StrokeRef, moved: Stroke): string | null {
+    const box = getStrokeBox(this.#onDrawing(ref, moved));
+    if (!box) {
+      return ref.note;
+    }
+    const note = this.#getNoteOver({
+      x: box.x + box.width / 2,
+      y: box.y + box.height / 2,
+    });
+    if (!note) {
+      return null;
+    }
+    const fits = (inner: Box, outer: Box) =>
+      inner.x >= outer.x &&
+      inner.y >= outer.y &&
+      inner.x + inner.width <= outer.x + outer.width &&
+      inner.y + inner.height <= outer.y + outer.height;
+    if (fits(box, note)) {
+      return note.id;
+    }
+    const stroke = ref.note === note.id ? this.#findStroke(ref) : null;
+    const before = stroke && getStrokeBox(stroke);
+    return before &&
+      !fits(before, { x: 0, y: 0, width: note.width, height: note.height })
+      ? note.id
+      : null;
+  }
+
+  // The changes that move the strokes `dx` and `dy` further on, each onto
+  // what it's dropped on, and what they'll be once they're made. What's left
+  // of an eraser only erases what it's on, so it stays.
+  #getDropChanges(
+    refs: StrokeRef[],
+    dx: number,
+    dy: number
+  ): { changes: DrawingChange[]; dropped: StrokeRef[] } {
+    const changes: DrawingChange[] = [];
+    const dropped: StrokeRef[] = [];
+    const notes = new Map<string, Note>();
+    const getNote = (id: string) =>
+      notes.get(id) ?? this.#layers.notes.getView(id)?.item;
+    const onlyStrokes = this.#isOnlyStrokes();
+    for (const ref of refs) {
+      const stroke = this.#findStroke(ref);
+      if (!stroke) {
+        continue;
+      }
+      const moved = moveStroke(stroke, dx, dy);
+      const to =
+        onlyStrokes && !isEraser(stroke)
+          ? this.#getDropNote(ref, moved)
+          : ref.note;
+      const from = ref.note ? getNote(ref.note) : null;
+      dropped.push({ ...ref, note: to });
+      if (to === ref.note) {
+        const replace = (strokes: Stroke[]) =>
+          strokes.map((each) => (each.id === ref.id ? moved : each));
+        if (from) {
+          notes.set(from.id, {
+            ...from,
+            strokes: replace(from.strokes),
+            erasers: replace(from.erasers),
+          });
+        } else {
+          changes.push({
+            type: "update-stroke",
+            id: ref.id,
+            fields: { points: moved.points },
+          });
+        }
+        continue;
+      }
+      if (from) {
+        notes.set(from.id, {
+          ...from,
+          strokes: from.strokes.filter(({ id }) => id !== ref.id),
+        });
+      } else {
+        changes.push({ type: "remove-stroke", id: ref.id });
+      }
+      const onDrawing = this.#onDrawing(ref, moved);
+      const target = to ? getNote(to) : null;
+      if (target) {
+        notes.set(target.id, {
+          ...target,
+          strokes: [
+            ...target.strokes,
+            moveStroke(onDrawing, -target.x, -target.y),
+          ],
+        });
+      } else {
+        changes.push({ type: "add-stroke", stroke: onDrawing });
+      }
+    }
+    for (const note of notes.values()) {
+      changes.push({
+        type: "update-item",
+        kind: "notes",
+        id: note.id,
+        fields: note,
+      });
+    }
+    return { changes, dropped };
   }
 
   // Dragged, it's changed, along with the rest of what's picked, as one
@@ -1314,7 +1617,12 @@ export class Canvas {
     this.#strokeGesture = null;
     clearTimeout(gesture.longPress);
     if (!gesture.moved) {
-      if (gesture.pickAlone) {
+      const note =
+        gesture.opensNote && this.#layers.notes.getView(gesture.opensNote);
+      if (note) {
+        this.setSelection([{ kind: "notes", id: note.item.id }]);
+        this.#startEditing("notes", note);
+      } else if (gesture.pickAlone) {
         this.setSelection([gesture.ref]);
       }
       return;
@@ -1323,6 +1631,7 @@ export class Canvas {
     const dx = (event.clientX - gesture.start.x) / zoom;
     const dy = (event.clientY - gesture.start.y) / zoom;
     let changes: DrawingChange[];
+    let dropped: StrokeRef[] | null = null;
     if (gesture.handle && gesture.box) {
       const { box, handle } = gesture;
       const to = resizeBox(box, handle, dx, dy, MIN_STROKE_BOX);
@@ -1330,16 +1639,23 @@ export class Canvas {
         resizeStroke(stroke, box, to)
       );
     } else {
-      changes = [
-        ...this.#getStrokeChanges(this.#getLooseStrokes(), (stroke) =>
-          moveStroke(stroke, dx, dy)
-        ),
-        ...this.#getMovedItems(dx, dy),
-      ];
+      const drop = this.#getDropChanges(this.#getLooseStrokes(), dx, dy);
+      dropped = drop.dropped;
+      changes = [...drop.changes, ...this.#getMovedItems(dx, dy)];
     }
     this.#resetMovedItems();
     this.#shownStrokes.clear();
+    this.#stopFloatingStrokes();
     this.#options.onBatch(changes);
+    // Dropped on something else, it's still picked, on that.
+    if (dropped) {
+      for (const ref of this.#getLooseStrokes()) {
+        this.#selection.delete(getKey(ref));
+      }
+      for (const ref of dropped) {
+        this.#selection.set(getKey(ref), ref);
+      }
+    }
     this.#showStrokeBoxes();
   }
 
@@ -1385,6 +1701,7 @@ export class Canvas {
     this.#strokeGesture = null;
     clearTimeout(gesture.longPress);
     this.#resetMovedItems();
+    this.#stopFloatingStrokes();
     this.#stopShowingStrokes();
     this.#showStrokeBoxes();
   }
@@ -1458,8 +1775,10 @@ export class Canvas {
     if (this.#editing?.view.element.contains(target)) {
       return;
     }
+    // A right-click focuses a note first, so its ink's menu only opens for a
+    // stroke that was already picked. Otherwise, it's the note's menu.
     const ref = this.#getStrokeAt(event.clientX, event.clientY);
-    if (ref) {
+    if (ref && (!ref.note || this.#selection.has(getKey(ref)))) {
       event.preventDefault();
       event.stopPropagation();
       this.#openStrokeMenu(ref, { x: event.clientX, y: event.clientY });
@@ -2309,10 +2628,6 @@ export class Canvas {
 
   #moveCursor(event: PointerEvent): void {
     this.#moveNoteGhost(event);
-    this.#surface.toggleAttribute(
-      "data-over-stroke",
-      this.#moving && this.#getStrokeAt(event.clientX, event.clientY) !== null
-    );
     const cursor = this.#cursor;
     // Touch and pen have no hover position, so the cursor only follows a
     // mouse. Placing, moving, panning, filling and picking have no size to show.
@@ -3007,6 +3322,13 @@ export class Canvas {
   }
 
   #onSurfaceMove = (event: PointerEvent): void => {
+    if (this.#moving && event.pointerType === "mouse") {
+      if (event.buttons === 0) {
+        this.#showStrokeHover(event);
+      } else {
+        this.#clearStrokeHover();
+      }
+    }
     if (this.#touches.has(event.pointerId)) {
       this.#touches.set(event.pointerId, {
         x: event.clientX,

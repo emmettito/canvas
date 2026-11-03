@@ -232,6 +232,44 @@
   }
 }
 
+/* The stroke under the mouse, which clicking would pick. */
+.canvas-stroke-hover {
+  position: absolute;
+  z-index: 2;
+  box-sizing: border-box;
+  border: 1px solid var(--canvas-color-accent);
+  opacity: 0.5;
+  pointer-events: none;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+/* A note whose ink is under the mouse, or has a stroke picked: it's part of
+ * the note. */
+.canvas-note:is([data-ink-hover], [data-ink-picked]) {
+  outline: 1px solid
+    color-mix(in srgb, var(--canvas-color-accent) 50%, transparent);
+  outline-offset: 2px;
+}
+
+/* Strokes being dragged, over everything. */
+.canvas-floating-strokes {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* The note a stroke being dragged would land on. */
+.canvas-note[data-drop-target] {
+  outline: 2px solid var(--canvas-color-accent);
+  outline-offset: 2px;
+}
+
 /* A stroke to pick, under the pointer. */
 [data-over-stroke] > .canvas-input-layer {
   cursor: grab;

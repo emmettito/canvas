@@ -582,7 +582,14 @@ export function mountCanvas(
       update();
     },
     onBatch: (changes) => {
-      history.batch(changes);
+      // A note can gain or lose strokes along with everything else.
+      history.batch(
+        changes.map((change) =>
+          change.type === "update-item" && change.kind === "notes"
+            ? { ...change, fields: sign(change.fields as Note) }
+            : change
+        )
+      );
       update();
     },
     getImage: (id) => imageStore.get(open.id, id),
@@ -1058,7 +1065,7 @@ export function mountCanvas(
         return;
       }
       if (event.key === "Escape") {
-        canvas.setSelection([]);
+        canvas.pickLess();
         return;
       }
     }

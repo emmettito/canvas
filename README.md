@@ -228,8 +228,8 @@ erased, rather than cut, so what the eraser left on one can be clicked with
 `select`, and moved, resized or deleted, which puts the fill back. A box or
 Ctrl+A doesn't pick it, since it can't be seen.
 
-With `select` picked, the same goes for strokes, on the drawing or on a note,
-which show a box around them once they're picked:
+With `select` picked, the same goes for strokes on the drawing, which show a
+box around them once they're picked:
 
 - Drag one to move it. Drag anywhere else for a box that picks everything it
   touches, in place of what's picked. A box picks a note whole, rather than the
@@ -252,6 +252,22 @@ item does nothing: it can't be picked, moved or typed in. Picking `hand` picks
 nothing, and finishes any typing. Holding Space, the middle button and two
 fingers on a touch screen pan with any tool.
 
+Dropping a stroke somewhere moves it onto what's there: onto a note it fits
+entirely inside, which outlines the note as it's dragged, or else onto the
+drawing, so dropping one never hides any of it. It goes on top of what it lands
+on, and on a note it moves with the note from then on. One already past its
+note's edge stays on the note until it's dragged off. Strokes dragged along
+with an item stay on whatever they're on.
+
+A note's strokes are part of it, so pressing one picks or moves the note,
+double-clicking one types in it, and right-clicking one opens the note's menu,
+as they do anywhere else on the note. Pointing at one outlines the note. Once
+the note is picked, clicking a stroke on it picks the stroke, which leaves the
+note faintly outlined. It can then be moved, resized, deleted, or right-clicked
+for its own menu, and the note's other strokes can be clicked in turn. Escape
+goes back to the note, then to nothing. Pointing at a stroke clicking would
+pick outlines it.
+
 A stroke's menu has the same choices as an item's, and a stroke on a note goes
 to the front or back of the note's strokes. Only one stroke, picked on its own,
 resizes, and its line gets thicker or thinner with it. While drawing together,
@@ -268,9 +284,7 @@ With `note` or `text` picked, notes or text can be moved and resized the same
 way, and clicking one types in it. With `text` picked, clicking a note types in
 the note, rather than adding text over it. Whichever tool is picked, right-click an
 item, or press and hold one on a touch screen with `select`, for a menu to
-bring it to the front, send it to the back, or delete it. A note's menu also has
-its colors, to change it to, with its own marked, which can be undone like
-any change. Right-clicking text being typed opens the same menu, rather than
+bring it to the front, send it to the back, or delete it. Right-clicking text being typed opens the same menu, rather than
 the browser's.
 
 **Text**: with `text` picked, clicking the canvas starts text there, in the
@@ -288,7 +302,7 @@ stays readable, and yellow is the default. Each shade is one of the color
 picker's grid, its third row down, so it can be picked there too. A color picked in the color
 picker is used as it is, so a note can be any color, including the palette's
 own. While a note's typed in, its options show its color, and picking another
-changes it, which can be undone; its menu has the palette's too. While `note`
+changes it, which can be undone. While `note`
 is picked, `color` picks the same. Text that doesn't fit in a note is hidden,
 and left out of the export.
 
