@@ -1,5 +1,7 @@
 import { type Browser, expect, type Page, test } from "@playwright/test";
 
+type Box = Awaited<ReturnType<ReturnType<Page["locator"]>["boundingBox"]>>;
+
 const PAGE = "/e2e/fixtures/full.html";
 
 test.beforeEach(async ({ page }) => {
@@ -347,28 +349,103 @@ test.describe("dropping a stroke", () => {
     expect(await page.locator(".canvas-note").boundingBox()).toEqual(box);
   });
 
-  test("stays on the drawing if it doesn't fit inside the note", async ({
-    page,
-  }) => {
-    const box = await addNoteAndStroke(page);
+  // A line wider than the note, just below it, and its middle.
+  async function addLongLine(page: Page, box: NonNullable<Box>) {
     await pick(page, "Pencil");
     const y = box.y + box.height + 40;
     await drag(page, [box.x - 100, y], [box.x + box.width + 100, y]);
     await pick(page, "Select");
     await getStrokes(page, 2);
+    return { x: box.x + box.width / 2, y };
+  }
 
-    // Its middle lands on the note, but it's wider.
-    await drag(
-      page,
-      [box.x + box.width / 2, y],
-      [box.x + box.width / 2, box.y + box.height / 2]
-    );
+  test("onto a note it doesn't fit in still puts it on the note, whole", async ({
+    page,
+  }) => {
+    const box = await addNoteAndStroke(page);
+    const line = await addLongLine(page, box);
+    const [, before] = await readSaved(page, "strokes");
+    const inside = { x: line.x, y: box.y + box.height / 2 };
 
+    await page.mouse.move(line.x, line.y);
+    await page.mouse.down();
+    await page.mouse.move(inside.x, inside.y, { steps: 8 });
+    await expect(page.locator(".canvas-note[data-drop-target]")).toHaveCount(1);
+    await page.mouse.up();
+
+    await getStrokes(page, 1);
+    await expect.poll(async () => (await getNoteStrokes(page)).length).toBe(1);
+    // Hidden past the note's edge, but all still there.
+    const [kept] = await getNoteStrokes(page);
+    expect(kept.points.length).toBe(before.points.length);
+    expect(kept.points.at(-1)!.x - kept.points[0].x).toBeGreaterThan(box.width);
+
+    // So dragging it off brings all of it back.
+    await drag(page, [inside.x, inside.y], [inside.x, 600]);
+    await expect.poll(async () => (await getNoteStrokes(page)).length).toBe(0);
+    const [, back] = await getStrokes(page, 2);
+    expect(back.points.at(-1)!.x - back.points[0].x).toBeGreaterThan(box.width);
+  });
+
+  test("a line across a note stays on the drawing when it's only nudged", async ({
+    page,
+  }) => {
+    const box = await addNoteAndStroke(page);
+    await pick(page, "Pencil");
+    const y = box.y + box.height / 2;
+    await drag(page, [box.x - 100, y], [box.x + box.width + 100, y]);
+    await pick(page, "Select");
+    await getStrokes(page, 2);
+    const x = box.x + box.width / 2;
+
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x, y + 20, { steps: 4 });
     await expect(page.locator(".canvas-note[data-drop-target]")).toHaveCount(0);
+    await page.mouse.up();
+
     await expect
       .poll(async () => (await readSaved(page, "strokes"))[1].points[0].y)
-      .toBeCloseTo(box.y + box.height / 2, 0);
+      .toBeCloseTo(y + 20, 0);
     expect(await getNoteStrokes(page)).toEqual([]);
+
+    // Taken off the note and brought back, it's meant.
+    const yAfter = y + 20;
+    await page.mouse.move(x, yAfter);
+    await page.mouse.down();
+    await page.mouse.move(x, box.y + box.height + 80, { steps: 4 });
+    await page.mouse.move(x, y, { steps: 4 });
+    await expect(page.locator(".canvas-note[data-drop-target]")).toHaveCount(1);
+    await page.mouse.up();
+    await expect.poll(async () => (await getNoteStrokes(page)).length).toBe(1);
+  });
+
+  test("a stroke past a smaller note's edge is kept, and shows again", async ({
+    page,
+  }) => {
+    const box = await addNoteAndStroke(page);
+    await pick(page, "Pencil");
+    const x = box.x + box.width - 20;
+    const y = box.y + box.height / 2;
+    await drag(page, [x - 60, y], [x, y]);
+    await pick(page, "Select");
+    await page.mouse.click(1000, 620);
+    const [drawn] = await getNoteStrokes(page);
+
+    // Selected, its right side made narrower than the stroke reaches.
+    const note = page.locator(".canvas-note");
+    await page.mouse.click(box.x + 20, box.y + 20);
+    await drag(
+      page,
+      [box.x + box.width, box.y + box.height / 2],
+      [box.x + box.width - 60, box.y + box.height / 2]
+    );
+    await expect
+      .poll(async () => (await note.boundingBox())!.width)
+      .toBeCloseTo(box.width - 60, 0);
+
+    const [kept] = await getNoteStrokes(page);
+    expect(kept.points).toEqual(drawn.points);
   });
 
   test("shows it unclipped as it's dragged off a note", async ({ page }) => {
@@ -566,6 +643,96 @@ test.describe("a note's ink", () => {
     await expect(outlines(page)).toHaveCount(1);
     await expect(note(page)).toHaveAttribute("data-ink-picked");
   });
+});
+
+test.describe("a note's ink stays still as the note's resized", () => {
+  // The biggest change between one frame and the next, out of 255, over where
+  // the ink is, as `side` of the note is dragged a fraction of a pixel at a
+  // time. The first frames are left out: a stroke's drawn again once, all at
+  // once, after being drawn a piece at a time.
+  async function measure(browser: Browser, side: string, zoomIn: boolean) {
+    const context = await browser.newContext({
+      deviceScaleFactor: 2,
+      viewport: { width: 1280, height: 720 },
+    });
+    const page = await context.newPage();
+    await page.goto(PAGE);
+    if (zoomIn) {
+      await page.mouse.move(600, 350);
+      await page.keyboard.press("ControlOrMeta+=");
+    }
+    await pick(page, "Sticky note");
+    await page.keyboard.down("Alt");
+    await page.mouse.click(600, 350);
+    await page.keyboard.up("Alt");
+    await page.keyboard.press("Escape");
+    const box = (await page.locator(".canvas-note").boundingBox())!;
+    const x = box.x + box.width * 0.45;
+    const y = box.y + box.height / 2;
+    await pick(page, "Pencil");
+    await page.mouse.move(x - 40, y - 20);
+    await page.mouse.down();
+    await page.mouse.move(x, y + 20, { steps: 6 });
+    await page.mouse.move(x + 40, y - 20, { steps: 6 });
+    await page.mouse.up();
+    await pick(page, "Select");
+    await page.mouse.click(box.x + 8, box.y + box.height - 8);
+
+    const [fromX, fromY, stepX, stepY] = {
+      right: [box.x + box.width, y, 1.37, 0],
+      bottom: [x, box.y + box.height, 0, 1.37],
+      left: [box.x, y, -1.37, 0],
+      top: [x, box.y, 0, -1.37],
+    }[side]!;
+    const clip = { x: x - 50, y: y - 30, width: 100, height: 60 };
+    await page.mouse.move(fromX, fromY);
+    await page.mouse.down();
+    const shots: string[] = [];
+    for (let step = 1; step <= 20; step++) {
+      await page.mouse.move(fromX + stepX * step, fromY + stepY * step);
+      await page.waitForTimeout(20);
+      shots.push((await page.screenshot({ clip })).toString("base64"));
+    }
+    await page.mouse.up();
+    const biggest = await page.evaluate(async (images) => {
+      const read = async (data: string) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${data}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d")!;
+        context.drawImage(image, 0, 0);
+        return context.getImageData(0, 0, image.width, image.height).data;
+      };
+      let change = 0;
+      let before = await read(images[2]);
+      for (const image of images.slice(3)) {
+        const pixels = await read(image);
+        pixels.forEach((value, index) => {
+          change = Math.max(change, Math.abs(value - before[index]));
+        });
+        before = pixels;
+      }
+      return change;
+    }, shots);
+    await context.close();
+    return biggest;
+  }
+
+  for (const side of ["right", "bottom", "left", "top"]) {
+    for (const zoomIn of [false, true]) {
+      test(`from its ${side}${zoomIn ? ", zoomed in" : ""}`, async ({
+        browser,
+        browserName,
+      }) => {
+        test.skip(browserName !== "chromium");
+        // Too little to see.
+        expect(await measure(browser, side, zoomIn)).toBeLessThan(20);
+      });
+    }
+  }
 });
 
 test("the eraser cuts a note's strokes too", async ({ page }) => {

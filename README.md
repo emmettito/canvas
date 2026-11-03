@@ -252,12 +252,14 @@ item does nothing: it can't be picked, moved or typed in. Picking `hand` picks
 nothing, and finishes any typing. Holding Space, the middle button and two
 fingers on a touch screen pan with any tool.
 
-Dropping a stroke somewhere moves it onto what's there: onto a note it fits
-entirely inside, which outlines the note as it's dragged, or else onto the
-drawing, so dropping one never hides any of it. It goes on top of what it lands
-on, and on a note it moves with the note from then on. One already past its
-note's edge stays on the note until it's dragged off. Strokes dragged along
-with an item stay on whatever they're on.
+Dropping a stroke moves it onto what's under the pointer: a note, which is
+outlined as soon as the pointer is over it, or else the drawing. It goes on top
+of what it lands on, and on a note it moves with the note from then on. What's
+past a note's edge is hidden, not lost, whether it was dropped there or the note
+was made smaller: it shows again if the note grows, or the stroke's dragged off.
+A stroke pressed over a note, and dropped without the pointer leaving it, stays
+where it is, so nudging a line that crosses a note doesn't put it on the note.
+Strokes dragged along with an item stay on whatever they're on.
 
 A note's strokes are part of it, so pressing one picks or moves the note,
 double-clicking one types in it, and right-clicking one opens the note's menu,
@@ -303,8 +305,10 @@ picker's grid, its third row down, so it can be picked there too. A color picked
 picker is used as it is, so a note can be any color, including the palette's
 own. While a note's typed in, its options show its color, and picking another
 changes it, which can be undone. While `note`
-is picked, `color` picks the same. Text that doesn't fit in a note is hidden,
-and left out of the export.
+is picked, `color` picks the same. A note grows downward as it's typed in, to
+fit its text, and undoing the text undoes that too. It doesn't shrink again by
+itself. Text past the bottom of a note made smaller is hidden, and left out of
+the export, until it's typed in again.
 
 A note being moved snaps to the notes on screen near it: its edges or middle
 line up with theirs, or it sits a small gap beside one it's level with, and

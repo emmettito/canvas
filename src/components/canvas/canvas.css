@@ -543,18 +543,19 @@
 
 /* Strokes drawn on the note, over its text, and its fills, below it, only
  * inside it. */
+/* Their size is set in whole steps, usually bigger than the note. They're
+ * drawn on only inside it. */
 .canvas-note-ink,
 .canvas-note-fills {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
+  top: 0;
+  left: 0;
   pointer-events: none;
 }
 
 /* The padding matches the exported note's, so the text wraps the same way.
- * Text past the bottom is hidden, as it's left out of exports. */
+ * A note grows to fit what's typed. Text past the bottom of one made smaller is
+ * hidden, as it's left out of exports. */
 .canvas-note-text {
   height: 100%;
   white-space: pre-wrap;

@@ -292,6 +292,64 @@ test("with the select tool, clicking a note picks it, and double-clicking opens 
   await expect(note).not.toHaveAttribute("data-editing");
 });
 
+test("a note grows to fit what's typed, which undoes with its text", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Sticky note" }).click();
+  await page.mouse.click(500, 300);
+  const note = page.locator(".canvas-note");
+  const before = (await note.boundingBox())!;
+
+  await page.keyboard.type(
+    "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine"
+  );
+
+  await expect
+    .poll(async () => (await note.boundingBox())!.height)
+    .toBeGreaterThan(before.height);
+  const grown = (await note.boundingBox())!;
+  expect(grown.y).toBe(before.y);
+  expect(grown.width).toBe(before.width);
+  // All of it shows.
+  const fits = () =>
+    page
+      .locator(".canvas-note-text")
+      .evaluate((text) => text.scrollHeight <= text.clientHeight);
+  expect(await fits()).toBe(true);
+
+  await page.keyboard.press("Escape");
+  expect((await note.boundingBox())!.height).toBe(grown.height);
+  expect(await fits()).toBe(true);
+
+  // It's kept after a reload, as anything else is.
+  await page.reload();
+  await expect(note).toBeVisible();
+  expect((await note.boundingBox())!.height).toBe(grown.height);
+
+  // Typing more grows it again, and undoing that puts it back.
+  await page.getByRole("button", { name: "Select" }).click();
+  await note.dblclick();
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.type("\nten\neleven\ntwelve");
+  await page.keyboard.press("Escape");
+  await expect
+    .poll(async () => (await note.boundingBox())!.height)
+    .toBeGreaterThan(grown.height);
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect
+    .poll(async () => (await note.boundingBox())!.height)
+    .toBe(grown.height);
+  await expect(note).toHaveCount(1);
+  await expect(note).not.toContainText("twelve");
+
+  // Deleting the text leaves it the size it is.
+  await note.dblclick();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("Delete");
+  await page.keyboard.press("Escape");
+  expect((await note.boundingBox())!.height).toBe(grown.height);
+});
+
 test("emptying a note keeps it, and deleting it from its menu removes it", async ({
   page,
 }) => {

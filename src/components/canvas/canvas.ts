@@ -186,6 +186,8 @@ interface StrokeGesture {
   // Whether a press on one of several picked picks it alone, if it's only a
   // click.
   pickAlone: boolean;
+  // The note under the pointer when it was pressed, until the pointer leaves it.
+  pressedNote: string | null;
   // The note to type in if it's only clicked: it's the end of a double-click
   // on its ink.
   opensNote: string | null;
@@ -224,12 +226,13 @@ interface TypedView<T extends TypedItem> extends ItemView<T> {
 type TypedKind = "notes" | "texts";
 
 // What's drawn on a note's own canvas, at its size in pixels.
-interface Inked {
+interface Inked extends InkSize {
   strokes: Stroke[];
   fills: Fill[];
   erasers: Stroke[];
-  width: number;
-  height: number;
+  // The note's size, which its ink is clipped to.
+  noteWidth: number;
+  noteHeight: number;
 }
 
 // A note, with the strokes drawn on it and its fills, which are only drawn
@@ -345,6 +348,14 @@ function startsWith<T>(strokes: T[], prefix: T[]): boolean {
 // The most pixels a note's strokes are drawn with, so a big note zoomed in
 // stays within what browsers can draw on one canvas.
 const MAX_INK_PIXELS = 16_000_000;
+// A note's canvases grow in steps this big, in drawing units.
+const INK_STEP = 128;
+
+// How big a note's canvas is: in pixels, and in drawing units.
+interface InkSize extends Size {
+  across: number;
+  down: number;
+}
 
 // How far, in screen pixels, the pointer moves before a stroke gets another
 // point, so a hand's tremble doesn't add a crowd of tiny pieces.
@@ -1380,6 +1391,9 @@ export class Canvas {
       box: handle && stroke ? getStrokeBox(stroke) : null,
       moved: false,
       pickAlone: wasPicked && !event.shiftKey && this.#selection.size > 1,
+      pressedNote:
+        this.#getNoteOver(this.getDrawingPoint(event.clientX, event.clientY))
+          ?.id ?? null,
       opensNote: isDouble && !event.shiftKey && !edge ? ref.note : null,
       // Touch has no right-click, so resting on it opens its menu.
       longPress:
@@ -1421,7 +1435,11 @@ export class Canvas {
     this.#floating = true;
     this.#showStrokes(refs, (stroke) => moveStroke(stroke, dx, dy));
     this.#paintFloatingStrokes(refs);
-    this.#markDropNotes(this.#isOnlyStrokes() ? refs : []);
+    const point = this.getDrawingPoint(event.clientX, event.clientY);
+    if (this.#getNoteOver(point)?.id !== gesture.pressedNote) {
+      gesture.pressedNote = null;
+    }
+    this.#markDropNotes(this.#isOnlyStrokes() ? refs : [], point);
     for (const other of this.#selection.values()) {
       if (other.kind !== "strokes") {
         this.#getAnyLayer(other.kind).showMoved(other.id, dx, dy);
@@ -1465,19 +1483,22 @@ export class Canvas {
   #stopFloatingStrokes(): void {
     this.#floating = false;
     this.#floatingStrokes.remove();
-    this.#markDropNotes([]);
+    this.#markDropNotes([], null);
   }
 
   // Marks the notes the strokes being dragged would land on if they're
-  // dropped now.
-  #markDropNotes(refs: StrokeRef[]): void {
+  // dropped with the pointer at `point`.
+  #markDropNotes(refs: StrokeRef[], point: Point | null): void {
     const notes = new Set(
-      refs.flatMap((ref) => {
-        const stroke = this.#shownStrokes.get(getKey(ref));
-        return (
-          (stroke && !isEraser(stroke) && this.#getDropNote(ref, stroke)) || []
-        );
-      })
+      point
+        ? refs.flatMap((ref) => {
+            const stroke = this.#shownStrokes.get(getKey(ref));
+            return (
+              (stroke && !isEraser(stroke) && this.#getDropNote(ref, point)) ||
+              []
+            );
+          })
+        : []
     );
     for (const view of this.#layers.notes.views) {
       view.element.toggleAttribute("data-drop-target", notes.has(view.item.id));
@@ -1502,44 +1523,29 @@ export class Canvas {
     return null;
   }
 
-  // The id of the note a stroke belongs on, once it's `moved`, or null for
-  // the drawing: a note it fits inside, so dropping it never hides any of it.
-  // One already past its note's edge stays until it's dragged off it.
-  #getDropNote(ref: StrokeRef, moved: Stroke): string | null {
-    const box = getStrokeBox(this.#onDrawing(ref, moved));
-    if (!box) {
-      return ref.note;
-    }
-    const note = this.#getNoteOver({
-      x: box.x + box.width / 2,
-      y: box.y + box.height / 2,
-    });
+  // The id of the note a stroke belongs on, dropped with the pointer at
+  // `point` on the drawing, or null for the drawing: the note under the
+  // pointer, even if the stroke doesn't fit, since what's past its edge is only
+  // hidden. A stroke only nudged, with the pointer still on the note it was
+  // pressed on, stays where it is, so a line across a note isn't swallowed by
+  // it.
+  #getDropNote(ref: StrokeRef, point: Point): string | null {
+    const note = this.#getNoteOver(point);
     if (!note) {
       return null;
     }
-    const fits = (inner: Box, outer: Box) =>
-      inner.x >= outer.x &&
-      inner.y >= outer.y &&
-      inner.x + inner.width <= outer.x + outer.width &&
-      inner.y + inner.height <= outer.y + outer.height;
-    if (fits(box, note)) {
-      return note.id;
-    }
-    const stroke = ref.note === note.id ? this.#findStroke(ref) : null;
-    const before = stroke && getStrokeBox(stroke);
-    return before &&
-      !fits(before, { x: 0, y: 0, width: note.width, height: note.height })
-      ? note.id
-      : null;
+    const gesture = this.#strokeGesture;
+    return gesture?.pressedNote === note.id ? ref.note : note.id;
   }
 
-  // The changes that move the strokes `dx` and `dy` further on, each onto
-  // what it's dropped on, and what they'll be once they're made. What's left
+  // The changes that move the strokes `dx` and `dy` further on, onto what the
+  // pointer drops them on, at `point`, and what they'll be once they're made. What's left
   // of an eraser only erases what it's on, so it stays.
   #getDropChanges(
     refs: StrokeRef[],
     dx: number,
-    dy: number
+    dy: number,
+    point: Point
   ): { changes: DrawingChange[]; dropped: StrokeRef[] } {
     const changes: DrawingChange[] = [];
     const dropped: StrokeRef[] = [];
@@ -1555,7 +1561,7 @@ export class Canvas {
       const moved = moveStroke(stroke, dx, dy);
       const to =
         onlyStrokes && !isEraser(stroke)
-          ? this.#getDropNote(ref, moved)
+          ? this.#getDropNote(ref, point)
           : ref.note;
       const from = ref.note ? getNote(ref.note) : null;
       dropped.push({ ...ref, note: to });
@@ -1614,8 +1620,21 @@ export class Canvas {
   // change to undo. Only clicked, one of several picked is picked alone.
   #endStrokeGesture(event: PointerEvent): void {
     const gesture = this.#strokeGesture!;
-    this.#strokeGesture = null;
     clearTimeout(gesture.longPress);
+    // A last look, since a pointer can leave a note and be released at once.
+    const point = this.getDrawingPoint(event.clientX, event.clientY);
+    if (this.#getNoteOver(point)?.id !== gesture.pressedNote) {
+      gesture.pressedNote = null;
+    }
+    const drop = gesture.moved
+      ? this.#getDropChanges(
+          this.#getLooseStrokes(),
+          (event.clientX - gesture.start.x) / this.#viewport.zoom,
+          (event.clientY - gesture.start.y) / this.#viewport.zoom,
+          point
+        )
+      : null;
+    this.#strokeGesture = null;
     if (!gesture.moved) {
       const note =
         gesture.opensNote && this.#layers.notes.getView(gesture.opensNote);
@@ -1639,9 +1658,8 @@ export class Canvas {
         resizeStroke(stroke, box, to)
       );
     } else {
-      const drop = this.#getDropChanges(this.#getLooseStrokes(), dx, dy);
-      dropped = drop.dropped;
-      changes = [...drop.changes, ...this.#getMovedItems(dx, dy)];
+      dropped = drop!.dropped;
+      changes = [...drop!.changes, ...this.#getMovedItems(dx, dy)];
     }
     this.#resetMovedItems();
     this.#shownStrokes.clear();
@@ -2414,13 +2432,13 @@ export class Canvas {
   // As few pixels as look sharp at the zoom, within what a browser can draw.
   #paintInk(view: NoteView): void {
     const { item, editor } = view;
-    const { width, height } = this.#getInkSize(item);
     const inked: Inked = {
+      ...this.#getInkSize(item),
+      noteWidth: item.width,
+      noteHeight: item.height,
       strokes: this.#getShownStrokes(item.strokes, item.id),
       fills: item.fills,
       erasers: this.#getShownStrokes(item.erasers, item.id),
-      width,
-      height,
     };
     if (!view.ink && item.strokes.length > 0) {
       view.ink = createElement("canvas", "canvas-note-ink");
@@ -2443,17 +2461,43 @@ export class Canvas {
     }
   }
 
-  // How many pixels a note's own canvases have: as few as look sharp at the
-  // zoom, within what a browser can draw.
-  #getInkSize(note: Note): Size {
+  // How big a note's own canvases are: whole steps bigger than the note, so
+  // they usually stay the same as it's resized, and its ink, clipped to the
+  // note, stays still, rather than being stretched a little differently each
+  // time. They've as few pixels as look sharp at the zoom, within what a
+  // browser can draw.
+  #getInkSize(note: Note): InkSize {
+    const across = Math.ceil(note.width / INK_STEP) * INK_STEP;
+    const down = Math.ceil(note.height / INK_STEP) * INK_STEP;
     const scale = Math.min(
       this.#viewport.zoom * (window.devicePixelRatio || 1),
-      Math.sqrt(MAX_INK_PIXELS / (note.width * note.height))
+      Math.sqrt(MAX_INK_PIXELS / (across * down))
     );
     return {
-      width: Math.max(1, Math.round(note.width * scale)),
-      height: Math.max(1, Math.round(note.height * scale)),
+      width: Math.max(1, Math.round(across * scale)),
+      height: Math.max(1, Math.round(down * scale)),
+      across,
+      down,
     };
+  }
+
+  // Empties one of a note's canvases, and leaves it drawing inside the note,
+  // from its top left corner, for what's drawn on it from now on.
+  #resetInkCanvas(
+    canvas: HTMLCanvasElement,
+    context: CanvasRenderingContext2D,
+    note: Note,
+    { width, height, across, down }: InkSize
+  ): void {
+    canvas.style.width = px(across);
+    canvas.style.height = px(down);
+    // Setting its size resets it, even to the same size.
+    canvas.width = width;
+    canvas.height = height;
+    context.setTransform(width / across, 0, 0, height / down, 0, 0);
+    context.beginPath();
+    context.roundRect(0, 0, note.width, note.height, NOTE_LAYOUT.cornerRadius);
+    context.clip();
   }
 
   // Draws a note's strokes, or its fills, on one of its canvases, from its
@@ -2475,6 +2519,8 @@ export class Canvas {
       before &&
       before.width === width &&
       before.height === height &&
+      before.noteWidth === inked.noteWidth &&
+      before.noteHeight === inked.noteHeight &&
       before.fills === fills &&
       before.erasers === erasers &&
       startsWith(strokes, before.strokes)
@@ -2486,20 +2532,13 @@ export class Canvas {
       }
       return;
     }
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
-    } else {
-      context.setTransform(1, 0, 0, 1, 0, 0);
-      context.clearRect(0, 0, width, height);
-    }
-    context.setTransform(width / note.width, 0, 0, height / note.height, 0, 0);
+    this.#resetInkCanvas(canvas, context, note, inked);
     if (what === "fills") {
       drawFills(context, fills, erasers);
-      return;
-    }
-    for (const stroke of strokes) {
-      drawStroke(context, stroke);
+    } else {
+      for (const stroke of strokes) {
+        drawStroke(context, stroke);
+      }
     }
   }
 
@@ -2560,16 +2599,11 @@ export class Canvas {
       return;
     }
     if (note) {
-      const { width, height } = this.#getInkSize(note.item);
-      canvas.width = width;
-      canvas.height = height;
-      context.setTransform(
-        width / note.item.width,
-        0,
-        0,
-        height / note.item.height,
-        0,
-        0
+      this.#resetInkCanvas(
+        canvas,
+        context,
+        note.item,
+        this.#getInkSize(note.item)
       );
     } else {
       const width = this.#width;
@@ -3738,6 +3772,9 @@ export class Canvas {
       onUpdate: () => {
         const editing = this.#editing;
         if (editing?.view.editor === editor) {
+          if (kind === "notes") {
+            this.#growNote(editing.view as NoteView);
+          }
           this.#showEmpty(editing.view);
           this.#formatBar.update();
           this.#placeFormatBar();
@@ -3755,6 +3792,21 @@ export class Canvas {
       }
     });
     return editor;
+  }
+
+  // A note being typed in grows downward to fit its text. It's changed along
+  // with its text when typing's finished, so it's undone with it.
+  #growNote(view: NoteView): void {
+    const text = view.editor.element;
+    const missing = text.scrollHeight - text.clientHeight;
+    if (missing <= 0) {
+      return;
+    }
+    const height = view.item.height + missing;
+    view.item = { ...view.item, height };
+    view.element.style.height = px(height);
+    text.scrollTop = 0;
+    this.#paintInk(view);
   }
 
   // Where an item is as it's moved or resized, for everyone drawing
@@ -4113,7 +4165,17 @@ export class Canvas {
         this.#paintInk(view);
       },
       resize: (note, _size, handle, dx, dy, min) => {
-        const box = resizeBox(note, handle, dx, dy, min);
+        // Its left and top sides move in whole drawing units, which is where
+        // it's placed on screen, so its ink doesn't shift against it.
+        const step = Math.max(1, Math.round(1 / this.#viewport.zoom));
+        const snap = (value: number) => Math.round(value / step) * step;
+        const box = resizeBox(
+          note,
+          handle,
+          handle.endsWith("w") ? snap(dx) : dx,
+          handle.startsWith("n") ? snap(dy) : dy,
+          min
+        );
         const shiftX = note.x - box.x;
         const shiftY = note.y - box.y;
         if (shiftX === 0 && shiftY === 0) {
