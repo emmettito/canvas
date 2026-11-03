@@ -1,0 +1,17 @@
+# Installs Node, the npm that package.json asks for, and the dependencies.
+name: Setup
+description: Installs Node 24, npm 12 and the dependencies
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 24
+        cache: npm
+    # Node 24 comes with npm 11, which runs the install scripts of packages
+    # missing from `allowScripts`.
+    - run: npm install -g npm@12.2.1
+      shell: bash
+    - run: npm ci
+      shell: bash
