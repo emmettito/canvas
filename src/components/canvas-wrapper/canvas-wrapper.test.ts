@@ -54,6 +54,61 @@ describe("mountCanvas", () => {
     expect(container.querySelectorAll(".canvas-root")).toHaveLength(1);
   });
 
+  it("doesn't take the old name of the select tool", () => {
+    const container = document.createElement("div");
+
+    expect(() =>
+      mountCanvas(container, {
+        toolbar: [
+          [
+            {
+              action: "move",
+              icon: createIcon(),
+            } as unknown as ToolbarControl,
+          ],
+        ],
+      })
+    ).toThrow();
+  });
+
+  it("puts down a saved tool that isn't on a toolbar for the pencil", () => {
+    const button = (action: "eraser" | "pencil") => ({
+      action,
+      icon: createIcon(),
+    });
+    const container = document.createElement("div");
+    const first = mountCanvas(container, {
+      storageKey: "saved-tool",
+      toolbar: [[button("pencil"), button("eraser")]],
+    });
+    container.querySelector<HTMLElement>('[aria-label="Eraser"]')!.click();
+    first.unmount();
+
+    // Saved, it's picked again while it's on the toolbar.
+    const second = mountCanvas(container, {
+      storageKey: "saved-tool",
+      toolbar: [[button("pencil"), button("eraser")]],
+    });
+    expect(
+      container
+        .querySelector('[aria-label="Eraser"]')!
+        .getAttribute("aria-pressed")
+    ).toBe("true");
+    second.unmount();
+
+    mountCanvas(container, {
+      storageKey: "saved-tool",
+      toolbar: [[button("pencil")]],
+    });
+
+    expect(
+      container
+        .querySelector('[aria-label="Pencil"]')!
+        .getAttribute("aria-pressed")
+    ).toBe("true");
+    localStorage.clear();
+  });
+
   it("reports the background as it mounts and when it's set", () => {
     const container = document.createElement("div");
     const onBackgroundChange = vi.fn();

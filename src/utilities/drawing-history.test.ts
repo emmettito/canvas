@@ -6,11 +6,12 @@ import { DrawingHistory } from "./drawing-history";
 import { fromPlainText } from "./rich-text";
 
 function createStroke(x: number): Stroke {
-  return { color: "#000000", points: [{ x, y: 0 }], size: 1 };
+  return { id: "s9", color: "#000000", points: [{ x, y: 0 }], size: 1 };
 }
 
 function createNote(id: string, text = "Note"): Note {
   return {
+    erasers: [],
     id,
     x: 0,
     y: 0,
@@ -25,6 +26,7 @@ function createNote(id: string, text = "Note"): Note {
 
 function createDrawing(strokes: Stroke[] = []): Drawing {
   return {
+    erasers: [],
     background: "#ffffff",
     strokes,
     fills: [],
@@ -327,5 +329,94 @@ describe("DrawingHistory", () => {
     history.undo();
     expect(history.drawing.fills).toEqual([]);
     expect(history.canUndo).toBe(false);
+  });
+
+  describe("strokes", () => {
+    const line = (id: string): Stroke => ({
+      id,
+      color: "#000000",
+      size: 2,
+      points: [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+      ],
+    });
+    const eraser: Stroke = { id: "e", size: 5, points: [{ x: 50, y: 0 }] };
+
+    it("cuts them with an eraser, which can be undone", () => {
+      const history = createHistory();
+      history.addStroke(line("a"));
+      history.addStroke(eraser);
+
+      expect(history.drawing.strokes.map(({ id }) => id)).toEqual([
+        "a.0",
+        "a.1",
+      ]);
+      expect(history.drawing.order).toEqual([{ kind: "strokes", count: 2 }]);
+      expect(history.drawing.erasers).toEqual([]);
+
+      history.undo();
+      expect(history.drawing.strokes.map(({ id }) => id)).toEqual(["a"]);
+    });
+
+    it("has nothing to undo for an eraser that touches nothing", () => {
+      const history = createHistory();
+      history.addStroke(eraser);
+      expect(history.canUndo).toBe(false);
+    });
+
+    it("keeps an eraser that goes over a fill", () => {
+      const history = createHistory();
+      history.addFill({
+        color: "#ff0000",
+        after: 0,
+        rings: [
+          [
+            { x: 40, y: -10 },
+            { x: 60, y: -10 },
+            { x: 60, y: 10 },
+          ],
+        ],
+      });
+      history.addStroke(eraser);
+      expect(history.drawing.erasers).toEqual([eraser]);
+    });
+
+    it("moves, removes and restacks one, in the order they're stacked", () => {
+      const history = createHistory();
+      history.addStroke(line("a"));
+      history.addStroke(line("b"));
+
+      history.batch([
+        {
+          type: "update-stroke",
+          id: "a",
+          fields: { points: [{ x: 5, y: 5 }] },
+        },
+      ]);
+      expect(history.drawing.strokes[0].points).toEqual([{ x: 5, y: 5 }]);
+
+      history.batch([{ type: "restack-stroke", id: "a", to: "front" }]);
+      expect(history.drawing.strokes.map(({ id }) => id)).toEqual(["b", "a"]);
+
+      history.batch([{ type: "remove-stroke", id: "b" }]);
+      expect(history.drawing.strokes.map(({ id }) => id)).toEqual(["a"]);
+      expect(history.drawing.order).toEqual([{ kind: "strokes", count: 1 }]);
+    });
+
+    it("restacks one around what's placed", () => {
+      const history = createHistory();
+      history.addStroke(line("a"));
+      history.addItem("notes", createNote("n"));
+      history.addStroke(line("b"));
+
+      history.batch([{ type: "restack-stroke", id: "b", to: "back" }]);
+
+      expect(history.drawing.strokes.map(({ id }) => id)).toEqual(["b", "a"]);
+      expect(history.drawing.order).toEqual([
+        { kind: "strokes", count: 2 },
+        { kind: "notes", id: "n" },
+      ]);
+    });
   });
 });

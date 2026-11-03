@@ -275,11 +275,11 @@ test("with the note tool, clicking a note opens it for typing", async ({
   await expect(getNotes(page)).toHaveText("Hello there");
 });
 
-test("with the move tool, clicking a note picks it, and double-clicking opens it", async ({
+test("with the select tool, clicking a note picks it, and double-clicking opens it", async ({
   page,
 }) => {
   await addNote(page, "Hello");
-  await page.getByRole("button", { name: "Move" }).click();
+  await page.getByRole("button", { name: "Select" }).click();
   const note = page.locator(".canvas-note");
 
   await note.dblclick();

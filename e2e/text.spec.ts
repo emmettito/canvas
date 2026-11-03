@@ -89,7 +89,7 @@ test("once typing's finished with Escape, the next press places again", async ({
   await page.keyboard.press("Escape");
   await expect(getTexts(page)).toHaveText(["First", "Second"]);
 
-  await page.keyboard.press("n");
+  await page.keyboard.press("s");
   await page.mouse.click(350, 500);
   await expect(page.locator(".canvas-note")).toHaveCount(1);
 });

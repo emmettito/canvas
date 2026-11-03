@@ -24,8 +24,10 @@ mountCanvas(document.getElementById("root")!, {
     document.title = `${name || "Untitled"} – Canvas Demo`;
   },
   toolbar: [
-    [button("undo"), button("redo"), button("clear"), button("export")],
+    [button("clear"), button("export")],
     [
+      button("select"),
+      button("hand"),
       button("pencil"),
       button("highlighter"),
       button("eraser"),

@@ -80,7 +80,7 @@ test("drawing on a note draws on it, and moves with it", async ({ page }) => {
   await expect(page.locator(".canvas-note-ink")).toHaveCount(1);
   expect(await getInkAt(page, 500, 320)).toBeGreaterThan(0);
 
-  await page.getByRole("button", { name: "Move" }).click();
+  await page.getByRole("button", { name: "Select" }).click();
   await drag(page, { x: 450, y: 260 }, 100, 50);
   expect(await getInkAt(page, 600, 370)).toBeGreaterThan(0);
 
@@ -96,7 +96,7 @@ test("a note's strokes stay put as it's resized, and only show inside it", async
   await addNote(page);
   // A dot near the note's right edge.
   await page.mouse.click(560, 300);
-  await page.getByRole("button", { name: "Move" }).click();
+  await page.getByRole("button", { name: "Select" }).click();
   const note = page.locator(".canvas-note");
   const before = (await note.boundingBox())!;
 
@@ -197,7 +197,7 @@ test("an item's menu brings it to the front or sends it to the back", async ({
   );
 });
 
-test("the pencil draws over items, and the move tool moves them", async ({
+test("the pencil draws over items, and the select tool moves them", async ({
   page,
 }) => {
   await addNote(page);
@@ -212,7 +212,7 @@ test("the pencil draws over items, and the move tool moves them", async ({
   expect((await note.boundingBox())!.x).toBe(before.x);
 
   await page.keyboard.press("v");
-  await expect(page.getByRole("button", { name: "Move" })).toHaveAttribute(
+  await expect(page.getByRole("button", { name: "Select" })).toHaveAttribute(
     "aria-pressed",
     "true"
   );
@@ -222,9 +222,7 @@ test("the pencil draws over items, and the move tool moves them", async ({
   expect(after.y).toBeCloseTo(before.y + 30, 0);
 });
 
-test("the move tool pans from anywhere but an item, and leaves its pick", async ({
-  page,
-}) => {
+test("the hand pans from anywhere, and leaves its pick", async ({ page }) => {
   await addNote(page);
   await page.keyboard.press("v");
   const note = page.locator(".canvas-note");
@@ -232,6 +230,7 @@ test("the move tool pans from anywhere but an item, and leaves its pick", async 
   await expect(note).toBeFocused();
   const before = (await note.boundingBox())!;
 
+  await page.keyboard.press("h");
   await drag(page, { x: 200, y: 200 }, -50, 40);
 
   const after = (await note.boundingBox())!;
@@ -241,6 +240,22 @@ test("the move tool pans from anywhere but an item, and leaves its pick", async 
   // Panning drew nothing.
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(note).toHaveCount(0);
+});
+
+test("M picks the pencil and Shift+M the highlighter", async ({ page }) => {
+  const pencil = page.getByRole("button", { name: "Pencil" });
+  const highlighter = page.getByRole("button", { name: "Highlighter" });
+
+  await page.keyboard.press("Shift+M");
+  await expect(highlighter).toHaveAttribute("aria-pressed", "true");
+  await expect(highlighter).toHaveAttribute("aria-keyshortcuts", "Shift+M");
+  await page.keyboard.press("m");
+  await expect(pencil).toHaveAttribute("aria-pressed", "true");
+
+  await highlighter.hover();
+  await expect(page.locator(".canvas-tooltip-hint")).toHaveText(
+    /^(⇧|Shift\+)M$/
+  );
 });
 
 test("tools' keys pick them, but not while typing", async ({ page }) => {
@@ -263,7 +278,7 @@ test("tools' keys pick them, but not while typing", async ({ page }) => {
   );
 });
 
-test("an inserted image is picked with the move tool", async ({ page }) => {
+test("an inserted image is picked with the select tool", async ({ page }) => {
   const png = await page.evaluate(() => {
     const canvas = document.createElement("canvas");
     canvas.width = 40;
@@ -280,7 +295,7 @@ test("an inserted image is picked with the move tool", async ({ page }) => {
     buffer: Buffer.from(png, "base64"),
   });
 
-  await expect(page.getByRole("button", { name: "Move" })).toHaveAttribute(
+  await expect(page.getByRole("button", { name: "Select" })).toHaveAttribute(
     "aria-pressed",
     "true"
   );

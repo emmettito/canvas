@@ -6,7 +6,7 @@ import { createElement } from "../../utilities/create-element";
 
 // How long, in milliseconds, a touch rests on an item to open its menu, like
 // a right-click.
-const LONG_PRESS = 500;
+export const LONG_PRESS = 500;
 // How soon, in milliseconds, a second press on an item counts as a double
 // press, e.g. to open a note for typing.
 const DOUBLE_PRESS = 400;

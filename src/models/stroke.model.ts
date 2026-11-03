@@ -7,6 +7,9 @@ export interface StrokePoint extends Point {
 }
 
 export interface Stroke {
+  // Its own, so it can be picked, moved and removed. Pieces of it once it's
+  // erased have ids made from it.
+  id: string;
   // A resolved color value, so strokes keep their color if the theme changes.
   // An undefined color erases instead of drawing.
   color?: string;

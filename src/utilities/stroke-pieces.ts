@@ -39,6 +39,18 @@ export function getStrokeReach(stroke: Stroke): number {
   return hasPressure(stroke) ? stroke.size * PEN_PRESSURE.max : stroke.size;
 }
 
+/**
+ * How far a stroke reaches from a place on it, or at its widest, in any
+ * direction: a square end's corners reach further than its sides.
+ */
+export function getPointReach(stroke: Stroke, point?: StrokePoint): number {
+  const reach =
+    point && hasPressure(stroke)
+      ? stroke.size * getPressureScale(getPressure(point))
+      : getStrokeReach(stroke);
+  return stroke.cap === "square" ? reach * Math.SQRT2 : reach;
+}
+
 /** The radius a stroke's first point is drawn at, alone, as a dot. */
 export function getDotSize(stroke: Stroke): number {
   const [point] = stroke.points;

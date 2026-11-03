@@ -1,7 +1,8 @@
 import { type Tool } from "../models/tool.model";
 
 export const TOOLS: Tool[] = [
-  "move",
+  "select",
+  "hand",
   "pencil",
   "highlighter",
   "eraser",

@@ -29,10 +29,16 @@ const SETTINGS: ToolSettings = {
 };
 
 const STROKES: Stroke[] = [
-  { color: "#ff0000", points: [{ x: 1, y: 2 }], size: 5 },
+  { id: "s5", color: "#ff0000", points: [{ x: 1, y: 2 }], size: 5 },
   // A pen's, and the highlighter's.
-  { color: "#00ff00", points: [{ x: 1, y: 2, pressure: 0.3 }], size: 5 },
   {
+    id: "s4",
+    color: "#00ff00",
+    points: [{ x: 1, y: 2, pressure: 0.3 }],
+    size: 5,
+  },
+  {
+    id: "s3",
     color: "#ffee00",
     points: [{ x: 1, y: 2 }],
     size: 5,
@@ -40,11 +46,12 @@ const STROKES: Stroke[] = [
     cap: "square",
   },
   // An eraser stroke, which has no color.
-  { points: [{ x: 3, y: 4 }], size: 5 },
+  { id: "s2", points: [{ x: 3, y: 4 }], size: 5 },
 ];
 
 const NOTES: Note[] = [
   {
+    erasers: [],
     id: "n",
     x: 10,
     y: 20,
@@ -52,7 +59,9 @@ const NOTES: Note[] = [
     height: 120,
     color: "#fefe99",
     content: [{ runs: [{ text: "Hello", bold: true }] }],
-    strokes: [{ color: "#0000ff", points: [{ x: 4, y: 5 }], size: 2 }],
+    strokes: [
+      { id: "s1", color: "#0000ff", points: [{ x: 4, y: 5 }], size: 2 },
+    ],
     fills: [{ color: "#00ff00", rings: [[{ x: 0, y: 0 }]], after: 1 }],
   },
 ];

@@ -78,7 +78,7 @@ test("pressing outside the File menu closes it, even on the canvas", async ({
   const viewport = page.viewportSize()!;
 
   // With each tool, since some keep the press to themselves, e.g. to pan.
-  for (const tool of ["Move", "Pencil", "Eraser", "Dropper"]) {
+  for (const tool of ["Select", "Hand", "Pencil", "Eraser", "Dropper"]) {
     await page.getByRole("button", { name: new RegExp(`^${tool}`) }).click();
     await file.click();
     await expect(menu).toBeVisible();

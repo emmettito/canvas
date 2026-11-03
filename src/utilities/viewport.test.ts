@@ -64,6 +64,7 @@ describe("viewport", () => {
 
   it("finds the box around strokes, including their width", () => {
     const stroke = {
+      id: "s",
       points: [
         { x: 10, y: 20 },
         { x: 30, y: 5 },
@@ -71,7 +72,12 @@ describe("viewport", () => {
       size: 2,
     };
 
-    expect(getStrokeBox(stroke)).toEqual({ x: 8, y: 3, width: 24, height: 19 });
+    expect(getStrokeBox(stroke)).toEqual({
+      x: 8,
+      y: 3,
+      width: 24,
+      height: 19,
+    });
     expect(
       unionBoxes([getStrokeBox(stroke)!, { x: 0, y: 0, width: 1, height: 1 }])
     ).toEqual({

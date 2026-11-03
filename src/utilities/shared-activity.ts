@@ -197,6 +197,8 @@ export function receiveActivity(
       type: "stroke",
       note,
       stroke: {
+        // Only drawn, until it's added.
+        id: "",
         ...(color !== undefined && { color }),
         points,
         size,

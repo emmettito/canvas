@@ -16,8 +16,14 @@ import { fromPlainText } from "./rich-text";
 
 // The area exported, from the drawing's origin.
 const SIZE = { x: 0, y: 0, width: 400, height: 300 };
-const DOT: Stroke = { color: "#ff0000", points: [{ x: 10, y: 20 }], size: 5 };
+const DOT: Stroke = {
+  id: "s13",
+  color: "#ff0000",
+  points: [{ x: 10, y: 20 }],
+  size: 5,
+};
 const LINE: Stroke = {
+  id: "s12",
   color: "#0000ff",
   points: [
     { x: 0, y: 0 },
@@ -25,9 +31,10 @@ const LINE: Stroke = {
   ],
   size: 4,
 };
-// An eraser stroke, which has no color.
-const ERASER: Stroke = { points: [{ x: 1, y: 1 }], size: 3 };
+// An eraser, which has no color.
+const ERASER: Stroke = { id: "s11", points: [{ x: 1, y: 1 }], size: 3 };
 const NOTE: Note = {
+  erasers: [],
   id: "a",
   x: 20,
   y: 30,
@@ -58,6 +65,7 @@ function createDrawing(parts: Partial<Drawing>): Drawing {
     background: "#ffffff",
     strokes: [],
     fills: [],
+    erasers: [],
     images: [],
     texts: [],
     notes: [],
@@ -183,17 +191,6 @@ describe("createSvg", () => {
       '<rect x="0" y="0" width="400" height="300" fill="#ffffff"/>'
     );
     expect(toSvg({})).not.toContain("<rect");
-  });
-
-  it("erases only what was drawn before the eraser", () => {
-    const svg = toSvg({ strokes: [DOT, ERASER, LINE] }, { fill: "#ffffff" });
-
-    expect(svg).toContain('<mask id="erase-1"');
-    // The dot is masked, the line drawn after it isn't, and neither is the
-    // background, which shows where the dot was erased.
-    expect(svg).toMatch(
-      /<rect[^>]*fill="#ffffff"\/><g mask="url\(#erase-1\)"><circle[^>]*\/><\/g><path/
-    );
   });
 
   it("escapes colors, in case one isn't a plain value", () => {
@@ -403,7 +400,7 @@ describe("createSvg with images", () => {
   it("stacks a drawing from before there was an order the way it was", () => {
     const svg = toSvg(
       {
-        strokes: [DOT, ERASER],
+        strokes: [DOT],
         images: [IMAGE],
         texts: [TEXT],
         notes: [NOTE],
@@ -412,7 +409,7 @@ describe("createSvg with images", () => {
     );
 
     expect(svg).toMatch(
-      /<\/g><image [^>]*\/><text [^>]*>.*<\/text><rect x="20"/
+      /<circle [^>]*\/><image [^>]*\/><text [^>]*>.*<\/text><rect x="20"/
     );
   });
 
@@ -431,25 +428,6 @@ describe("createSvg with images", () => {
     );
 
     expect(svg).toMatch(/<circle[^>]*\/><image [^>]*\/><path/);
-  });
-
-  it("erases strokes below an image with an eraser above it, not the image", () => {
-    const svg = toSvg(
-      {
-        strokes: [DOT, ERASER],
-        images: [IMAGE],
-        order: [
-          { kind: "strokes", count: 1 },
-          { kind: "images", id: "i" },
-          { kind: "strokes", count: 1 },
-        ],
-      },
-      { imageUrls: new Map([["i", "data:,"]]) }
-    );
-
-    expect(svg).toMatch(
-      /<g mask="url\(#erase-1\)"><circle[^>]*\/><\/g><image [^>]*\/><\/svg>$/
-    );
   });
 });
 
@@ -476,12 +454,11 @@ describe("createSvg with fills", () => {
 
   it("erases them with the eraser drawn after them only", () => {
     const svg = toSvg({
-      strokes: [ERASER, DOT, ERASER],
-      fills: [FILL],
-      order: [{ kind: "strokes", count: 3 }],
+      erasers: [ERASER, ERASER],
+      fills: [{ ...FILL, after: 1 }],
     });
 
-    expect(svg).toMatch(/^.*<\/defs><g mask="url\(#erase-2\)"><path d="M0 0/);
+    expect(svg).toMatch(/^.*<\/defs><g mask="url\(#erase-1\)"><path d="M0 0/);
     expect(svg).not.toContain('url(#erase-0)"><path d="M0 0');
   });
 
@@ -506,14 +483,33 @@ describe("createSvg with strokes on notes", () => {
     );
   });
 
-  it("erases them with the note's own erasers, not the note", () => {
-    const svg = toSvg({ notes: [{ ...NOTE, strokes: [DOT, ERASER] }] });
+  it("erases its fills with the note's own erasers, not the note", () => {
+    const svg = toSvg({
+      notes: [
+        {
+          ...NOTE,
+          fills: [
+            {
+              color: "#00ff00",
+              after: 0,
+              rings: [
+                [
+                  { x: 0, y: 0 },
+                  { x: 10, y: 0 },
+                ],
+              ],
+            },
+          ],
+          erasers: [ERASER],
+        },
+      ],
+    });
 
     expect(svg).toContain(
-      '<mask id="note-0-erase-1" maskUnits="userSpaceOnUse" x="0" y="0" width="160" height="160">'
+      '<mask id="note-0-erase-0" maskUnits="userSpaceOnUse" x="0" y="0" width="160" height="160">'
     );
     expect(svg).toMatch(
-      /<rect x="20"[^>]*\/>.*<g mask="url\(#note-0-erase-1\)"><circle/
+      /<rect x="20"[^>]*\/><g transform[^>]*><g mask="url\(#note-0-erase-0\)"><path/
     );
   });
 });

@@ -117,6 +117,52 @@ test("someone who opens the link sees the canvas, and both see each other's chan
   await expect(getTexts(a)).toHaveText(["Before", "From Ada", "From Bo"]);
 });
 
+test("strokes cut, moved and deleted show for everyone, and undo for whoever did it", async ({
+  browser,
+}) => {
+  const { a, b } = await openTogether(browser);
+  const getStrokes = (page: Page) =>
+    page.evaluate(() =>
+      Object.entries(localStorage)
+        .filter(([key]) => key.endsWith(":strokes"))
+        .flatMap(([, value]) => JSON.parse(value))
+    );
+  const expectSame = () =>
+    expect
+      .poll(
+        async () =>
+          JSON.stringify(await getStrokes(a)) ===
+          JSON.stringify(await getStrokes(b))
+      )
+      .toBe(true);
+  const drag = async (from: [number, number], to: [number, number]) => {
+    await a.mouse.move(...from);
+    await a.mouse.down();
+    await a.mouse.move(...to, { steps: 8 });
+    await a.mouse.up();
+  };
+
+  await a.getByRole("button", { name: "Pencil" }).click();
+  await drag([300, 450], [700, 450]);
+  await a.getByRole("button", { name: "Eraser" }).click();
+  await drag([500, 400], [500, 500]);
+  await expect.poll(async () => (await getStrokes(b)).length).toBe(2);
+  await expectSame();
+
+  await a.getByRole("button", { name: "Select" }).click();
+  await drag([350, 450], [350, 520]);
+  await expect
+    .poll(async () => (await getStrokes(b))[0].points[0].y)
+    .toBeGreaterThan(500);
+  await expectSame();
+
+  await a.keyboard.press("Delete");
+  await expect.poll(async () => (await getStrokes(b)).length).toBe(1);
+  await a.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(async () => (await getStrokes(b)).length).toBe(2);
+  await expectSame();
+});
+
 test("undo only undoes your own changes", async ({ browser }) => {
   const { a, b } = await openTogether(browser);
   await addText(a, "From Ada", 0.4, 0.4);
@@ -342,9 +388,10 @@ test("pointers look like the tool they're pointing with", async ({
   for (const [key, kind] of [
     ["e", "eraser"],
     ["t", "text"],
-    ["n", "crosshair"],
+    ["s", "crosshair"],
     ["i", "dropper"],
     ["v", "arrow"],
+    ["h", "arrow"],
   ]) {
     await b.keyboard.press(key);
     await expect(cursor).toHaveAttribute("data-kind", kind);
@@ -420,7 +467,7 @@ test("others see a note as it's moved, and as it's typed in", async ({
 
   // Moving it, it follows Ada's pointer before it's dropped.
   const before = (await note.boundingBox())!;
-  await a.getByRole("button", { name: "Move" }).click();
+  await a.getByRole("button", { name: "Select" }).click();
   await a.mouse.move(box.x + 300, box.y + 300);
   await a.mouse.down();
   await a.mouse.move(box.x + 420, box.y + 360, { steps: 10 });
@@ -450,7 +497,7 @@ test("others see what's picked moving together", async ({ browser }) => {
       each.map((note) => (note as HTMLElement).style.top)
     );
 
-  await a.getByRole("button", { name: "Move" }).click();
+  await a.getByRole("button", { name: "Select" }).click();
   await a.keyboard.press("ControlOrMeta+a");
   await a.mouse.move(box.x + 380, box.y + 380);
   await a.mouse.down();
