@@ -1,0 +1,28 @@
+# Opens weekly update PRs for releases at least 7 days old. Security updates
+# skip the cooldown. `dependabot-auto-merge.yml` decides which PRs merge alone.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # The types follow the Node version CI runs on, see `checks.yml`.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
