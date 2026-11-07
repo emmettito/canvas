@@ -867,8 +867,8 @@ export function mountCanvas(
   }
   // Last, so the bottom toolbar is last to tab to, as it's last on screen.
   root.append(bottom);
-  // The toolbars' options were made before they were on the page, so they're
-  // made again now their colors can be read.
+  // The toolbars are first updated now they're on the page, where their colors
+  // can be read.
   updateToolbars();
   reportName();
   reportBackground();

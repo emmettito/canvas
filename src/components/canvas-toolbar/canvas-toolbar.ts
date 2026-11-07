@@ -264,8 +264,8 @@ export class CanvasToolbar {
         this.#hideTooltip();
       });
     }
-
-    this.update(state);
+    // Not updated yet: its controls' colors can only be read once it's on the
+    // page, so whoever puts it there updates it then.
   }
 
   update(state: CanvasToolbarState): void {
