@@ -558,7 +558,7 @@ is kept with the other settings.
   JPEG has no transparency.
 
 The dialog starts from the choices last exported with, which are kept with the
-other settings under `storageKey`.
+other settings (see [Saving](#saving)).
 
 ### Drawing together
 
@@ -646,24 +646,82 @@ anyone else does.
 
 ### Saving
 
-Every change is saved as it's made, and the last canvas open reopens on the
-next mount. A blank canvas only joins History once it's changed, e.g. by a
-stroke or a rename. Editing a canvas moves it to the top of History, and
-deleting the open one opens the next most recent. Without `history`, there's
-only ever one canvas, and starting a new one replaces it.
+The library doesn't keep anything itself. The page gives it a `store`, which
+every change is saved to as it's made, e.g. one that sends it to the page's
+server, and `canvasId`, the canvas to open from it, or to start with that id
+if the store has none. Without a store, canvases are kept in memory, so they
+only last until the page closes, and without `canvasId` a new canvas opens.
 
-To keep canvases and toolbar settings across page loads, pass a `storageKey`.
-They're saved in local storage under keys starting with it, so give each
-canvas on a site its own. Images' files are too big for local storage, so
-they're saved in IndexedDB under the same key, and removed along with their
-canvas. Without a key, everything only lasts until the page closes. If a
-change can't be saved, e.g. because storage is full, the canvas says so at its
-top right. Undo history isn't saved, and opening a canvas starts its
-undo history afresh.
+A store has four methods, and three optional ones, which each return a
+promise, and reject if they can't do what they're asked, e.g. offline:
+
+| Method                                  | What it does                                  |
+| --------------------------------------- | --------------------------------------------- |
+| `loadCanvas(id)`                        | The canvas, or null if there's none           |
+| `saveCanvas(canvas)`                    | Keeps it, replacing what was kept, or adds it |
+| `loadImage(canvasId, imageId)`          | An image's file, as a `Blob`, or null         |
+| `saveImage(canvasId, imageId, file)`    | Keeps an image's file, byte for byte          |
+| `listCanvases()`, optional              | Every canvas, without drawings, newest first  |
+| `deleteCanvas(id)`, optional            | Removes a canvas and its images' files        |
+| `pruneImages(canvasId, keep)`, optional | Removes its images' files that aren't `keep`  |
+
+A canvas is its `id`, `name`, `updatedAt`, `drawing` and `viewport`. The
+drawing and viewport are JSON: keep them as they are, e.g. with
+`JSON.stringify`, and give them back unchanged. The canvas checks them as it
+opens them, so ones saved by an older version still open. Images' files are
+kept apart from the drawing, since they're big. History needs `listCanvases`
+and `deleteCanvas`, and New canvas without History, which replaces the open
+canvas, uses `deleteCanvas`. `pruneImages` is called as a canvas opens, for
+files the drawing no longer has, which undoing can't bring back once it's
+opened again.
+
+Opening a canvas loads it, and the canvas can't be drawn on until it's
+loaded, so nothing's lost as it is. Saves go one at a time, in the order the
+changes were made, and only the latest of each canvas is sent. If a change
+can't be saved, the canvas says so at its top right, and saves it with the
+next change. If a canvas can't be opened, it says that instead, and saves
+nothing over it. `whenSaved()` on the mounted canvas resolves once
+everything so far is saved, with whether it was, e.g. before leaving the
+page. Undo history isn't saved, and opening a canvas starts its undo history
+afresh.
+
+A blank canvas is only saved once it's changed, e.g. by a stroke or a rename.
+Editing a canvas moves it to the top of History, and deleting the open one
+opens the next most recent. Without `history`, there's only ever one canvas,
+and starting a new one replaces it. `onOpenCanvas` is called with each
+canvas's id as it opens, e.g. to open it again next time.
+
+The tool settings, e.g. the pencil's color and size, and the export options
+are shared by every canvas. `onSettingsChange` gives them to the page as they
+change, as JSON to keep, e.g. in local storage, and `settings` passes them
+back.
 
 ```ts
-mountCanvas(document.getElementById("drawing")!, { storageKey: "drawing" });
+const canvas = mountCanvas(document.getElementById("drawing")!, {
+  store: {
+    loadCanvas: async (id) => {
+      const response = await fetch(`/canvases/${id}`);
+      return response.status === 404 ? null : response.json();
+    },
+    saveCanvas: async (canvas) => {
+      const response = await fetch(`/canvases/${canvas.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(canvas),
+      });
+      if (!response.ok) {
+        throw new Error("It wasn't saved.");
+      }
+    },
+    // And loadImage and saveImage, the same way.
+  },
+  canvasId: "sunset",
+});
 ```
+
+The demo page keeps its canvases in the browser, with a store of its own,
+`src/demo/local-store.ts`: each part of each drawing in local storage, and
+images' files in IndexedDB, since they're too big for local storage.
 
 The stylesheet only styles the canvas and its toolbar, so it doesn't affect the
 rest of the page, and the page's element styles (e.g. `button {}`) don't affect
@@ -735,7 +793,8 @@ npx playwright install
 
 The demo page has only the drawing tools, so most tests use a test page with
 every control
-instead, `e2e/fixtures/full.html`: it saves under `storageKey`, has the File
+instead, `e2e/fixtures/full.html`: it saves in the browser, with the demo's
+store, has the File
 menu and the timer, and keeps the mounted canvas as `window.canvas`, for the
 tests to call what a page would from its own controls, e.g. `setAuthor`. It
 draws together in the room in its address's `room`, through a WebSocket at
@@ -749,8 +808,8 @@ clear and export, then select, hand and the drawing tools, at the bottom, the
 zoom at the top right, and formatted text. It's only for drawing: there's no
 File menu, timer, settings or drawing together, and undo and redo are from the
 keyboard, so there's no way to undo on a touch screen without one. What's
-drawn is saved in the
-browser, so a refresh keeps it, and the export dialog names it.
+drawn is saved in the browser, with the demo's own store, so a refresh keeps
+it, and the export dialog names it.
 
 The full app built on the library, with saving, naming canvases, profiles,
 themes, the timer and drawing together, is

@@ -12,6 +12,11 @@ export {
   type CanvasServerMessage,
   type CollaborationConnection,
 } from "./models/collaboration.model";
+export { type CanvasEntry } from "./models/canvas-entry.model";
+export {
+  type CanvasStore,
+  type SavedCanvas,
+} from "./models/canvas-store.model";
 export { type PersonName } from "./models/person-name.model";
 export {
   type FileMenuItem,

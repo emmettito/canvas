@@ -2,6 +2,7 @@
 // drawn is saved in the browser, so a refresh keeps it.
 import "./demo.css";
 import { createIcon } from "./demo-icons";
+import { savedLocally } from "./demo/local-store";
 import {
   bucketTool,
   clearButton,
@@ -25,7 +26,9 @@ import { proseMirrorEditor } from "./prosemirror";
 import "./styles.css";
 
 mountCanvas(document.getElementById("root")!, {
-  storageKey: "canvas-demo",
+  // The library doesn't keep anything itself, so the demo keeps it in the
+  // browser, with a store of its own.
+  ...savedLocally("canvas-demo"),
   textEditor: proseMirrorEditor,
   // The canvas's name is only shown, and changed, in the export dialog, and
   // in the tab's title.
