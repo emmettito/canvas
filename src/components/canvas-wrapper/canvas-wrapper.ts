@@ -7,7 +7,6 @@ import { IMAGE_LAYOUT } from "../../constants/image-layout.const";
 import { ITEM_KINDS } from "../../constants/item-kinds.const";
 import { TEXT_LAYOUT } from "../../constants/text-layout.const";
 import { TIMER_LAYOUT } from "../../constants/timer-layout.const";
-import { TOOL_SHORTCUTS } from "../../constants/tool-shortcuts.const";
 import { TOOL_SIZES } from "../../constants/tool-sizes.const";
 import { TOOLS } from "../../constants/tools.const";
 import {
@@ -51,7 +50,6 @@ import {
 import { moveStroke } from "../../utilities/stroke-shape";
 import { createElement } from "../../utilities/create-element";
 import { createId } from "../../utilities/create-id";
-import { downloadBlob } from "../../utilities/download-blob";
 import {
   addRecentColor,
   isCustomColor,
@@ -68,8 +66,6 @@ import {
   DEFAULT_COLOR_FORMATS,
 } from "../../utilities/color-formats";
 import { getCssVariable } from "../../utilities/get-css-variable";
-import { EXPORT_EXTENSIONS } from "../../utilities/export-drawing";
-import { getFileName } from "../../utilities/get-file-name";
 import { getImageSize } from "../../utilities/get-image-size";
 import { ImageStore } from "../../utilities/image-store";
 import { isField } from "../../utilities/is-field";
@@ -93,7 +89,8 @@ import {
   CanvasToolbar,
   type CanvasToolbarActions,
   type ColorTarget,
-  getToolbarActions,
+  getToolbarNames,
+  getToolbarTools,
   validateToolbar,
 } from "../canvas-toolbar/canvas-toolbar";
 import { Canvas, type PickRef, type Placing } from "../canvas/canvas";
@@ -413,11 +410,13 @@ export function mountCanvas(
   validateToolbar(allControls);
   // Without the history, there's only ever the open canvas, so starting a new
   // one deletes it.
-  const offered = getToolbarActions(allControls);
-  const hasHistory = offered.includes("history");
+  const hasHistory = getToolbarNames(allControls).includes("history");
   // Only tools on a toolbar have a shortcut, or are picked for you, so a
-  // host can leave one out.
-  const shortcutTools = TOOLS.filter((tool) => offered.includes(tool));
+  // host can leave one out. Each tool's button has its key.
+  const shortcuts = new Map(
+    getToolbarTools(allControls).map(({ tool, shortcut }) => [tool, shortcut])
+  );
+  const shortcutTools = TOOLS.filter((tool) => shortcuts.has(tool));
   // In the page from the start, so its CSS can be read, e.g. the background
   // new canvases start with.
   const root = createElement("div", "canvas-root");
@@ -748,18 +747,12 @@ export function mountCanvas(
       open = { ...open, name };
       update();
     },
-    onExport: async (options) => {
-      // The next export starts from these.
+    getExportSource: () => canvas.getExportSource(),
+    // The next export starts from these.
+    onExportOptions: (options) => {
       exportOptions = options;
       storage.saveExportOptions(options);
       updateToolbars();
-      const blob = await canvas.export(options, getFullName(author));
-      if (blob) {
-        downloadBlob(
-          blob,
-          getFileName(open.name, EXPORT_EXTENSIONS[options.format])
-        );
-      }
     },
   };
   const toolbar = new CanvasToolbar(
@@ -1097,7 +1090,7 @@ export function mountCanvas(
       return null;
     }
     const key = `${event.shiftKey ? "Shift+" : ""}${event.key.toUpperCase()}`;
-    return shortcutTools.find((tool) => TOOL_SHORTCUTS[tool] === key) ?? null;
+    return shortcutTools.find((tool) => shortcuts.get(tool) === key) ?? null;
   }
 
   // [ steps the size down and ] up, by position, so they work on any layout.
@@ -1792,6 +1785,7 @@ export function mountCanvas(
       // This one is blank, so a new canvas would be the same.
       canStartNew: isInHistory(),
       name: open.name,
+      author: getFullName(author),
       drawingSize: canvas.drawingSize,
       exportOptions,
       canvases,

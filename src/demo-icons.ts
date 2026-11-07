@@ -19,11 +19,10 @@ import note from "@phosphor-icons/core/regular/note.svg?raw";
 import dropper from "@phosphor-icons/core/regular/eyedropper.svg?raw";
 import text from "@phosphor-icons/core/regular/text-t.svg?raw";
 import image from "@phosphor-icons/core/regular/image.svg?raw";
-import { type ToolbarAction } from "./index";
 
 // Each icon's SVG markup. They fill with `currentColor`, so they follow the
 // toolbar's colors.
-const ICONS: Record<ToolbarAction, string> = {
+const ICONS = {
   undo,
   redo,
   clear,
@@ -44,6 +43,6 @@ const ICONS: Record<ToolbarAction, string> = {
 
 const parser = new DOMParser();
 
-export function createIcon(action: ToolbarAction): Element {
-  return parser.parseFromString(ICONS[action], "image/svg+xml").documentElement;
+export function createIcon(name: keyof typeof ICONS): Element {
+  return parser.parseFromString(ICONS[name], "image/svg+xml").documentElement;
 }
