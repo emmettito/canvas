@@ -13,6 +13,9 @@ import {
   type FileMenuItem,
   type ToolbarControl,
 } from "../../models/toolbar-control.model";
+import { type CanvasStore } from "../../models/canvas-store.model";
+import { savedLocally } from "../../demo/local-store";
+import { createMemoryStore } from "../../utilities/memory-store";
 import { mountCanvas } from "./canvas-wrapper";
 
 function createIcon(): Element {
@@ -85,8 +88,12 @@ describe("mountCanvas", () => {
     const button = (tool: "eraser" | "pencil") =>
       (tool === "eraser" ? eraserTool : pencilTool)(createIcon());
     const container = document.createElement("div");
+    let settings: unknown;
+    const onSettingsChange = (changed: unknown) => {
+      settings = changed;
+    };
     const first = mountCanvas(container, {
-      storageKey: "saved-tool",
+      onSettingsChange,
       toolbar: [[button("pencil"), button("eraser")]],
     });
     container.querySelector<HTMLElement>('[aria-label="Eraser"]')!.click();
@@ -94,7 +101,7 @@ describe("mountCanvas", () => {
 
     // Saved, it's picked again while it's on the toolbar.
     const second = mountCanvas(container, {
-      storageKey: "saved-tool",
+      settings: JSON.parse(JSON.stringify(settings)),
       toolbar: [[button("pencil"), button("eraser")]],
     });
     expect(
@@ -105,7 +112,7 @@ describe("mountCanvas", () => {
     second.unmount();
 
     mountCanvas(container, {
-      storageKey: "saved-tool",
+      settings,
       toolbar: [[button("pencil")]],
     });
 
@@ -114,7 +121,6 @@ describe("mountCanvas", () => {
         .querySelector('[aria-label="Pencil"]')!
         .getAttribute("aria-pressed")
     ).toBe("true");
-    localStorage.clear();
   });
 
   it("reports the background as it mounts and when it's set", () => {
@@ -431,19 +437,108 @@ describe("mountCanvas", () => {
     expect(onHelp).not.toHaveBeenCalled();
   });
 
-  it("says when changes couldn't be saved", () => {
+  it("says when changes couldn't be saved, and saves them with the next", async () => {
     const container = document.createElement("div");
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("QuotaExceededError");
-    });
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store = createMemoryStore();
+    const saveCanvas = vi
+      .spyOn(store, "saveCanvas")
+      .mockRejectedValueOnce(new Error("Offline"));
 
-    mountCanvas(container, { storageKey: "test" });
+    const canvas = mountCanvas(container, { store });
+    canvas.setBackground("#1f2023");
 
+    expect(await canvas.whenSaved()).toBe(false);
     const status = container.querySelector<HTMLElement>(".canvas-status")!;
     expect(status.hasAttribute("data-shown")).toBe(true);
     expect(status.textContent).toBe("Couldn't save changes");
-    vi.restoreAllMocks();
+
+    canvas.setBackground("#000000");
+    expect(await canvas.whenSaved()).toBe(true);
+    expect(status.hasAttribute("data-shown")).toBe(false);
+    expect(saveCanvas).toHaveBeenCalledTimes(2);
+  });
+
+  it("opens the canvas it's given from the store, and saves it as it changes", async () => {
+    const container = document.createElement("div");
+    const store = createMemoryStore();
+    await store.saveCanvas({
+      id: "a",
+      name: "Sunset",
+      updatedAt: 1,
+      drawing: { background: "#1f2023" },
+      viewport: null,
+    });
+    const onNameChange = vi.fn();
+    const onOpenCanvas = vi.fn();
+
+    const canvas = mountCanvas(container, {
+      store,
+      canvasId: "a",
+      onNameChange,
+      onOpenCanvas,
+    });
+    // It can't be drawn on until it's loaded.
+    expect(
+      container.querySelector(".canvas-root[data-loading]")
+    ).not.toBeNull();
+    await canvas.whenSaved();
+
+    expect(container.querySelector(".canvas-root[data-loading]")).toBeNull();
+    expect(canvas.canvasId).toBe("a");
+    expect(onNameChange).toHaveBeenLastCalledWith("Sunset");
+    expect(onOpenCanvas).toHaveBeenCalledWith("a");
+
+    canvas.setBackground("#000000");
+    await canvas.whenSaved();
+    const saved = (await store.loadCanvas("a"))!;
+    expect(saved.name).toBe("Sunset");
+    expect((saved.drawing as { background: string }).background).toBe(
+      "#000000"
+    );
+    expect(saved.updatedAt).toBeGreaterThan(1);
+  });
+
+  it("doesn't save a blank canvas until it's changed", async () => {
+    const container = document.createElement("div");
+    const store = createMemoryStore();
+    const saveCanvas = vi.spyOn(store, "saveCanvas");
+
+    const canvas = mountCanvas(container, { store, canvasId: "new" });
+    await canvas.whenSaved();
+
+    expect(saveCanvas).not.toHaveBeenCalled();
+    expect(canvas.canvasId).toBe("new");
+  });
+
+  it("says when the canvas couldn't be opened, and saves nothing over it", async () => {
+    const container = document.createElement("div");
+    const store: CanvasStore = {
+      ...createMemoryStore(),
+      loadCanvas: () => Promise.reject(new Error("Offline")),
+    };
+    const saveCanvas = vi.spyOn(store, "saveCanvas");
+
+    const canvas = mountCanvas(container, { store, canvasId: "a" });
+
+    expect(await canvas.whenSaved()).toBe(false);
+    canvas.setBackground("#000000");
+    await canvas.whenSaved();
+    expect(saveCanvas).not.toHaveBeenCalled();
+    expect(container.querySelector(".canvas-status")!.textContent).toBe(
+      "Couldn't open this canvas"
+    );
+  });
+
+  it("needs a store that lists and deletes canvases for History", () => {
+    const container = document.createElement("div");
+    const { listCanvases: _, ...store } = createMemoryStore();
+
+    expect(() =>
+      mountCanvas(container, {
+        store,
+        topToolbar: [[historyButton(createIcon())]],
+      })
+    ).toThrow();
   });
 
   it("shows no status while changes are saved", () => {
@@ -455,7 +550,7 @@ describe("mountCanvas", () => {
     expect(status.hasAttribute("data-shown")).toBe(false);
   });
 
-  it("stacks a canvas saved before it had an order as it was, and saves one", () => {
+  it("stacks a canvas saved before it had an order as it was, and saves one", async () => {
     const set = (part: string, value: unknown) =>
       localStorage.setItem(`old:canvas:a:${part}`, JSON.stringify(value));
     localStorage.setItem(
@@ -477,7 +572,8 @@ describe("mountCanvas", () => {
     ]);
     const container = document.createElement("div");
 
-    mountCanvas(container, { storageKey: "old" });
+    const canvas = mountCanvas(container, savedLocally("old"));
+    await canvas.whenSaved();
 
     const zIndex = (selector: string) =>
       Number(container.querySelector<HTMLElement>(selector)!.style.zIndex);

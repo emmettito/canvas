@@ -154,19 +154,32 @@ test("images are kept after a reload, and exported unchanged", async ({
   // Saving the file finishes after it's shown.
   await expect
     .poll(() =>
-      page.evaluate(
-        () =>
-          new Promise<number>((resolve) => {
-            const request = indexedDB.open("canvas:images");
-            request.onsuccess = () => {
-              const count = request.result
-                .transaction("images")
-                .objectStore("images")
-                .count();
-              count.onsuccess = () => resolve(count.result);
+      page.evaluate(async () => {
+        // Opening it before the page has would make it, empty.
+        const databases = await indexedDB.databases();
+        if (!databases.some(({ name }) => name === "canvas:images")) {
+          return 0;
+        }
+        return new Promise<number>((resolve) => {
+          const request = indexedDB.open("canvas:images");
+          request.onsuccess = () => {
+            const database = request.result;
+            if (!database.objectStoreNames.contains("images")) {
+              database.close();
+              resolve(0);
+              return;
+            }
+            const count = database
+              .transaction("images")
+              .objectStore("images")
+              .count();
+            count.onsuccess = () => {
+              database.close();
+              resolve(count.result);
             };
-          })
-      )
+          };
+        });
+      })
     )
     .toBe(1);
 

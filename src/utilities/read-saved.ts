@@ -340,291 +340,142 @@ function isEntry(value: unknown): value is CanvasEntry {
   );
 }
 
-// Where the data goes: local storage, or memory when there's no storage key.
-interface Store {
-  read(key: string): unknown;
-  // False if it couldn't be written, e.g. because storage is full.
-  write(key: string, value: unknown): boolean;
-  remove(key: string): void;
-}
-
-const localStore: Store = {
-  read(key) {
-    try {
-      const value = localStorage.getItem(key);
-      return value === null ? null : JSON.parse(value);
-    } catch {
-      // Storage can be unavailable, e.g. in some private windows, or the value
-      // isn't JSON.
-      return null;
-    }
-  },
-  write(key, value) {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-      return true;
-    } catch (error) {
-      // Storage can be unavailable or full. The canvas still works, it just
-      // won't be restored.
-      console.warn(`The canvas couldn't be saved to ${key}.`, error);
-      return false;
-    }
-  },
-  remove(key) {
-    try {
-      localStorage.removeItem(key);
-    } catch {
-      // Nothing was saved there, since storage is unavailable.
-    }
-  },
-};
-
-function createMemoryStore(): Store {
-  const values = new Map<string, unknown>();
+/** Tool settings as they're used, or null if `value` isn't any. */
+export function readToolSettings(value: unknown): ToolSettings | null {
+  if (!isToolSettings(value)) {
+    return null;
+  }
+  const {
+    activeTool,
+    tools,
+    bucketColor,
+    noteColor,
+    textSize,
+    recentColors,
+    colorFormats,
+    rulers,
+  } = value;
+  const { highlighter } = tools;
   return {
-    read: (key) => values.get(key) ?? null,
-    write: (key, value) => {
-      values.set(key, value);
-      return true;
+    // The dropper is only picked for a moment, so it isn't kept, and a tool
+    // that's been removed is the pencil.
+    activeTool:
+      TOOLS.includes(activeTool as Tool) && activeTool !== "dropper"
+        ? (activeTool as Tool)
+        : "pencil",
+    tools: {
+      ...tools,
+      highlighter:
+        isObject(highlighter) &&
+        isToolColor(highlighter.color) &&
+        isToolSize(highlighter.size)
+          ? { color: highlighter.color, size: highlighter.size }
+          : {
+              color: HIGHLIGHTER.color,
+              size: DEFAULT_TOOL_SIZES.highlighter,
+            },
     },
-    remove: (key) => values.delete(key),
+    // The bucket filled in the pencil's color before it had its own. The
+    // pencil's is checked, so the fallback only satisfies the type.
+    bucketColor: isToolColor(bucketColor)
+      ? bucketColor
+      : (tools.pencil.color ?? COLORS[0]),
+    noteColor: isToolColor(noteColor) ? noteColor : DEFAULT_NOTE_COLOR,
+    textSize: isTextSize(textSize) ? textSize : TEXT_LAYOUT.defaultSize,
+    recentColors: Array.isArray(recentColors)
+      ? recentColors.filter(isCustomColor).slice(0, MAX_RECENT_COLORS)
+      : [],
+    colorFormats: Object.fromEntries(
+      Object.entries(DEFAULT_COLOR_FORMATS).map(([target, fallback]) => {
+        const format = isObject(colorFormats)
+          ? colorFormats[target]
+          : undefined;
+        return [target, isColorFormat(format) ? format : fallback];
+      })
+    ) as ColorFormats,
+    rulers: rulers === true,
   };
 }
 
-/**
- * Saves the history of canvases, each canvas's drawing, which one is open, the
- * tool settings and the last export options in local storage, under keys
- * starting with `key`. Without a key, they're kept in memory instead, so they
- * last until the page closes.
- *
- * Each save returns false if it couldn't be written, e.g. because storage is
- * full.
- */
-export class CanvasStorage {
-  #key: string;
-  #store: Store;
+/** The options last exported with, or null if `value` isn't any. */
+export function readExportOptions(value: unknown): ExportOptions | null {
+  return isExportOptions(value) ? value : null;
+}
 
-  constructor(key?: string) {
-    this.#key = key ?? "canvas";
-    this.#store = key ? localStore : createMemoryStore();
+/** The canvases in a list of them, leaving out any that aren't one. */
+export function readEntries(value: unknown): CanvasEntry[] {
+  return Array.isArray(value) ? value.filter(isEntry) : [];
+}
+
+function readStrokes(value: unknown): Stroke[] | null {
+  return Array.isArray(value) && value.every(isStroke) ? value : null;
+}
+
+function readFills(value: unknown): Fill[] | null {
+  return Array.isArray(value) && value.every(isFill) ? value : null;
+}
+
+function readItems<K extends ItemKind>(
+  kind: K,
+  value: unknown
+): DrawingItem<K>[] | null {
+  if (!Array.isArray(value)) {
+    return null;
   }
+  const items = value.map(ITEM_READERS[kind]);
+  return items.every((item) => item !== null) ? items : null;
+}
 
-  loadToolSettings(): ToolSettings | null {
-    const settings = this.#store.read(`${this.#key}:settings`);
-    if (!isToolSettings(settings)) {
-      return null;
-    }
-    const {
-      activeTool,
-      tools,
-      bucketColor,
-      noteColor,
-      textSize,
-      recentColors,
-      colorFormats,
-      rulers,
-    } = settings;
-    const { highlighter } = tools;
-    return {
-      // The dropper is only picked for a moment, so it isn't kept, and a
-      // tool that's been removed is the pencil.
-      activeTool:
-        TOOLS.includes(activeTool as Tool) && activeTool !== "dropper"
-          ? (activeTool as Tool)
-          : "pencil",
-      tools: {
-        ...tools,
-        highlighter:
-          isObject(highlighter) &&
-          isToolColor(highlighter.color) &&
-          isToolSize(highlighter.size)
-            ? { color: highlighter.color, size: highlighter.size }
-            : {
-                color: HIGHLIGHTER.color,
-                size: DEFAULT_TOOL_SIZES.highlighter,
-              },
-      },
-      // The bucket filled in the pencil's color before it had its own. The
-      // pencil's is checked, so the fallback only satisfies the type.
-      bucketColor: isToolColor(bucketColor)
-        ? bucketColor
-        : (tools.pencil.color ?? COLORS[0]),
-      noteColor: isToolColor(noteColor) ? noteColor : DEFAULT_NOTE_COLOR,
-      textSize: isTextSize(textSize) ? textSize : TEXT_LAYOUT.defaultSize,
-      recentColors: Array.isArray(recentColors)
-        ? recentColors.filter(isCustomColor).slice(0, MAX_RECENT_COLORS)
-        : [],
-      colorFormats: Object.fromEntries(
-        Object.entries(DEFAULT_COLOR_FORMATS).map(([target, fallback]) => {
-          const format = isObject(colorFormats)
-            ? colorFormats[target]
-            : undefined;
-          return [target, isColorFormat(format) ? format : fallback];
-        })
-      ) as ColorFormats,
-      rulers: rulers === true,
-    };
-  }
-
-  saveToolSettings(settings: ToolSettings): boolean {
-    return this.#store.write(`${this.#key}:settings`, settings);
-  }
-
-  /** The options last exported with. */
-  loadExportOptions(): ExportOptions | null {
-    const options = this.#store.read(`${this.#key}:export`);
-    return isExportOptions(options) ? options : null;
-  }
-
-  saveExportOptions(options: ExportOptions): boolean {
-    return this.#store.write(`${this.#key}:export`, options);
-  }
-
-  /** The id of the canvas that was open, or null for a blank one. */
-  loadOpenCanvas(): string | null {
-    const id = this.#store.read(`${this.#key}:open`);
-    return typeof id === "string" ? id : null;
-  }
-
-  saveOpenCanvas(id: string | null): boolean {
-    return this.#store.write(`${this.#key}:open`, id);
-  }
-
-  /** The canvases in the history, most recently edited first. */
-  loadCanvases(): CanvasEntry[] {
-    const canvases = this.#store.read(`${this.#key}:canvases`);
-    return Array.isArray(canvases) ? canvases.filter(isEntry) : [];
-  }
-
-  saveCanvases(canvases: CanvasEntry[]): boolean {
-    return this.#store.write(`${this.#key}:canvases`, canvases);
-  }
-
-  loadStrokes(id: string): Stroke[] | null {
-    const strokes = this.#store.read(this.#canvasKey(id, "strokes"));
-    return Array.isArray(strokes) && strokes.every(isStroke) ? strokes : null;
-  }
-
-  saveStrokes(id: string, strokes: Stroke[]): boolean {
-    return this.#store.write(this.#canvasKey(id, "strokes"), strokes);
-  }
-
-  /** What's erased from a canvas's fills. Null if none's saved, e.g. old ones. */
-  loadErasers(id: string): Stroke[] | null {
-    const erasers = this.#store.read(this.#canvasKey(id, "erasers"));
-    return Array.isArray(erasers) && erasers.every(isStroke) ? erasers : null;
-  }
-
-  saveErasers(id: string, erasers: Stroke[]): boolean {
-    return this.#store.write(this.#canvasKey(id, "erasers"), erasers);
-  }
-
-  /** A canvas's fills. Null if it has none saved, e.g. from before them. */
-  loadFills(id: string): Fill[] | null {
-    const fills = this.#store.read(this.#canvasKey(id, "fills"));
-    return Array.isArray(fills) && fills.every(isFill) ? fills : null;
-  }
-
-  saveFills(id: string, fills: Fill[]): boolean {
-    return this.#store.write(this.#canvasKey(id, "fills"), fills);
-  }
-
-  /** A canvas's images, text or notes, by `kind`. */
-  loadItems<K extends ItemKind>(id: string, kind: K): DrawingItem<K>[] | null {
-    const saved = this.#store.read(this.#canvasKey(id, kind));
-    if (!Array.isArray(saved)) {
-      return null;
-    }
-    const items = saved.map(ITEM_READERS[kind]);
-    return items.every((item) => item !== null) ? items : null;
-  }
-
-  saveItems<K extends ItemKind>(
-    id: string,
-    kind: K,
-    items: DrawingItem<K>[]
-  ): boolean {
-    return this.#store.write(this.#canvasKey(id, kind), items);
-  }
-
-  /**
-   * A canvas's stacking order. Null if it has none, e.g. it was saved before
-   * there was one. The caller checks it matches the drawing.
-   */
-  loadOrder(id: string): Layer[] | null {
-    const saved = this.#store.read(this.#canvasKey(id, "order"));
-    // Shapes have been removed, so the rest is stacked as it was without
-    // them.
-    const order = Array.isArray(saved)
-      ? saved.filter((layer) => !isObject(layer) || layer.kind !== "shapes")
-      : null;
-    return order?.every(isLayer)
-      ? mergeRuns(
-          order.map((layer: Layer) =>
-            layer.kind === "strokes"
-              ? { kind: layer.kind, count: layer.count }
-              : { kind: layer.kind, id: layer.id }
-          )
+// A stacking order, or null if it isn't one. Whoever reads it checks it
+// matches the drawing.
+function readOrder(value: unknown): Layer[] | null {
+  // Shapes have been removed, so the rest is stacked as it was without them.
+  const order = Array.isArray(value)
+    ? value.filter((layer) => !isObject(layer) || layer.kind !== "shapes")
+    : null;
+  return order?.every(isLayer)
+    ? mergeRuns(
+        order.map((layer: Layer) =>
+          layer.kind === "strokes"
+            ? { kind: layer.kind, count: layer.count }
+            : { kind: layer.kind, id: layer.id }
         )
-      : null;
-  }
+      )
+    : null;
+}
 
-  saveOrder(id: string, order: Layer[]): boolean {
-    return this.#store.write(this.#canvasKey(id, "order"), order);
-  }
+/** A saved drawing's parts, each null if it's missing or isn't valid. */
+export interface SavedParts {
+  strokes: Stroke[] | null;
+  fills: Fill[] | null;
+  erasers: Stroke[] | null;
+  images: ImageItem[] | null;
+  texts: TextBox[] | null;
+  notes: Note[] | null;
+  order: Layer[] | null;
+  background: string | null;
+}
 
-  /**
-   * A canvas's background. Null if it has none, e.g. it was saved before
-   * canvases had their own.
-   */
-  loadBackground(id: string): string | null {
-    const background = this.#store.read(this.#canvasKey(id, "background"));
-    return isBackground(background) ? background : null;
-  }
+/**
+ * The parts of a drawing, as a page saved it. Each part is checked on its
+ * own, so one that isn't valid, e.g. from an older version, is null without
+ * losing the rest.
+ */
+export function readDrawing(value: unknown): SavedParts {
+  const saved = isObject(value) ? value : {};
+  return {
+    strokes: readStrokes(saved.strokes),
+    fills: readFills(saved.fills),
+    erasers: readStrokes(saved.erasers),
+    images: readItems("images", saved.images),
+    texts: readItems("texts", saved.texts),
+    notes: readItems("notes", saved.notes),
+    order: readOrder(saved.order),
+    background: isBackground(saved.background) ? saved.background : null,
+  };
+}
 
-  saveBackground(id: string, background: string): boolean {
-    return this.#store.write(this.#canvasKey(id, "background"), background);
-  }
-
-  /** Which part of a canvas was shown, and how big. */
-  loadViewport(id: string): Viewport | null {
-    const viewport = this.#store.read(this.#canvasKey(id, "viewport"));
-    return isViewport(viewport) ? viewport : null;
-  }
-
-  saveViewport(id: string, viewport: Viewport): boolean {
-    return this.#store.write(this.#canvasKey(id, "viewport"), viewport);
-  }
-
-  /**
-   * Removes a canvas's drawing, except its images' files. The caller removes
-   * it from the history.
-   */
-  deleteCanvas(id: string): void {
-    for (const part of [
-      "strokes",
-      "fills",
-      "erasers",
-      "background",
-      "viewport",
-      "order",
-      ...ITEM_KINDS,
-    ] as const) {
-      this.#store.remove(this.#canvasKey(id, part));
-    }
-  }
-
-  #canvasKey(
-    id: string,
-    part:
-      | "strokes"
-      | "fills"
-      | "erasers"
-      | "background"
-      | "viewport"
-      | "order"
-      | ItemKind
-  ): string {
-    return `${this.#key}:canvas:${id}:${part}`;
-  }
+/** Which part of a canvas was shown, and how big, or null if it isn't one. */
+export function readViewport(value: unknown): Viewport | null {
+  return isViewport(value) ? value : null;
 }

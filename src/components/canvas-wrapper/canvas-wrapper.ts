@@ -18,6 +18,10 @@ import {
 import { type Activity } from "../../models/activity.model";
 import { type CanvasEntry } from "../../models/canvas-entry.model";
 import {
+  type CanvasStore,
+  type SavedCanvas,
+} from "../../models/canvas-store.model";
+import {
   type CanvasServerMessage,
   type CollaborationConnection,
 } from "../../models/collaboration.model";
@@ -41,12 +45,15 @@ import { type Timer, type TimerSound } from "../../models/timer.model";
 import { type TextEditorFactory } from "../../models/text-editor.model";
 import { type Stroke } from "../../models/stroke.model";
 import { type StrokeTool, type Tool } from "../../models/tool.model";
-import { type Viewport } from "../../models/viewport.model";
 import {
-  CanvasStorage,
   isStroke,
+  readDrawing,
+  readEntries,
+  readExportOptions,
   readItem,
-} from "../../utilities/canvas-storage";
+  readToolSettings,
+  readViewport,
+} from "../../utilities/read-saved";
 import { moveStroke } from "../../utilities/stroke-shape";
 import { createElement } from "../../utilities/create-element";
 import { createId } from "../../utilities/create-id";
@@ -67,7 +74,7 @@ import {
 } from "../../utilities/color-formats";
 import { getCssVariable } from "../../utilities/get-css-variable";
 import { getImageSize } from "../../utilities/get-image-size";
-import { ImageStore } from "../../utilities/image-store";
+import { createMemoryStore } from "../../utilities/memory-store";
 import { isField } from "../../utilities/is-field";
 import { isTimerSound, playTimerSound } from "../../utilities/play-timer-sound";
 import { getDefaultOrder, isOrderOf } from "../../utilities/layers";
@@ -100,11 +107,6 @@ import { Rulers } from "../rulers/rulers";
 import { Toast } from "../toast/toast";
 import "./canvas-wrapper.css";
 
-// A blank canvas. It only goes into the history once it's changed.
-function createEntry(): CanvasEntry {
-  return { id: createId(), name: "", updatedAt: Date.now() };
-}
-
 function isImage(file: File): boolean {
   return file.type.startsWith("image/");
 }
@@ -113,8 +115,8 @@ function isStrokeTool(tool: Tool): tool is StrokeTool {
   return tool === "pencil" || tool === "highlighter" || tool === "eraser";
 }
 
-// What canvases saved before they had their own background were drawn on.
-const LEGACY_BACKGROUND = "#ffffff";
+// What new canvases are drawn on if the page's CSS doesn't say.
+const DEFAULT_BACKGROUND = "#ffffff";
 
 // How long scrolling or zooming has to pause before the view is saved, so
 // it isn't saved for every step.
@@ -281,6 +283,11 @@ export interface MountedCanvas {
   /** The open canvas's id, e.g. to draw on it together as a room. */
   readonly canvasId: string;
   /**
+   * Resolves once every change so far is saved, e.g. before leaving the page,
+   * with whether they all were.
+   */
+  whenSaved: () => Promise<boolean>;
+  /**
    * Draws together with everyone in `room`, through `connection`. The canvas
    * with the room's id opens, or a new one with it, and joins the room, which
    * starts from this canvas's drawing if nobody's in it yet. Everyone's
@@ -316,13 +323,32 @@ function getNearestSize(tool: StrokeTool, size: number): number {
 
 export interface MountCanvasOptions {
   /**
-   * Saves every change to local storage, under keys starting with this, along
-   * with the toolbar settings, and reopens the last canvas on the next mount.
-   * Images' files are saved in IndexedDB, under the same key, since they're
-   * too big for local storage. Each canvas on a site needs its own key.
-   * Without one, they only last until the page closes.
+   * Where canvases are kept, e.g. the page's server, which every change is
+   * saved to as it's made. Without one, they're kept in memory, so they only
+   * last until the page closes.
    */
-  storageKey?: string;
+  store?: CanvasStore;
+  /**
+   * The canvas to open, from `store`, or a new one with this id if it has
+   * none. Without one, a new canvas opens, with an id of its own.
+   */
+  canvasId?: string;
+  /**
+   * Called with a canvas's id as it opens, e.g. from History, so the page
+   * can open it again next time.
+   */
+  onOpenCanvas?: (id: string) => void;
+  /**
+   * The tool settings, e.g. the pencil's color and size, and the export
+   * options, as `onSettingsChange` last gave them. They're shared by every
+   * canvas.
+   */
+  settings?: unknown;
+  /**
+   * Called with the settings as they mount and whenever they change, as
+   * JSON to keep, e.g. in local storage, and pass back as `settings`.
+   */
+  onSettingsChange?: (settings: unknown) => void;
   /**
    * The toolbar's controls, in groups, in order. Each button needs an icon.
    * Without this, there's no toolbar, so the pencil draws in black.
@@ -389,7 +415,11 @@ export interface MountCanvasOptions {
 export function mountCanvas(
   container: HTMLElement,
   {
-    storageKey,
+    store = createMemoryStore(),
+    canvasId,
+    onOpenCanvas,
+    settings,
+    onSettingsChange,
     toolbar: controls = [],
     topToolbar: topControls = [],
     topRightToolbar: topRightControls = [],
@@ -411,6 +441,9 @@ export function mountCanvas(
   // Without the history, there's only ever the open canvas, so starting a new
   // one deletes it.
   const hasHistory = getToolbarNames(allControls).includes("history");
+  if (hasHistory && (!store.listCanvases || !store.deleteCanvas)) {
+    throw new Error("History needs a store that lists and deletes canvases.");
+  }
   // Only tools on a toolbar have a shortcut, or are picked for you, so a
   // host can leave one out. Each tool's button has its key.
   const shortcuts = new Map(
@@ -421,12 +454,15 @@ export function mountCanvas(
   // new canvases start with.
   const root = createElement("div", "canvas-root");
   container.append(root);
-  const storage = new CanvasStorage(storageKey);
-  const imageStore = new ImageStore(storageKey);
-  const saved = storage.loadToolSettings();
+  const saved = readToolSettings(settings);
   let author = trimName(initialAuthor);
   let avatar = initialAvatar;
-  let exportOptions = storage.loadExportOptions() ?? DEFAULT_EXPORT_OPTIONS;
+  let exportOptions =
+    readExportOptions(
+      typeof settings === "object" && settings !== null
+        ? (settings as { export?: unknown }).export
+        : null
+    ) ?? DEFAULT_EXPORT_OPTIONS;
   // A tool that isn't on a toolbar any more, e.g. one the page took off, is
   // put down for the pencil, or else the first tool there is.
   let activeTool: Tool =
@@ -475,15 +511,30 @@ export function mountCanvas(
           size: DEFAULT_TOOL_SIZES.highlighter,
         },
       };
-  // Most recently edited first.
-  let canvases = storage.loadCanvases();
-  // The last one open, unless it was blank or has been deleted, e.g. in
-  // another tab.
-  const lastOpenId = storage.loadOpenCanvas();
-  let open: CanvasEntry =
-    canvases.find(({ id }) => id === lastOpenId) ?? createEntry();
+  // Most recently edited first, once the store's listed them, for History.
+  // Those changed since it mounted come first.
+  let canvases: CanvasEntry[] = [];
+  // Deleted since it mounted, so a list that comes after leaves them out.
+  const deleted = new Set<string>();
+  // Blank until the canvas it opens with is loaded.
+  let open: CanvasEntry = {
+    id: canvasId ?? createId(),
+    name: "",
+    updatedAt: Date.now(),
+  };
+  // Whether the open canvas is kept: one that's blank isn't until it's
+  // changed.
+  let openSaved = false;
+  // While a canvas is being opened, which the canvas can't be drawn on
+  // until it is, and what opens.
+  let loading = false;
+  let openToken = 0;
+  let opening: Promise<void> = Promise.resolve();
+  // Set once it's unmounted, so what the store answers after isn't shown.
+  let unmounted = false;
+  let openingId = open.id;
   // Replaced by a shared one while drawing together.
-  let history: History = new DrawingHistory(loadDrawing(open.id));
+  let history: History = new DrawingHistory(createBlankDrawing());
   // Drawing together with others in a room, or null while drawing alone.
   // Its history is null until the room has sent what's been drawn so far.
   let session: {
@@ -516,15 +567,27 @@ export function mountCanvas(
   // whether they were changed.
   let lastDrawing: Drawing = history.drawing;
   let lastName = open.name;
-  // What's in storage, so each part is only saved again once it changes, or
-  // tried again after it couldn't be.
-  let stored: Drawing = withStoredBackground(history.drawing, open.id);
-  let storedViewport: Viewport =
-    storage.loadViewport(open.id) ?? DEFAULT_VIEWPORT;
+  // What was last given to the store, so the canvas is only saved again once
+  // it changes, or tried again after it couldn't be. Null if it hasn't been.
+  let stored: SavedCanvas | null = null;
   let viewportTimer: ReturnType<typeof setTimeout> | undefined;
-  let storedCanvases = canvases;
-  // False once an image's file couldn't be saved, e.g. storage was full.
+  // Canvases waiting to be saved, by id, so only the latest of each is. One
+  // is saved at a time, in turn, along with deleting them.
+  const unsaved = new Map<string, SavedCanvas>();
+  let saving: Promise<void> = Promise.resolve();
+  let saveQueued = false;
+  // False once the open canvas or an image's file couldn't be saved, or the
+  // canvas couldn't be opened.
+  let canvasSaved = true;
   let imagesSaved = true;
+  let opened = true;
+  // Images' files, by image id, with the canvas each is in, so they're there
+  // straight away, even while they're being saved.
+  const imageFiles = new Map<string, { canvasId: string; file: Blob }>();
+  const imageSaves = new Set<Promise<boolean>>();
+  // The settings the page was last given, as JSON, so it's only given them
+  // again once they change.
+  let reportedSettings: string | null = null;
   // The name the host was last told about, so it's only told of changes.
   // Null until it's told on mount.
   let reportedName: string | null = null;
@@ -591,7 +654,7 @@ export function mountCanvas(
       );
       update();
     },
-    getImage: (id) => imageStore.get(open.id, id),
+    getImage: (id) => loadImageFile(open.id, id),
     // Moving around stops following whoever's followed.
     onViewportChange: () => {
       if (presence.following) {
@@ -628,7 +691,6 @@ export function mountCanvas(
       updateToolbars();
     },
   });
-  canvas.setViewport(storedViewport);
   canvas.setShowAuthors(showAuthors);
   showDrawing();
   const rulers = new Rulers({
@@ -660,18 +722,19 @@ export function mountCanvas(
       if (!hasHistory) {
         deleteCanvas(open.id);
       }
-      openCanvas(createEntry());
+      void openCanvas(createId(), false);
     },
     onOpenCanvas: (id) => {
-      const entry = canvases.find((canvas) => canvas.id === id);
-      if (entry) {
-        openCanvas(entry);
+      if (canvases.some((canvas) => canvas.id === id)) {
+        void openCanvas(id);
       }
     },
     onDeleteCanvas: (id) => {
       deleteCanvas(id);
       if (id === open.id) {
-        openCanvas(canvases[0] ?? createEntry());
+        void (canvases[0]
+          ? openCanvas(canvases[0].id)
+          : openCanvas(createId(), false));
       } else {
         update();
       }
@@ -751,7 +814,7 @@ export function mountCanvas(
     // The next export starts from these.
     onExportOptions: (options) => {
       exportOptions = options;
-      storage.saveExportOptions(options);
+      saveSettings();
       updateToolbars();
     },
   };
@@ -809,7 +872,27 @@ export function mountCanvas(
   updateToolbars();
   reportName();
   reportBackground();
-  save();
+  // A new canvas is blank, so there's nothing to load.
+  void openCanvas(open.id, canvasId !== undefined);
+  if (hasHistory) {
+    store.listCanvases!().then(
+      (listed) => {
+        if (unmounted) {
+          return;
+        }
+        const known = new Set(canvases.map(({ id }) => id));
+        canvases = [
+          ...canvases,
+          ...readEntries(listed).filter(
+            ({ id }) => !known.has(id) && !deleted.has(id)
+          ),
+        ];
+        updateToolbars();
+      },
+      // History only has those opened since, until it's mounted again.
+      () => {}
+    );
+  }
 
   // Where the pointer is decides where a pasted image goes.
   canvasWrapper.addEventListener("pointermove", (event) => {
@@ -937,7 +1020,7 @@ export function mountCanvas(
     for (const { kind, item } of copied.items) {
       const id = createId();
       if (kind === "images") {
-        const file = await imageStore.get(copied.canvas, item.id);
+        const file = await loadImageFile(copied.canvas, item.id);
         if (!file || !(await shareImageFile(id, file))) {
           continue;
         }
@@ -964,18 +1047,54 @@ export function mountCanvas(
   // together, before the image, so it shows as soon as the image does.
   // Whether it was kept.
   async function shareImageFile(id: string, file: Blob): Promise<boolean> {
-    const saving = imageStore.put(open.id, id, file);
+    void saveImageFile(open.id, id, file);
     const data = session?.history && (await blobToDataUrl(file));
     if (data) {
       session?.connection.send({ type: "image", image: { id, data } });
     }
-    void saving.then((saved) => {
-      if (!saved) {
+    return true;
+  }
+
+  // An image's file, from those kept in memory, or else the store. Null if
+  // there's none, or it can't be loaded.
+  async function loadImageFile(
+    canvasId: string,
+    id: string
+  ): Promise<Blob | null> {
+    const kept = imageFiles.get(id);
+    if (kept) {
+      return kept.file;
+    }
+    const file = await store.loadImage(canvasId, id).catch(() => null);
+    if (file instanceof Blob) {
+      imageFiles.set(id, { canvasId, file });
+      return file;
+    }
+    return null;
+  }
+
+  // Keeps an image's file, in memory straight away, so it shows while it's
+  // saved, and in the store. Whether it was saved, which the canvas says if
+  // it wasn't.
+  function saveImageFile(
+    canvasId: string,
+    id: string,
+    file: Blob
+  ): Promise<boolean> {
+    imageFiles.set(id, { canvasId, file });
+    const saved = store.saveImage(canvasId, id, file).then(
+      () => true,
+      () => false
+    );
+    imageSaves.add(saved);
+    void saved.then((ok) => {
+      imageSaves.delete(saved);
+      if (!ok) {
         imagesSaved = false;
-        save();
+        showSaved();
       }
     });
-    return true;
+    return saved;
   }
 
   function zoom(action: ZoomAction) {
@@ -989,6 +1108,10 @@ export function mountCanvas(
   }
 
   function onKeyDown(event: KeyboardEvent) {
+    // Nothing's changed while a canvas opens, since it'd be lost as it does.
+    if (loading) {
+      return;
+    }
     // Zooming takes the browser's own shortcuts, and tools' keys type, so
     // they're only used while the canvas is: with the pointer over it, or
     // focus in it or nowhere else.
@@ -1117,77 +1240,154 @@ export function mountCanvas(
     }
   }
 
-  // A canvas's drawing. A blank canvas has nothing saved, so it starts empty.
-  // Images' files that the drawing no longer has, e.g. ones deleted from it,
-  // can't be brought back by undoing once it's opened again, so they're
-  // removed.
-  function loadDrawing(id: string): Drawing {
-    const isSaved = canvases.some((canvas) => canvas.id === id);
-    const parts = {
-      strokes: storage.loadStrokes(id) ?? [],
-      fills: storage.loadFills(id) ?? [],
-      erasers: storage.loadErasers(id) ?? [],
-      images: storage.loadItems(id, "images") ?? [],
-      texts: storage.loadItems(id, "texts") ?? [],
-      notes: storage.loadItems(id, "notes") ?? [],
+  // A blank drawing, on the theme's background.
+  function createBlankDrawing(): Drawing {
+    return {
+      background: getDefaultBackground(),
+      strokes: [],
+      fills: [],
+      erasers: [],
+      images: [],
+      texts: [],
+      notes: [],
+      order: [],
     };
-    // A canvas saved before it had a stacking order, or whose order doesn't
-    // match, e.g. as part of it couldn't be saved, is stacked the way it used
-    // to be.
-    const order = storage.loadOrder(id);
-    const drawing: Drawing = {
-      ...parts,
-      // A canvas saved before canvases had their own background was drawn on
-      // white. A new one starts with the theme's.
-      background:
-        storage.loadBackground(id) ??
-        (isSaved ? LEGACY_BACKGROUND : getDefaultBackground()),
-      order: order && isOrderOf(order, parts) ? order : getDefaultOrder(parts),
-    };
-    void imageStore.prune(
-      id,
-      drawing.images.map((image) => image.id)
-    );
-    const upgraded = upgradeDrawing(drawing);
-    // All together, since fills saved before erasers cut strokes count from
-    // the strokes as they were.
-    if (upgraded !== drawing) {
-      storage.saveErasers(id, upgraded.erasers);
-      storage.saveFills(id, upgraded.fills);
-      storage.saveOrder(id, upgraded.order);
-      storage.saveStrokes(id, upgraded.strokes);
-    }
-    return upgraded;
   }
 
-  // Replaces what's being worked on, with nothing to undo. What it replaces
-  // is already saved.
-  function openCanvas(entry: CanvasEntry) {
-    if (session && entry.id !== session.room) {
+  // A canvas's drawing, as it was saved. A part that isn't valid is left out,
+  // rather than breaking the rest. `changed` if it isn't as it was saved,
+  // e.g. it's been upgraded, so it's saved again.
+  function readSavedDrawing(value: unknown): {
+    drawing: Drawing;
+    changed: boolean;
+  } {
+    const { order, background, ...saved } = readDrawing(value);
+    const parts = {
+      strokes: saved.strokes ?? [],
+      fills: saved.fills ?? [],
+      erasers: saved.erasers ?? [],
+      images: saved.images ?? [],
+      texts: saved.texts ?? [],
+      notes: saved.notes ?? [],
+    };
+    // A canvas saved before it had a stacking order, or whose order doesn't
+    // match, is stacked the way it used to be.
+    const ordered = order !== null && isOrderOf(order, parts);
+    const drawing: Drawing = {
+      ...parts,
+      background: background ?? getDefaultBackground(),
+      order: ordered ? order : getDefaultOrder(parts),
+    };
+    const upgraded = upgradeDrawing(drawing);
+    return {
+      drawing: upgraded,
+      changed:
+        upgraded !== drawing ||
+        !ordered ||
+        background === null ||
+        Object.values(saved).includes(null),
+    };
+  }
+
+  // Replaces what's being worked on with the canvas `id`, from the store, or
+  // a blank one with that id if it has none, or if `load` is false, e.g. for
+  // a new one. There's nothing to undo. What it replaces is saved first.
+  // Until it's loaded, the canvas can't be drawn on, and if it can't be, it
+  // says so and stays that way, rather than lose what was saved.
+  function openCanvas(id: string, load = true): Promise<void> {
+    if (session && id !== session.room) {
       leaveRoom();
     }
     // The view being left is saved now, rather than after the delay.
     clearTimeout(viewportTimer);
     save();
-    const drawing = loadDrawing(entry.id);
-    open = entry;
+    const token = ++openToken;
+    openingId = id;
+    if (!load) {
+      showCanvas(id, null);
+      opening = Promise.resolve();
+      return opening;
+    }
+    setLoading(true);
+    opening = store.loadCanvas(id).then(
+      (loaded) => {
+        if (token === openToken) {
+          showCanvas(id, loaded);
+        }
+      },
+      () => {
+        if (token === openToken) {
+          opened = false;
+          showSaved();
+        }
+      }
+    );
+    return opening;
+  }
+
+  // Shows the canvas `id`, as it was `loaded`, or blank.
+  function showCanvas(id: string, loaded: SavedCanvas | null) {
+    const read = loaded && readSavedDrawing(loaded.drawing);
+    const drawing = read ? read.drawing : createBlankDrawing();
+    open = {
+      id,
+      name: typeof loaded?.name === "string" ? loaded.name : "",
+      updatedAt:
+        typeof loaded?.updatedAt === "number" ? loaded.updatedAt : Date.now(),
+    };
+    openSaved = loaded !== null;
+    opened = true;
+    canvasSaved = true;
     history = new DrawingHistory(drawing);
     lastDrawing = drawing;
-    lastName = entry.name;
-    stored = withStoredBackground(drawing, entry.id);
+    lastName = open.name;
     fitPencilToBackground();
-    storedViewport = storage.loadViewport(entry.id) ?? DEFAULT_VIEWPORT;
-    canvas.setViewport(storedViewport);
+    canvas.setViewport(readViewport(loaded?.viewport) ?? DEFAULT_VIEWPORT);
+    // What was loaded is already saved, unless it's been upgraded, or
+    // there's no drawing yet, e.g. one the page made, which is saved with its
+    // background.
+    stored =
+      loaded && read && !read.changed
+        ? { ...open, drawing, viewport: canvas.viewport }
+        : null;
+    if (loaded) {
+      // Images' files the drawing no longer has, e.g. ones deleted from it,
+      // can't be brought back by undoing now, so they're removed.
+      store
+        .pruneImages?.(
+          id,
+          drawing.images.map((image) => image.id)
+        )
+        .catch(() => {});
+    }
+    setLoading(false);
     rulers.refresh();
     presence.refresh();
     update();
+    onOpenCanvas?.(id);
   }
 
-  // Removes a canvas from the history and storage.
+  function setLoading(value: boolean) {
+    loading = value;
+    root.toggleAttribute("data-loading", value);
+  }
+
+  // Removes a canvas from the history and the store.
   function deleteCanvas(id: string) {
     canvases = canvases.filter((canvas) => canvas.id !== id);
-    storage.deleteCanvas(id);
-    void imageStore.deleteCanvas(id);
+    deleted.add(id);
+    unsaved.delete(id);
+    for (const [imageId, kept] of imageFiles) {
+      if (kept.canvasId === id) {
+        imageFiles.delete(imageId);
+      }
+    }
+    if (id === open.id) {
+      openSaved = false;
+      stored = null;
+    }
+    // In turn with saving, so a save already on its way doesn't add it back.
+    saving = saving.then(() => store.deleteCanvas?.(id)).catch(() => {});
   }
 
   // Inserts images one after another, from `at` or the middle of what the
@@ -1221,9 +1421,9 @@ export function mountCanvas(
       return null;
     }
     const id = createId();
-    // The store has it as soon as it's asked, so the canvas can show it while
-    // it's saved.
-    const saving = imageStore.put(open.id, id, file);
+    // It's kept as soon as it's asked, so the canvas can show it while it's
+    // saved.
+    void saveImageFile(open.id, id, file);
     const room = canvas.drawingSize;
     const fit =
       room.width > 0 && room.height > 0
@@ -1249,16 +1449,7 @@ export function mountCanvas(
       height,
     });
     update();
-    if (!(await saving)) {
-      imagesSaved = false;
-      save();
-    }
     return id;
-  }
-
-  // A blank canvas isn't in the history until it's changed.
-  function isInHistory(): boolean {
-    return canvases.some(({ id }) => id === open.id);
   }
 
   function reportName() {
@@ -1318,22 +1509,14 @@ export function mountCanvas(
   function getDefaultBackground(): string {
     const value = getCssVariable(root, "--canvas-color-canvas");
     const channels = value ? parseColor(value) : null;
-    return channels ? toHex(channels) : LEGACY_BACKGROUND;
-  }
-
-  // What's stored of `drawing`, so a background that isn't stored yet, e.g. a
-  // new canvas's, is saved once the canvas is.
-  function withStoredBackground(drawing: Drawing, id: string): Drawing {
-    return {
-      ...drawing,
-      background: storage.loadBackground(id) ?? "",
-      // The same for an order that's made up rather than loaded.
-      order: storage.loadOrder(id) ?? [],
-    };
+    return channels ? toHex(channels) : DEFAULT_BACKGROUND;
   }
 
   // Changes the canvas's background, so it can be undone.
   function setBackground(color: string) {
+    if (loading) {
+      return;
+    }
     if (color !== history.drawing.background) {
       history.setBackground(color);
       fitPencilToBackground();
@@ -1349,15 +1532,9 @@ export function mountCanvas(
     onLeave?: () => void
   ) {
     leaveRoom();
-    if (open.id !== room) {
-      openCanvas(
-        canvases.find(({ id }) => id === room) ?? {
-          id: room,
-          name: "",
-          updatedAt: Date.now(),
-        }
-      );
-    }
+    // The room starts from this canvas's drawing if it's new, so it's joined
+    // once that's loaded.
+    const ready = openingId === room ? opening : openCanvas(room);
     const joined = {
       room,
       connection,
@@ -1376,12 +1553,22 @@ export function mountCanvas(
       }),
     };
     session = joined;
-    connection.send({
-      type: "join",
-      room,
-      ...author,
-      avatar,
-      drawing: history.drawing,
+    void ready.then(() => {
+      if (session !== joined) {
+        return;
+      }
+      // It couldn't be opened, so there's nothing to join with.
+      if (loading) {
+        leaveRoom();
+        return;
+      }
+      connection.send({
+        type: "join",
+        room,
+        ...author,
+        avatar,
+        drawing: history.drawing,
+      });
     });
     return () => {
       if (session === joined) {
@@ -1544,12 +1731,7 @@ export function mountCanvas(
     if (!file) {
       return;
     }
-    void imageStore.put(open.id, id, file).then((saved) => {
-      if (!saved) {
-        imagesSaved = false;
-        save();
-      }
-    });
+    void saveImageFile(open.id, id, file);
     canvas.reloadImage(id);
   }
 
@@ -1558,7 +1740,7 @@ export function mountCanvas(
   async function shareImages(images: { id: string }[]) {
     const shared = session;
     for (const { id } of images) {
-      const file = await imageStore.get(open.id, id);
+      const file = await loadImageFile(open.id, id);
       const data = file && (await blobToDataUrl(file));
       if (data && session === shared) {
         shared?.connection.send({ type: "image", image: { id, data } });
@@ -1783,7 +1965,7 @@ export function mountCanvas(
       canRedo: history.canRedo,
       canClear: history.canClear,
       // This one is blank, so a new canvas would be the same.
-      canStartNew: isInHistory(),
+      canStartNew: openSaved,
       name: open.name,
       author: getFullName(author),
       drawingSize: canvas.drawingSize,
@@ -1831,6 +2013,7 @@ export function mountCanvas(
     if (drawing !== lastDrawing || open.name !== lastName) {
       lastDrawing = drawing;
       lastName = open.name;
+      openSaved = true;
       open = { ...open, updatedAt: Date.now() };
       canvases = [open, ...canvases.filter(({ id }) => id !== open.id)];
     }
@@ -1840,10 +2023,62 @@ export function mountCanvas(
     save();
   }
 
-  // Keeps everything as it is, so a refresh doesn't lose it, and says if any
-  // of it couldn't be kept.
+  // Saves the open canvas, if it's changed, and the settings, and says if
+  // any of it couldn't be. Nothing's saved while a canvas opens, since it
+  // isn't what's shown.
   function save() {
-    let saved = storage.saveToolSettings({
+    saveSettings();
+    const { drawing } = history;
+    const { viewport } = canvas;
+    // A blank canvas has nothing to keep.
+    if (
+      openSaved &&
+      !loading &&
+      !(
+        stored?.id === open.id &&
+        stored.drawing === drawing &&
+        stored.name === open.name &&
+        stored.viewport === viewport
+      )
+    ) {
+      stored = { ...open, drawing, viewport };
+      unsaved.set(open.id, stored);
+      if (!saveQueued) {
+        saveQueued = true;
+        saving = saving.then(saveCanvases);
+      }
+    }
+    showSaved();
+  }
+
+  // Saves each canvas waiting to be, one at a time, so they're saved in the
+  // order they changed.
+  async function saveCanvases() {
+    saveQueued = false;
+    const waiting = [...unsaved.values()];
+    unsaved.clear();
+    for (const each of waiting) {
+      try {
+        await store.saveCanvas(each);
+        if (each.id === open.id) {
+          canvasSaved = true;
+        }
+      } catch {
+        // Tried again with the next change.
+        if (stored === each) {
+          stored = null;
+        }
+        if (each.id === open.id) {
+          canvasSaved = false;
+        }
+      }
+      showSaved();
+    }
+  }
+
+  // Gives the page the settings, if they've changed.
+  function saveSettings() {
+    const settings = {
       // The dropper is only picked for a moment, so the tool before it is
       // what's kept.
       activeTool: activeTool === "dropper" ? previousTool : activeTool,
@@ -1854,79 +2089,39 @@ export function mountCanvas(
       recentColors,
       colorFormats,
       rulers: rulers.shown,
-    });
-    if (canvases !== storedCanvases) {
-      if (storage.saveCanvases(canvases)) {
-        storedCanvases = canvases;
-      } else {
-        saved = false;
-      }
+      export: exportOptions,
+    };
+    const json = JSON.stringify(settings);
+    if (json !== reportedSettings) {
+      reportedSettings = json;
+      onSettingsChange?.(settings);
     }
-    // A blank canvas has nothing to keep.
-    const inHistory = isInHistory();
-    if (inHistory) {
-      const { drawing } = history;
-      if (drawing.background !== stored.background) {
-        if (storage.saveBackground(open.id, drawing.background)) {
-          stored = { ...stored, background: drawing.background };
-        } else {
-          saved = false;
-        }
-      }
-      if (drawing.strokes !== stored.strokes) {
-        if (storage.saveStrokes(open.id, drawing.strokes)) {
-          stored = { ...stored, strokes: drawing.strokes };
-        } else {
-          saved = false;
-        }
-      }
-      if (drawing.fills !== stored.fills) {
-        if (storage.saveFills(open.id, drawing.fills)) {
-          stored = { ...stored, fills: drawing.fills };
-        } else {
-          saved = false;
-        }
-      }
-      if (drawing.erasers !== stored.erasers) {
-        if (storage.saveErasers(open.id, drawing.erasers)) {
-          stored = { ...stored, erasers: drawing.erasers };
-        } else {
-          saved = false;
-        }
-      }
-      if (drawing.order !== stored.order) {
-        if (storage.saveOrder(open.id, drawing.order)) {
-          stored = { ...stored, order: drawing.order };
-        } else {
-          saved = false;
-        }
-      }
-      for (const kind of ITEM_KINDS) {
-        if (drawing[kind] === stored[kind]) {
-          continue;
-        }
-        if (storage.saveItems(open.id, kind, drawing[kind])) {
-          stored = { ...stored, [kind]: drawing[kind] };
-        } else {
-          saved = false;
-        }
-      }
-      const { viewport } = canvas;
-      if (viewport !== storedViewport) {
-        if (storage.saveViewport(open.id, viewport)) {
-          storedViewport = viewport;
-        } else {
-          saved = false;
-        }
-      }
-    }
-    saved = storage.saveOpenCanvas(inHistory ? open.id : null) && saved;
-    showSaved(saved && imagesSaved);
   }
 
-  function showSaved(saved: boolean) {
-    status.textContent = saved ? "" : "Couldn't save changes";
-    status.toggleAttribute("data-shown", !saved);
+  // Resolves once everything saved so far is, with whether it all was.
+  async function whenSaved(): Promise<boolean> {
+    await opening;
+    clearTimeout(viewportTimer);
+    save();
+    let waited: Promise<void>;
+    do {
+      waited = saving;
+      await Promise.all([waited, ...imageSaves]);
+    } while (waited !== saving || imageSaves.size > 0);
+    return canvasSaved && imagesSaved && opened;
+  }
+
+  function showSaved() {
+    if (unmounted) {
+      return;
+    }
+    const message = !opened
+      ? "Couldn't open this canvas"
+      : canvasSaved && imagesSaved
+        ? ""
+        : "Couldn't save changes";
+    status.textContent = message;
+    status.toggleAttribute("data-shown", message !== "");
   }
 
   // Observing the wrapper catches every size change, not just window resizes.
@@ -1970,8 +2165,12 @@ export function mountCanvas(
     },
     collaborate: (connection, { room, onLeave }) =>
       joinRoom(connection, room, onLeave),
+    whenSaved,
     unmount: () => {
       leaveRoom();
+      // A canvas still being opened isn't shown.
+      openToken++;
+      unmounted = true;
       clearInterval(timerTick);
       // A view changed just before isn't lost.
       clearTimeout(viewportTimer);

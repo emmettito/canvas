@@ -42,6 +42,7 @@
         zoomControl,
       } from "/src/index.ts";
       import { proseMirrorEditor } from "/src/prosemirror.ts";
+      import { savedLocally } from "/src/demo/local-store.ts";
       // The build leaves out `index.ts`'s own import of it, as `main.ts`
       // says.
       import "/src/styles.css";
@@ -50,7 +51,7 @@
         document.createElementNS("http://www.w3.org/2000/svg", "svg");
 
       const canvas = mountCanvas(document.body, {
-        storageKey: "canvas",
+        ...savedLocally("canvas"),
         textEditor: proseMirrorEditor,
         onNameChange: (name) => {
           document.title = `${name || "Untitled"} – Canvas`;

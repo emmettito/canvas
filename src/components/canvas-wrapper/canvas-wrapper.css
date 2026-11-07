@@ -28,6 +28,11 @@
   -webkit-touch-callout: none;
 }
 
+/* While a canvas opens, it can't be drawn on, since that'd be lost. */
+.canvas-root[data-loading] > .canvas-wrapper {
+  pointer-events: none;
+}
+
 /* The toolbars float above the canvas, so they don't change its size. */
 .canvas-root > .canvas-toolbar {
   position: absolute;

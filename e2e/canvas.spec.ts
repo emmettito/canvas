@@ -322,7 +322,7 @@ test("the highlighter draws see-through, in a color of its own", async ({
 test("a pen draws wider where it presses harder", async ({ page }) => {
   // Playwright has no pen, so its events are made by hand. The browser
   // won't capture a pointer it didn't make, which doesn't matter here.
-  const strokes = await page.evaluate(() => {
+  await page.evaluate(() => {
     Element.prototype.setPointerCapture = () => {};
     const layer = document.querySelector(".canvas-input-layer")!;
     const box = layer.getBoundingClientRect();
@@ -346,10 +346,16 @@ test("a pen draws wider where it presses harder", async ({ page }) => {
       send("pointermove", 100 + step * 20, 0.1 + step * 0.04);
     }
     send("pointerup", 500, 0.9);
-    return Object.entries(localStorage)
-      .filter(([key]) => key.endsWith(":strokes"))
-      .flatMap(([, value]) => JSON.parse(value));
   });
+  // It's saved just after it's drawn.
+  const strokes = (await (
+    await page.waitForFunction(() => {
+      const saved = Object.entries(localStorage)
+        .filter(([key]) => key.endsWith(":strokes"))
+        .flatMap(([, value]) => JSON.parse(value));
+      return saved.length > 0 ? saved : null;
+    })
+  ).jsonValue())!;
 
   const pressures = strokes[0].points.map(
     ({ pressure }: { pressure: number }) => pressure
