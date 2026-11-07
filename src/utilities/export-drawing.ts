@@ -45,9 +45,9 @@ export const EXPORT_EXTENSIONS: Record<ExportFormat, string> = {
   svg: "svg",
 };
 
-// How text looks where it isn't formatted. It comes from the canvas's CSS,
-// since the drawing doesn't keep it.
-export interface TextStyle {
+// How text looks where it isn't formatted. The page gives it, e.g. from its
+// CSS, since the drawing doesn't keep it.
+export interface ExportTextStyle {
   // The color of notes' text. Text boxes keep their own.
   noteColor: string;
   fontFamily: string;
@@ -111,7 +111,7 @@ function moveSpans(spans: PlacedSpan[], x: number, y: number): PlacedSpan[] {
 // A note's text, inside its padding. Lines below its bottom edge are left out.
 function layOutNote(
   note: Note,
-  { noteColor, fontFamily }: TextStyle,
+  { noteColor, fontFamily }: ExportTextStyle,
   measurer: TextMeasurer
 ): PlacedSpan[] {
   const { padding, fontSize, lineHeight } = NOTE_LAYOUT;
@@ -160,7 +160,7 @@ function fitText(
 // bottom, inside its padding. Null if nobody did.
 function layOutByline(
   note: Note,
-  { noteColor, fontFamily }: TextStyle,
+  { noteColor, fontFamily }: ExportTextStyle,
   measurer: TextMeasurer,
   shortName: (name: PersonName) => string
 ): PlacedSpan | null {
@@ -196,7 +196,7 @@ function layOutByline(
 // A text box's text, wrapped at its width if it has one.
 function layOutTextBox(
   box: TextBox,
-  { fontFamily }: TextStyle,
+  { fontFamily }: ExportTextStyle,
   measurer: TextMeasurer
 ): PlacedSpan[] {
   const { lines } = layOutRichText(
@@ -249,7 +249,7 @@ export async function exportDrawing(
   area: Box,
   { format, scale, transparent }: ExportOptions,
   background: string,
-  textStyle: TextStyle,
+  textStyle: ExportTextStyle,
   images: Map<string, Blob>,
   author = ""
 ): Promise<Blob | null> {
@@ -391,7 +391,7 @@ function drawFillLayer(
 function drawNote(
   context: CanvasRenderingContext2D,
   note: Note,
-  textStyle: TextStyle,
+  textStyle: ExportTextStyle,
   measurer: TextMeasurer,
   shortName: (name: PersonName) => string
 ): void {
@@ -437,7 +437,7 @@ export function renderDrawing(
   area: Box,
   scale: number,
   fill: string | null,
-  textStyle: TextStyle,
+  textStyle: ExportTextStyle,
   images: Map<string, CanvasImageSource>
 ): HTMLCanvasElement | null {
   const { width, height } = getExportSize(area, scale);
@@ -636,7 +636,7 @@ function createFills(
 function createNote(
   note: Note,
   index: number,
-  textStyle: TextStyle,
+  textStyle: ExportTextStyle,
   measurer: TextMeasurer,
   masks: string[],
   shortName: (name: PersonName) => string
@@ -682,7 +682,7 @@ export function createSvg(
   area: Box,
   scale: ExportScale,
   fill: string | null,
-  textStyle: TextStyle,
+  textStyle: ExportTextStyle,
   imageUrls: Map<string, string>,
   author = ""
 ): string {

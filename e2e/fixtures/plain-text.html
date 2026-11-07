@@ -20,10 +20,10 @@
         noteTool,
         textTool,
         undoButton,
-      } from "/src/index.ts";
-      // The build leaves out `index.ts`'s own import of it, as `main.ts`
-      // says.
-      import "/src/styles.css";
+      } from "/demo/canvas.ts";
+      // The build leaves out any import of it in `canvas.ts`, as that
+      // file says.
+      import "/demo/styles.css";
 
       const icon = () =>
         document.createElementNS("http://www.w3.org/2000/svg", "svg");

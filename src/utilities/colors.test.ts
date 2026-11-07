@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   addRecentColor,
-  getColorName,
   isCustomColor,
   isDarkColor,
   isToolColor,
   parseColor,
   readColorWithAlpha,
   readCssColor,
-  resolveColor,
   splitAlpha,
   toHex,
   withAlpha,
@@ -16,29 +14,14 @@ import {
 
 describe("colors", () => {
   it("tells palette and custom colors apart", () => {
-    expect(isToolColor("--canvas-color-red")).toBe(true);
-    expect(isToolColor("#FF8800")).toBe(true);
-    expect(isCustomColor("--canvas-color-red")).toBe(false);
-    expect(isToolColor("#f80")).toBe(false);
+    const palette = ["red", "blue"];
+    expect(isToolColor("red", palette)).toBe(true);
+    expect(isToolColor("#FF8800", palette)).toBe(true);
+    expect(isCustomColor("red")).toBe(false);
+    expect(isToolColor("#f80", palette)).toBe(false);
     // A custom color can be see-through.
     expect(isCustomColor("#ff880080")).toBe(true);
-    expect(isToolColor("red")).toBe(false);
-  });
-
-  it("names a color", () => {
-    expect(getColorName("--canvas-color-red")).toBe("Red");
-    expect(getColorName("#ff8800")).toBe("#ff8800");
-  });
-
-  it("reads a palette color from the CSS as hex, however it's written", () => {
-    const element = document.createElement("div");
-    element.style.setProperty("--canvas-color-red", " #FF0000");
-    document.body.append(element);
-
-    expect(resolveColor(element, "--canvas-color-red")).toBe("#ff0000");
-    // Custom colors are kept as they are.
-    expect(resolveColor(element, "#ff8800")).toBe("#ff8800");
-    element.remove();
+    expect(isToolColor("green", palette)).toBe(false);
   });
 
   it("reads and writes hex colors", () => {

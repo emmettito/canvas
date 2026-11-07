@@ -1,4 +1,5 @@
 import { readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { type Plugin } from "vite";
 import { configDefaults, defineConfig } from "vitest/config";
 import { attachCollaboration } from "./server/collaboration-socket.ts";
@@ -33,6 +34,16 @@ export default defineConfig(({ mode }) => ({
   // Pages serves it from `/canvas/`.
   base: mode === "demo" ? "./" : "/",
   plugins: [collaborationServer()],
+  // The demo imports the library by its package name, as another project
+  // would, so it can only use what the library exports.
+  resolve: {
+    alias: [
+      {
+        find: /^@emmettito\/canvas$/,
+        replacement: fileURLToPath(new URL("src/index.ts", import.meta.url)),
+      },
+    ],
+  },
   // `build` makes the library, `build --mode demo` the demo page for GitHub
   // Pages, and `build --mode e2e` the demo page with the test pages, for CI's
   // Playwright tests.
@@ -53,23 +64,17 @@ export default defineConfig(({ mode }) => ({
           }
         : {
             lib: {
-              // The ProseMirror editor is its own entry, so only pages that
-              // import it need ProseMirror, and the collaboration server is
-              // too, so it runs on a server without the rest.
+              // The collaboration server is its own entry, so it runs on a
+              // server without the rest.
               entry: {
                 canvas: "src/index.ts",
-                prosemirror: "src/prosemirror.ts",
                 "collaboration-server": "src/collaboration-server.ts",
               },
               formats: ["es"],
               fileName: (_format, name) => `${name}.js`,
-              cssFileName: "canvas",
             },
             // Public assets belong to the demo page.
             copyPublicDir: false,
-            // The host page installs ProseMirror to use the editor, so it's
-            // loaded once even if the page uses it too.
-            rollupOptions: { external: [/^prosemirror-/] },
           },
   test: {
     environment: "jsdom",

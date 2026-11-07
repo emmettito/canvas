@@ -1,11 +1,15 @@
 # <img src="public/favicon.svg" alt="" width="32" height="32" align="top"> Canvas
 
-A simple art canvas. Draw with a pencil, highlighter or eraser, fill areas
-with a paint bucket, pick from a color palette, adjust the size of each tool,
-add text, images and sticky notes, draw on the notes, pick several to
-move, copy or delete together, stack it all, and undo or redo any of it,
-alone or live with others. The canvas fills the space it's
-given, with its toolbars floating above it.
+Utilities for building a drawing canvas: the drawing's data, and what works
+with it. Strokes drawn with pressure, erased, filled with a paint bucket, and
+found under the pointer or in a selection box; text, images and sticky notes,
+stacked in layers; undo and redo; zooming and panning; exporting as PNG, JPEG
+or SVG; reading saved drawings back, even ones saved by older versions; and
+drawing together, live, through a server.
+
+There's no UI: no elements, layout or styles. Your page builds its own, and
+uses these for everything underneath it. The [demo page](#demo-page) is one
+such UI.
 
 **[Try the live demo](https://emmettito.github.io/canvas/)**
 
@@ -31,598 +35,127 @@ cd ../my-app
 npm install ../canvas
 ```
 
-Import the stylesheet once and mount the canvas in an element. The canvas fills
-the element edge to edge, so give it a size, e.g. the whole window for a
-full-screen app.
-
-```ts
-import { mountCanvas } from "@emmettito/canvas";
-import "@emmettito/canvas/styles.css";
-
-const canvas = mountCanvas(document.getElementById("drawing")!);
-
-// Later, to remove it:
-canvas.unmount();
-```
-
-### The toolbar
-
-Without a `toolbar`, there's only the canvas. List the controls you want, in
-groups, in order. Each control is a function you import, so your build only
-has the controls you use, along with what only they need, e.g. the export
-dialog and the code that makes PNG, JPEG and SVG files.
-
-Each button needs an icon, which the library doesn't provide, so the icons
-match the rest of your app. Pass any element, e.g. an `<svg>`. It's copied,
-shown at 16 by 16 pixels and hidden from screen readers, since the toolbar
-names each button itself. Use `currentColor` in it to follow the toolbar's
-colors.
+Everything is a named export of `@emmettito/canvas`, and nothing runs on
+import, so your build only keeps what you use. Most of it is plain functions
+over plain data: a `Drawing` is JSON, so it can be saved, sent and compared
+as it is. What draws takes a `CanvasRenderingContext2D`, so it draws on
+whichever canvas you give it.
 
 ```ts
 import {
-  colorControl,
-  eraserTool,
-  exportButton,
-  mountCanvas,
-  pencilTool,
-  redoButton,
-  undoButton,
+  type Drawing,
+  DrawingHistory,
+  createId,
+  drawStroke,
+  exportDrawing,
+  getStrokeBox,
 } from "@emmettito/canvas";
 
-mountCanvas(document.getElementById("drawing")!, {
-  toolbar: [
-    [undoButton(undoIcon), redoButton(redoIcon)],
-    [pencilTool(pencilIcon), eraserTool(eraserIcon), colorControl()],
-    [exportButton(exportIcon)],
+const empty: Drawing = {
+  background: "#ffffff",
+  strokes: [],
+  fills: [],
+  erasers: [],
+  images: [],
+  texts: [],
+  notes: [],
+  order: [],
+};
+const history = new DrawingHistory(empty);
+
+const stroke = {
+  id: createId(),
+  color: "#1e1e1e",
+  size: 2.5,
+  points: [
+    { x: 10, y: 10, pressure: 0.4 },
+    { x: 60, y: 40, pressure: 0.8 },
   ],
-});
-```
-
-| Control                        | Name          | Does                                            |
-| ------------------------------ | ------------- | ----------------------------------------------- |
-| `undoButton`, `redoButton`     | `undo`/`redo` | Undo or redo the last change                    |
-| `clearButton`                  | `clear`       | Remove everything, once asked, for good         |
-| `newCanvasButton`              | `new-canvas`  | Start a blank canvas                            |
-| `historyButton`                | `history`     | Open or delete canvases drawn earlier           |
-| `exportButton`                 | `export`      | Name and export as PNG, JPEG or SVG (see below) |
-| `selectTool`                   | `select`      | Pick, move and resize what's placed (see below) |
-| `handTool`                     | `hand`        | Pan by dragging from anywhere (see below)       |
-| `pencilTool`, `eraserTool`     | `pencil` etc. | Pick the tool, showing its options (see below)  |
-| `highlighterTool`              | `highlighter` | The same, drawing see-through (see below)       |
-| `bucketTool`                   | `bucket`      | Fill areas with its own color (see below)       |
-| `textTool`                     | `text`        | Add text                                        |
-| `noteTool`                     | `note`        | Add sticky notes                                |
-| `imageButton`                  | `image`       | Insert images from files                        |
-| `colorControl()`               | `color`       | Pick the tools' or notes' color (no icon)       |
-| `dropperTool`                  | `dropper`     | Pick a color from the drawing                   |
-| `zoomControl()`                | `zoom`        | Show the zoom, with a menu to change it         |
-| `timerControl()`               | `timer`       | A timer, showing how long's left                |
-| `fileMenu(items)`              | `file-menu`   | A File menu of file actions (see below)         |
-| `customButton(label, onClick)` | none          | Your own text button, e.g. Settings             |
-
-The rest of this README calls each control by its name. Leaving a control out
-leaves out what it does, but not what's drawn: a canvas without `bucketTool`
-still shows fills drawn by someone else, and undo and redo still work from
-the keyboard without their buttons: Ctrl+Z, and Ctrl+Shift+Z or Ctrl+Y (Cmd
-on a Mac).
-
-Every change is saved as it's made, so nothing asks before starting a new
-canvas or opening another (see [Saving](#saving)).
-
-The toolbar floats at the bottom middle of the canvas. For a second toolbar at
-the top left, pass `topToolbar` in the same form, e.g. to keep the file
-controls apart from the drawing ones, and for a third at the top right, pass
-`topRightToolbar`, e.g. for the zoom, which changes how the canvas is shown
-rather than what's drawn. Their menus open downward. Each
-control can only be on one toolbar. Ctrl+\ (Cmd+\ on a Mac) hides and shows
-them all, to see the whole canvas.
-
-The file actions can go in a File menu instead of being buttons: pass
-`fileMenu` any of `newCanvasItem()`, `historyItem()` (shown as "Open"),
-`renameItem()` and `exportItem()`, in order. Menu items are text, so they
-don't take icons. An action can be in the menu or a button, not both.
-`rename` is only in the menu: it asks for a new name in a small dialog, with
-Save and Cancel.
-
-For your own buttons, e.g. to open your app's settings beside the File menu,
-add `customButton`s with a label and an `onClick`. They're text buttons, so
-they don't take icons, and there can be any number of them.
-
-```ts
-import {
-  customButton,
-  eraserTool,
-  exportItem,
-  fileMenu,
-  historyItem,
-  mountCanvas,
-  newCanvasItem,
-  pencilTool,
-  renameItem,
-  zoomControl,
-} from "@emmettito/canvas";
-
-mountCanvas(document.getElementById("drawing")!, {
-  topToolbar: [
-    [
-      fileMenu([newCanvasItem(), historyItem(), renameItem(), exportItem()]),
-      customButton("Settings", openSettings),
-    ],
-  ],
-  topRightToolbar: [[zoomControl()]],
-  toolbar: [[pencilTool(pencilIcon), eraserTool(eraserIcon)]],
-});
-```
-
-The canvas's name isn't shown on the canvas. It's used for the exported file's
-name, e.g. `Sunset.png`, or `Untitled.png` for an untitled canvas, and in the
-history. To show it elsewhere, e.g. in the browser tab, pass
-`onNameChange`. It's called with the name as the canvas mounts and whenever the
-name changes, and the name is empty for an untitled canvas.
-
-```ts
-mountCanvas(document.getElementById("drawing")!, {
-  onNameChange: (name) => {
-    document.title = `${name || "Untitled"} – My App`;
-  },
-});
-```
-
-A control throws as it's made if it can't work, e.g. a button without an
-icon or an empty File menu. Mounting throws if the toolbars can't work as
-listed, e.g. something that isn't a control, or one listed twice (on any
-toolbar or in the File menu), before anything is added to the page.
-
-Each tool has a key, shown in its button's tooltip, which picks it while the
-canvas is in use and nothing's being typed: V for `select`, H for `hand`, M
-for `pencil`, Shift+M for `highlighter`, E for `eraser`, G for `bucket`, S for
-`note`, T for `text` and I for `dropper`. They're like FigJam's where it has
-the same tool. Only tools on a toolbar have one.
-
-`select` used to be called `move`. A tool saved as `move` is put down for the
-pencil.
-
-While `pencil`, `highlighter`, `eraser`, `bucket` or `note` is picked, its
-options show
-in a smaller bar of their own, above the toolbar it's on (below a top one),
-until another tool is picked:
-
-- **Sizes**, for the pencil, highlighter and eraser: Thin, Medium (the
-  default) and Thick, each shown as a squiggle that thick. The pencil draws 2,
-  5 or 10 pixels wide, and the highlighter and eraser 10, 20 or 40. [ and ]
-  pick the next size down or up, like Photoshop's. A size is on screen, not on
-  the drawing, so a stroke looks the size picked at any zoom: zoomed in, it's
-  finer on the drawing, for detail.
-- **Colors**, for the pencil, highlighter, paint bucket and notes, each its
-  own: the palette, as circles, with the one picked ringed, then the color
-  picked, as a rounded square and written
-  out, e.g. `#F27637`, which opens the color picker (see [Colors](#colors)).
-  Picking one of the palette's closes the picker. The palette's colors all fit
-  in the same width, so it stays put as they're picked.
-
-Strokes curve smoothly through the points the pointer passed, rather than
-turning sharply at each. Drawn with a pen, e.g. an Apple Pencil or a
-graphics tablet's, a stroke is wider where the pen pressed harder: from a
-quarter of the size picked, pressing lightly, to nearly twice it, pressing
-hard. A mouse or a finger draws at the size picked throughout.
-
-The highlighter draws in a color of its own, yellow to start with, which its
-options or `color` pick while it's picked. Its tip is square, like a
-highlighter's, and so are its strokes' ends. Its strokes are see-through, so what's under
-them shows through, and a stroke isn't any darker where it crosses itself.
-Like the pencil's, they're stacked with everything else, so one drawn over
-text tints it, and one drawn under a note is hidden by it.
-
-### Filling
-
-With `bucket` picked, clicking the canvas fills the area around the click, in
-the bucket's own color: everything there that looks the same color, up to the
-lines around it, as the drawing's drawn. Fills are kept as outlines,
-not pixels, so they stay sharp at any zoom and export to SVG as shapes.
-
-- Fills are below every stroke and item, so the lines around one are always
-  drawn over its edge. It reaches a little under them, so no gap shows at
-  their soft edges. A fill over a fill is above it.
-- Only areas closed in by lines are filled, so a stray click can't fill
-  everything. Clicking one that isn't, which goes past the canvas's edges
-  around everything, or a note's edges, does nothing, and a message at the
-  bottom of the canvas says so for a moment. It never changes the
-  background.
-- On a note, it fills the area inside lines drawn on the note, below its text
-  and strokes, and moves and resizes with the note like its strokes.
-- The eraser erases fills made before it. Clicking an image
-  does nothing.
-
-The area is found in what the canvas shows, and a little more on each side,
-so zoom out to fill something bigger than the window. A gap in a line lets
-the fill through, like any paint bucket's.
-
-### Text, images and sticky notes
-
-Like strokes, these are saved with the canvas, can be undone and cleared, and
-are included in exports. Strokes and what's placed are stacked in one order,
-each new one on top, so a stroke drawn after a note is drawn over it, and one
-drawn before is hidden under it. The eraser only erases strokes, never what's
-placed, and the pencil and eraser draw over items rather than moving them.
-It cuts the strokes it touches into pieces, each a stroke of its own, leaving
-nothing under it, so a thick stroke it only grazes is cut across its whole
-width. Saved canvases are cut the same way when they're opened. Fills are
-erased, rather than cut, so what the eraser left on one can be clicked with
-`select`, and moved, resized or deleted, which puts the fill back. A box or
-Ctrl+A doesn't pick it, since it can't be seen.
-
-With `select` picked, the same goes for strokes on the drawing, which show a
-box around them once they're picked:
-
-- Drag one to move it. Drag anywhere else for a box that picks everything it
-  touches, in place of what's picked. A box picks a note whole, rather than the
-  strokes on it.
-- Drag its edges to resize it. The pointer turns into a resize arrow over
-  each side and corner, so there are no handles to see. The side or corner
-  across from the one dragged stays where it is.
-- Click it to pick it, then Delete or Backspace to delete it. Pressing Tab
-  reaches it too, with any tool.
-- Shift-click others to pick them too, or Shift-click a picked one to leave
-  it out. Shift-drag anywhere else for a box that keeps what's picked
-  already. Ctrl+A (Cmd on a Mac) picks everything, even with another tool,
-  which picks `select`. Clicking anywhere else, or Escape, picks nothing.
-- With several picked, dragging any of them moves them all, and Delete
-  deletes them all. Either is one change, which one undo puts back.
-- Double-click text or a note, or press Enter on it, to type in it.
-
-With `hand` picked, dragging anywhere pans, even over an item, and pressing an
-item does nothing: it can't be picked, moved or typed in. Picking `hand` picks
-nothing, and finishes any typing. Holding Space, the middle button and two
-fingers on a touch screen pan with any tool.
-
-Dropping a stroke moves it onto what's under the pointer: a note, which is
-outlined as soon as the pointer is over it, or else the drawing. It goes on top
-of what it lands on, and on a note it moves with the note from then on. What's
-past a note's edge is hidden, not lost, whether it was dropped there or the note
-was made smaller: it shows again if the note grows, or the stroke's dragged off.
-A stroke pressed over a note, and dropped without the pointer leaving it, stays
-where it is, so nudging a line that crosses a note doesn't put it on the note.
-Strokes dragged along with an item stay on whatever they're on.
-
-A note's strokes are part of it, so pressing one picks or moves the note,
-double-clicking one types in it, and right-clicking one opens the note's menu,
-as they do anywhere else on the note. Pointing at one outlines the note. Once
-the note is picked, clicking a stroke on it picks the stroke, which leaves the
-note faintly outlined. It can then be moved, resized, deleted, or right-clicked
-for its own menu, and the note's other strokes can be clicked in turn. Escape
-goes back to the note, then to nothing. Pointing at a stroke clicking would
-pick outlines it.
-
-A stroke's menu has the same choices as an item's, and a stroke on a note goes
-to the front or back of the note's strokes. Only one stroke, picked on its own,
-resizes, and its line gets thicker or thinner with it. While drawing together,
-everyone else sees a stroke where it ends up once it's dropped, rather than as
-it's dragged.
-
-Ctrl+C copies what's picked, and Ctrl+X cuts it. Ctrl+V pastes it, on this
-canvas or another, even in another tab, a little further down and right each
-time it's pasted, so the copies don't hide each other. Ctrl+D copies what's
-picked straight away, in the same way. What's pasted is picked, with `select`,
-ready to move. Copies of strokes go on the drawing, even from a note.
-
-With `note` or `text` picked, notes or text can be moved and resized the same
-way, and clicking one types in it. With `text` picked, clicking a note types in
-the note, rather than adding text over it. Whichever tool is picked, right-click an
-item, or press and hold one on a touch screen with `select`, for a menu to
-bring it to the front, send it to the back, or delete it. Right-clicking text being typed opens the same menu, rather than
-the browser's.
-
-**Text**: with `text` picked, clicking the canvas starts text there, in the
-pencil's color, at its own size, which the format bar changes. Until it's typed
-in, it shows "Add text", and is wide enough to click. Text is as wide
-as its longest line, with Enter for a new line, until a side is dragged, which
-sets the width it wraps at. Resizing only resizes the box, never the text, and
-the box can't be made shorter than its text.
-
-**Sticky notes**: with `note` picked, a see-through square in the note's
-color follows the mouse, showing where clicking adds a note. Until it's typed
-in, it shows "Add text". Its options pick the color of new notes: the
-palette's are a light shade of each color, in the same order, so their text
-stays readable, and yellow is the default. Each shade is one of the color
-picker's grid, its third row down, so it can be picked there too. A color picked in the color
-picker is used as it is, so a note can be any color, including the palette's
-own. While a note's typed in, its options show its color, and picking another
-changes it, which can be undone. While `note`
-is picked, `color` picks the same. A note grows downward as it's typed in, to
-fit its text, and undoing the text undoes that too. It doesn't shrink again by
-itself. Text past the bottom of a note made smaller is hidden, and left out of
-the export, until it's typed in again.
-
-A note being moved snaps to the notes on screen near it: its edges or middle
-line up with theirs, or it sits a small gap beside one it's level with, and
-lines show what it lined up with. Hold Alt (Option on a Mac) while moving it to
-place it exactly.
-
-A stroke started on a note, with the pencil or eraser, is drawn on it, over
-its text, unless an image is above the note there. It only shows inside the
-note and moves with it. Resizing the note doesn't stretch its strokes: they
-stay where they are, and any outside the note are hidden until it's made big
-enough again. The eraser started on a note only erases the note's strokes,
-and one started off it only erases the drawing's.
-
-**Typing**: with `select` picked, double-clicking text or a note, or pressing
-Enter on one, types in it. With `note` or `text` picked, clicking one does.
-Clicking away or pressing Escape finishes, and one left empty is removed. The
-text is plain unless the page adds a text editor that formats it (see
-[Formatting text](#formatting-text)).
-
-**Images**: `image` opens a file picker. Images can also be pasted, where the
-pointer is over the canvas, or dropped onto it, where they're dropped. Each is
-scaled down to fit the canvas if it's bigger, and resizes from its corners,
-keeping its shape. Once they're in, `select` is picked, if a toolbar has it,
-with the last image picked, ready to move, resize or delete. Images are kept byte for byte, so nothing is lost, and SVG
-exports include them unchanged.
-
-### Colors
-
-A tool's options, the format bar and `color` offer the palette, and the
-color picked, which opens a color picker for any color. It stays open, to try
-a few:
-
-- A grid of the palette's colors, a column each, from a light tint at the
-  top, through the color itself, to a dark shade, after a column of grays
-  with the palette's white, gray and black.
-  The color picked is framed.
-- **Opacity**, a slider from barely there to solid, except for notes, which
-  are always solid. A see-through stroke is
-  see-through as a whole, like the highlighter's, so it isn't darker where it
-  crosses itself.
-- The color written out, in **Hex**, **RGB**, **CSS**, **HSL** or **HSB**, to
-  read or type. Enter, or leaving the box, picks what's typed. Hex takes a CSS
-  name too, e.g. `orange`, and CSS any CSS color, e.g. `hsl(30 100% 50% / 50%)`,
-  including how see-through it is. Beside it, how much of it shows, as a
-  percentage. Each tool, and the format bar, keeps the format picked for it,
-  and the color picked shows written in it, until a color is picked from the
-  palette or the grid, which is in hex.
-- **Recent**: custom colors picked before.
-- **Pick a color**: the dropper, which picks a color from the drawing for the
-  tool the picker's for (see below). The format bar's picks from anywhere on
-  screen instead, so typing isn't stopped, where the browser can, e.g. Chrome
-  and Edge, and doesn't have one elsewhere.
-
-Colors are kept as `#rrggbb`, or `#rrggbbaa` if they're see-through. One
-that's the palette's, e.g. `red` typed, is the palette's, except for notes.
-While text or a note is being typed in, `color` colors the text too, and
-typing carries on.
-
-`dropper`, or the color picker's dropper, picks a color from the drawing, wherever it's clicked, including
-images, notes and the background, then goes back to the tool before it. A
-color from the palette is kept as the palette's. With a mouse, a magnifier
-follows the pointer, showing the pixels around it and the color it would
-pick.
-
-Colors are kept as they're picked, whatever the theme.
-
-### Backgrounds
-
-Each canvas has its own background, which exports keep. It's undone like any
-other change, and stays the same whatever the page's theme. The library has no
-control for it, so your page shows its own picker, styled to match: pass
-`onBackgroundChange` to be told the open canvas's background as the canvas
-mounts and whenever it changes, e.g. when it's undone or another canvas opens,
-and call `setBackground` on the mounted canvas to change it. It takes any solid
-CSS color, and throws for one that isn't, e.g. `transparent`.
-
-```ts
-const canvas = mountCanvas(document.getElementById("drawing")!, {
-  onBackgroundChange: (color) => {
-    picker.value = color;
-  },
-});
-picker.addEventListener("change", () => canvas.setBackground(picker.value));
-```
-
-A new canvas starts with `--canvas-color-canvas`, so a dark theme can start new
-canvases dark. When a canvas opens or its background
-changes, a black pencil turns white on a dark background, and white black on a
-light one, so it shows.
-
-### Signing notes
-
-Pass `author`, the `firstName` and `lastName` someone set, and each new note is
-signed with it in small, quieter type along its bottom, inside its padding, so
-its text has a line less room. A byline shows first names, unless two people
-who signed notes on the canvas share one: then it's "Ada L." and "Ada K.", or
-the whole name if those match too. Changing a note's text, or drawing or
-filling on it, adds the name after the names already there, e.g. "Ada, Bo",
-unless it's there already. Notes saved with a whole name are split at its
-first space. Moving or resizing a note, or changing its color, doesn't. Exports draw the byline the same way, cut short with an
-ellipsis if it's too long. PNG and SVG exports also keep the whole name as their
-author: an `Author` iTXt chunk in a PNG, and Dublin Core's `dc:creator` in an
-SVG's metadata. JPEGs don't. Call `setAuthor` on the mounted canvas when the
-name changes. Notes already signed keep the names they were signed with, and
-without one, nothing's signed. Pass `showAuthors: false`, or call
-`setShowAuthors(false)`, to hide every note's byline, on the canvas and in
-exports, and give its text that line back. Notes stay signed, so showing
-bylines again brings their names back.
-
-```ts
-const canvas = mountCanvas(document.getElementById("drawing")!, {
-  author: { firstName: "Ada", lastName: "Lovelace" },
-});
-canvas.setAuthor({ firstName: first.value, lastName: last.value });
-```
-
-### Formatting text
-
-To format notes' and text's text, install [ProseMirror](https://prosemirror.net)
-and pass the canvas's ProseMirror editor as `textEditor`. It's a separate
-import, so pages that don't use it don't need ProseMirror.
-
-```sh
-npm install prosemirror-commands prosemirror-history prosemirror-keymap \
-  prosemirror-model prosemirror-state prosemirror-view
-```
-
-```ts
-import { mountCanvas } from "@emmettito/canvas";
-import { proseMirrorEditor } from "@emmettito/canvas/prosemirror";
-
-mountCanvas(document.getElementById("drawing")!, {
-  textEditor: proseMirrorEditor,
-});
-```
-
-While typing, a bar centered above the text formats what's selected, or what's typed
-next:
-
-- **Font** and **size**, from menus. The sizes are Small, Medium (the text's
-  own) and Large, or any size typed below them.
-- Bold, italic, underline and line through.
-- **Color**, from a row of the palette's, or any color, from the color
-  picker.
-- **Link**: links the selection, or the link at the cursor, to an address
-  typed or pasted, e.g. `example.com`, or adds the address as its own linked
-  text. Only web and email addresses link. Links are underlined, and open in
-  a new tab with Ctrl held (Cmd on a Mac) as they're clicked.
-- **Bulleted** and **numbered lists**. Typing "- " or "1. " at the start of a
-  line starts one too. Tab nests an item a level further in, and Shift+Tab
-  brings it out, and numbers go from 1. to a. to i. the further in. Enter on
-  an empty item ends the list, and Backspace at an item's start makes it a
-  line again.
-- Alignment.
-
-Ctrl+B, Ctrl+I and Ctrl+U (Cmd on a Mac), Ctrl+Shift+X for a line through,
-and Ctrl+Shift+8 and Ctrl+Shift+7 for lists work too, and Ctrl+Z undoes typing
-until it's finished.
-Formatting is kept in exports, and copies between notes and text. Without the
-editor, formatted text shows as plain text, and keeps its formatting unless
-it's changed.
-
-`textEditor` takes any `TextEditorFactory`, so another editor can be used
-instead. It makes a `TextEditor` for each note and text box, which shows its
-`RichText` and is typed in. One with `formatting` gets the format bar.
-
-### Zooming and panning
-
-The canvas shows part of a drawing that goes on in every direction. Like
-Figma:
-
-- Scroll, or swipe with two fingers on a trackpad, to pan. Hold Shift to
-  scroll a mouse wheel sideways.
-- Hold Space and drag, or drag with the middle button, to pan.
-- Ctrl+scroll (Cmd on a Mac) or pinch a trackpad to zoom around the pointer.
-- On a touch screen, pinch and drag with two fingers. One finger draws, draws
-  a box to pick with `select` picked, or pans with `hand` picked.
-- Ctrl+= and Ctrl+- zoom in and out, Ctrl+0 or Shift+0 goes back to 100%, and
-  Shift+1 fits the whole drawing in the window. They work while the pointer is
-  over the canvas, or nothing else on the page has focus.
-
-The zoom is from 10% to 1000%, and `zoom` on a toolbar shows it, with a menu
-of the same actions. Each canvas reopens where it was left.
-
-### Timer
-
-`timer` on a toolbar sets a timer: 1, 3, 5, 10, 15 or 30 minutes, or any
-number up to a day, with a sound to play as it goes off: Chime, Bell,
-Marimba, Alarm, or None. Picking a sound plays it, to hear it first. The
-sounds are made as they play, with the Web Audio API, so there are no files
-to load. While it's going, the button shows how long's left, and opening it
-offers a minute more or stopping it. Once it's done, its sound plays and
-"Time's up" shows. A new timer starts with the last one's length and sound.
-While drawing together, it goes off for everyone: whoever starts it picks the
-sound, anyone can add time or stop it, someone joining sees how long's left,
-and everyone else is told who started it. Browsers only play sound on a page
-that's been clicked or typed in, so a page nobody's touched shows "Time's up"
-without it.
-
-Shift+R, or "Show rulers" in the `zoom` menu, shows rulers along the top and
-left edges, so it's clear where on the drawing the canvas is. They're in
-drawing units, with 0 where the drawing started, and mark the pointer's
-position on each, or the middle of the view, in gray, while the pointer's off
-the canvas. The corner where they meet goes back to the origin, at the same
-zoom. The toolbars at the top move clear of them, and whether they're shown
-is kept with the other settings.
-
-### Exporting
-
-`export` opens a dialog in the middle of the canvas to choose the file:
-
-- **Name**: the canvas's name, which names the file. It's renamed as it's
-  typed, even without exporting, so it's where a page without `rename` names
-  its canvas.
-- **Format**: PNG, JPEG or SVG. SVG keeps the strokes as shapes, so it stays
-  sharp at any size and can be edited in other tools.
-- **Size**: 1×, 2× (the default) or 4× the part of the drawing the canvas
-  shows, at 100%, which the dialog shows in pixels. Zoom out to export more of
-  the drawing. The drawing is drawn again at that size, rather than copied
-  from the screen, so the file doesn't depend on the screen's resolution. A
-  PNG or JPEG too big for every browser to make (over 4096 × 4096 pixels) isn't
-  offered.
-- **Transparent background**: leaves out the canvas color, for PNG and SVG.
-  JPEG has no transparency.
-
-The dialog starts from the choices last exported with, which are kept with the
-other settings (see [Saving](#saving)).
-
-### Drawing together
-
-People can draw on one canvas together, live, through a server you run.
-Everyone's changes show as they're made, with each person's pointer and name
-in their own color, and a row of who's there, with their photos, at the start
-of the top right toolbar. Each pointer looks like the tool it's pointing with:
-a ring as big as the pencil, highlighter or eraser draws, an I-beam for text,
-a crosshair for notes and the paint bucket, the dropper, or an arrow
-for the select tool and the hand. Its name is the first name, with more of it
-for two people
-here who share one, as bylines do, and the row shows whole names. It's added while anyone's there, even without
-`topRightToolbar`, and hidden with the toolbars. What they're in the middle of shows too: a stroke as it's drawn, an
-item as it's moved or resized, outlined in their color, and a note or text
-as it's typed, even a new one, before it's added. Undo only
-undoes your own changes, leaving everyone else's, even ones made since. Each
-person's canvas is kept like any other, so it's there to open again on its
-own.
-
-Clicking someone in the row follows them: your canvas shows what theirs
-does, as big as fits, edged in their color, with "Following Ada" and a Stop
-button at the top. Moving around yourself, by scrolling, dragging or
-zooming, stops following too. Follow me, beside the row, has everyone else
-follow you. Whoever's followed sees "Bo is following you" for each person,
-with a Release button that lets them go. Following someone who follows you,
-even through others, would go round in a circle, so the server turns it
-away.
-
-The library doesn't send anything itself. On the page, call `collaborate` on
-the mounted canvas with a `connection` that carries its messages, e.g. over a
-WebSocket, and the `room` to join. The canvas with the room's id opens, or a
-new one with it, so the room's id can be the canvas's own: `canvasId` is the
-open one's. The room starts from the drawing of whoever joins it first. It
-returns a function that leaves the room, and opening another canvas leaves it
-too. `onLeave` is called either way.
-
-Pass `avatar`, an image's data URL or an https address, and everyone else
-sees that photo instead of an initial. Call `setAvatar` when it changes, and
-`setAuthor` for the name, and they're told. Keep it small, e.g. 128 pixels
-square, since it's sent to everyone who joins: the server turns away one
-longer than 200,000 characters.
-
-```ts
-const socket = new WebSocket("wss://example.com/draw");
-const leave = canvas.collaborate(
-  {
-    send: (message) => socket.send(JSON.stringify(message)),
-    listen: (listener) => {
-      const onMessage = (event: MessageEvent) =>
-        listener(JSON.parse(event.data));
-      socket.addEventListener("message", onMessage);
-      return () => socket.removeEventListener("message", onMessage);
-    },
-  },
-  { room: canvas.canvasId, onLeave: () => socket.close() }
+};
+history.addStroke(stroke);
+drawStroke(context, stroke);
+
+history.undo();
+history.redo();
+
+// A PNG of what's drawn, at twice its size.
+const area = getStrokeBox(stroke) ?? { x: 0, y: 0, width: 100, height: 100 };
+const png = await exportDrawing(
+  history.drawing,
+  area,
+  { format: "png", scale: 2, transparent: false },
+  history.drawing.background,
+  { noteColor: "#1e1e1e", fontFamily: "system-ui, sans-serif" },
+  new Map()
 );
 ```
 
-On the server, `CollaborationServer` from
+## What's in it
+
+| Area                | Exports                                                                                                                                                                            |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The data            | `Drawing`, `Stroke`, `Fill`, `ImageItem`, `TextBox`, `Note`, `RichText`, `Layer`, `Viewport`, `Box`, `Point` and the rest of the types                                             |
+| Strokes             | `drawStroke`, `getStrokePieces`, `getStrokeReach`, `isStrokeAt`, `isStrokeInBox`, `moveStroke`, `resizeStroke`, `eraseStroke`, `eraseStrokes`, `getDistanceToStroke`               |
+| Filling             | `floodFill`, `growMask`, `traceMask`, `simplifyRing`, `drawFills`, `getFillPath`                                                                                                   |
+| Layers              | `resolveLayers`, `addStrokeLayer`, `addItemLayer`, `removeItemLayer`, `restackItemLayer`, `restackStrokeLayer`                                                                     |
+| Undo and redo       | `DrawingHistory`, `applyChange`, `hasContent`                                                                                                                                      |
+| Placing items       | `resizeBox`, `resizeBoxKeepingShape`, `snapBox`, `getImageSize`                                                                                                                    |
+| Text                | `layOutRichText`, `toCssFont`, `fromPlainText`, `toPlainText`, `isBlank`, `getListMarkers`, `toLinkAddress`                                                                        |
+| Sticky note signing | `getByline`, `getSignerNames`, `getShortNames`, `getFullName`, `splitName`                                                                                                         |
+| Zoom and pan        | `zoomAround`, `stepZoom`, `clampZoom`, `panBy`, `fitViewport`, `toDrawingPoint`, `getVisibleArea`, `getStrokeBox`, `unionBoxes`                                                    |
+| Colors              | `parseColor`, `readCssColor`, `readColorWithAlpha`, `toHex`, `withAlpha`, `splitAlpha`, `isDarkColor`, `getColorGrid`, `formatColor`, `readColor`, `addRecentColor`, `isToolColor` |
+| Exporting           | `exportDrawing`, `renderDrawing`, `createSvg`, `getExportSize`, `canExportAt`, `getFileName`, `addPngText`                                                                         |
+| Saving              | `readDrawing`, `readViewport`, `readEntries`, `readToolSettings`, `readExportOptions`, `upgradeDrawing`, `createMemoryStore`, `blobToDataUrl`, `dataUrlToBlob`                     |
+| Drawing together    | `SharedHistory`, `replayEdits`, `createActivitySender`, `receiveActivity`, and `CollaborationServer` (below)                                                                       |
+
+Each is documented where it's defined, in `src/`.
+
+### Palette colors
+
+The library has no palette of its own. Your page names its colors, e.g.
+`"red"`, and says what each looks like. A tool's color, e.g. the pencil's, is
+one of those names or a custom `"#rrggbb"`, so tool settings keep the name
+and follow your palette as it changes. Strokes, fills and notes keep the
+color they were drawn in, e.g. `"#e5484d"`, so the drawing looks the same
+anywhere.
+
+Where the library checks a color, you give it the palette: `isToolColor`
+takes its names, and `readToolSettings` takes them along with the colors the
+highlighter and new notes start with.
+
+```ts
+import { readToolSettings } from "@emmettito/canvas";
+
+const settings = readToolSettings(JSON.parse(saved), {
+  colors: ["black", "red", "blue", "yellow"],
+  highlighter: "yellow",
+  note: "yellow",
+});
+```
+
+### Reading what's saved
+
+Saved drawings, viewports and settings are checked as they're read, since
+they come from storage or another person: `readDrawing`, `readViewport`,
+`readToolSettings` and `readExportOptions` keep what's valid and leave out
+the rest, and `upgradeDrawing` brings a drawing saved by an older version up
+to date.
+
+### Drawing together
+
+`SharedHistory` is a `DrawingHistory` shared through a server: each change is
+sent as an edit, others' edits are applied as they arrive, and undo only
+undoes your own changes, leaving everyone else's, even ones made since.
+`createActivitySender` and `receiveActivity` pass on what each person is in
+the middle of, e.g. a stroke as it's drawn, without keeping it.
+
+The library doesn't send anything itself: you carry the messages, e.g. over a
+WebSocket. On the server, `CollaborationServer` from
 `@emmettito/canvas/collaboration-server` runs the rooms. It has no
 dependencies and doesn't touch the DOM, so it runs in Node. Connect each
-canvas, pass on what it sends, and close it when it goes. A room lasts until
-everyone's left, and keeps everything in memory, so it's for small groups.
-What someone's in the middle of is passed on but never kept.
+person, pass on what they send, and close their connection when they go. A
+room lasts until everyone's left, and keeps everything in memory, so it's for
+small groups.
 
 ```ts
 import { CollaborationServer } from "@emmettito/canvas/collaboration-server";
@@ -639,125 +172,8 @@ new WebSocketServer({ port: 8080 }).on("connection", (socket) => {
 ```
 
 Changes to different parts of the same item are both kept, e.g. one person
-moving a note while another types in it. The same part changed by two
-people at once, e.g. both typing in a note, keeps whichever reached the
-server last. Text being typed stays as it is until typing stops, whatever
-anyone else does.
-
-### Saving
-
-The library doesn't keep anything itself. The page gives it a `store`, which
-every change is saved to as it's made, e.g. one that sends it to the page's
-server, and `canvasId`, the canvas to open from it, or to start with that id
-if the store has none. Without a store, canvases are kept in memory, so they
-only last until the page closes, and without `canvasId` a new canvas opens.
-
-A store has four methods, and three optional ones, which each return a
-promise, and reject if they can't do what they're asked, e.g. offline:
-
-| Method                                  | What it does                                  |
-| --------------------------------------- | --------------------------------------------- |
-| `loadCanvas(id)`                        | The canvas, or null if there's none           |
-| `saveCanvas(canvas)`                    | Keeps it, replacing what was kept, or adds it |
-| `loadImage(canvasId, imageId)`          | An image's file, as a `Blob`, or null         |
-| `saveImage(canvasId, imageId, file)`    | Keeps an image's file, byte for byte          |
-| `listCanvases()`, optional              | Every canvas, without drawings, newest first  |
-| `deleteCanvas(id)`, optional            | Removes a canvas and its images' files        |
-| `pruneImages(canvasId, keep)`, optional | Removes its images' files that aren't `keep`  |
-
-A canvas is its `id`, `name`, `updatedAt`, `drawing` and `viewport`. The
-drawing and viewport are JSON: keep them as they are, e.g. with
-`JSON.stringify`, and give them back unchanged. The canvas checks them as it
-opens them, so ones saved by an older version still open. Images' files are
-kept apart from the drawing, since they're big. History needs `listCanvases`
-and `deleteCanvas`, and New canvas without History, which replaces the open
-canvas, uses `deleteCanvas`. `pruneImages` is called as a canvas opens, for
-files the drawing no longer has, which undoing can't bring back once it's
-opened again.
-
-Opening a canvas loads it, and the canvas can't be drawn on until it's
-loaded, so nothing's lost as it is. Saves go one at a time, in the order the
-changes were made, and only the latest of each canvas is sent. If a change
-can't be saved, the canvas says so at its top right, and saves it with the
-next change. If a canvas can't be opened, it says that instead, and saves
-nothing over it. `whenSaved()` on the mounted canvas resolves once
-everything so far is saved, with whether it was, e.g. before leaving the
-page. Undo history isn't saved, and opening a canvas starts its undo history
-afresh.
-
-A blank canvas is only saved once it's changed, e.g. by a stroke or a rename.
-Editing a canvas moves it to the top of History, and deleting the open one
-opens the next most recent. Without `history`, there's only ever one canvas,
-and starting a new one replaces it. `onOpenCanvas` is called with each
-canvas's id as it opens, e.g. to open it again next time.
-
-The tool settings, e.g. the pencil's color and size, and the export options
-are shared by every canvas. `onSettingsChange` gives them to the page as they
-change, as JSON to keep, e.g. in local storage, and `settings` passes them
-back.
-
-```ts
-const canvas = mountCanvas(document.getElementById("drawing")!, {
-  store: {
-    loadCanvas: async (id) => {
-      const response = await fetch(`/canvases/${id}`);
-      return response.status === 404 ? null : response.json();
-    },
-    saveCanvas: async (canvas) => {
-      const response = await fetch(`/canvases/${canvas.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(canvas),
-      });
-      if (!response.ok) {
-        throw new Error("It wasn't saved.");
-      }
-    },
-    // And loadImage and saveImage, the same way.
-  },
-  canvasId: "sunset",
-});
-```
-
-The demo page keeps its canvases in the browser, with a store of its own,
-`src/demo/local-store.ts`: each part of each drawing in local storage, and
-images' files in IndexedDB, since they're too big for local storage.
-
-The stylesheet only styles the canvas and its toolbar, so it doesn't affect the
-rest of the page, and the page's element styles (e.g. `button {}`) don't affect
-the toolbar. Toolbar text uses the page's font.
-
-To change the colors, set these variables on `.canvas-root` in a rule that
-isn't in a CSS layer:
-
-```css
-.canvas-root {
-  --canvas-color-canvas: #fdf6e3;
-}
-```
-
-| Variable                        | Used for                                 |
-| ------------------------------- | ---------------------------------------- |
-| `--canvas-color-canvas`         | New canvases' background                 |
-| `--canvas-color-cursor`         | Tool size preview under the pointer      |
-| `--canvas-color-surface`        | Toolbar and menu background              |
-| `--canvas-color-border`         | Borders and dividers                     |
-| `--canvas-color-text`           | Text, and icons when chosen              |
-| `--canvas-color-text-muted`     | Icons, dates and placeholders            |
-| `--canvas-color-hover`          | Background of a control under the mouse  |
-| `--canvas-color-selected`       | Background of the chosen tool and color  |
-| `--canvas-color-accent`         | Focus rings and the size picked          |
-| `--canvas-color-danger`         | Deleting, and changes that weren't saved |
-| `--canvas-color-tooltip`        | Tooltip background                       |
-| `--canvas-color-tooltip-text`   | Tooltip text                             |
-| `--canvas-color-swatch-outline` | Outline around each color swatch         |
-| `--canvas-color-note-text`      | Text on sticky notes                     |
-| `--canvas-shadow`               | Shadow under toolbars, menus and notes   |
-
-The drawing colors are `--canvas-color-` followed by `black`, `gray`, `white`,
-`cyan`, `blue`, `purple`, `magenta`, `pink`, `red`, `orange`, `amber`, `gold`,
-`yellow`, `lime` and `green`. Changing one changes its swatch and new strokes in
-that color.
+moving a note while another types in it. The same part changed by two people
+at once, e.g. both typing in a note, keeps whichever reached the server last.
 
 ## Development
 
@@ -770,7 +186,7 @@ npm run dev
 
 | Script                 | Description                              |
 | ---------------------- | ---------------------------------------- |
-| `npm run dev`          | Start the dev server                     |
+| `npm run dev`          | Start the dev server with the demo page  |
 | `npm run build`        | Type-check and build the library         |
 | `npm run build:demo`   | Type-check and build the demo page       |
 | `npm run build:e2e`    | Build the demo and test pages for CI     |
@@ -792,8 +208,7 @@ npx playwright install
 ```
 
 The demo page has only the drawing tools, so most tests use a test page with
-every control
-instead, `e2e/fixtures/full.html`: it saves in the browser, with the demo's
+every control of the demo's canvas instead, `e2e/fixtures/full.html`: it saves in the browser, with the demo's
 store, has the File
 menu and the timer, and keeps the mounted canvas as `window.canvas`, for the
 tests to call what a page would from its own controls, e.g. `setAuthor`. It
@@ -803,6 +218,12 @@ draws together in the room in its address's `room`, through a WebSocket at
 
 ## Demo page
 
+The demo, in `demo/`, is a whole canvas built on the library: its
+toolbars, menus, dialogs, text editing (plain, or formatted with ProseMirror),
+stylesheet and saving are all its own, and it imports the library from
+`@emmettito/canvas`, the way another project would, so it can only use what
+the library exports. It's a good place to see how the utilities fit together.
+
 `npm run dev` serves the demo page, where the canvas fills the window, with
 clear and export, then select, hand and the drawing tools, at the bottom, the
 zoom at the top right, and formatted text. It's only for drawing: there's no
@@ -811,13 +232,10 @@ keyboard, so there's no way to undo on a touch screen without one. What's
 drawn is saved in the browser, with the demo's own store, so a refresh keeps
 it, and the export dialog names it.
 
-The full app built on the library, with saving, naming canvases, profiles,
-themes, the timer and drawing together, is
-[canvas-app](https://github.com/emmettito/canvas-app).
-
 The demo's toolbar icons are [Phosphor](https://phosphoricons.com)'s regular
 weight, under the MIT license, which the demo page ships in
-`public/licenses/phosphor-icons.txt`. They're a development dependency only.
+`public/licenses/phosphor-icons.txt`. They, and ProseMirror, are development
+dependencies only: the library doesn't use them.
 
 The favicons are a drawing made on the canvas. To make new ones, export a
 drawing as SVG and run `npm run icons path/to/drawing.svg`. It crops the

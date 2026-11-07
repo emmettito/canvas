@@ -1,10 +1,7 @@
 import { isOldInk, upgradeInk } from "./upgrade-drawing";
-import { COLORS } from "../constants/colors.const";
-import { DEFAULT_NOTE_COLOR } from "../constants/default-note-color.const";
 import { DEFAULT_TOOL_SIZES } from "../constants/default-tool-sizes.const";
 import { EXPORT_FORMATS } from "../constants/export-formats.const";
 import { EXPORT_SCALES } from "../constants/export-scales.const";
-import { HIGHLIGHTER } from "../constants/highlighter.const";
 import { ITEM_KINDS } from "../constants/item-kinds.const";
 import { MAX_RECENT_COLORS } from "../constants/recent-colors.const";
 import { MAX_TOOL_SIZE } from "../constants/max-tool-size.const";
@@ -34,6 +31,7 @@ import {
   isColorFormat,
 } from "./color-formats";
 import { isCustomColor, isToolColor } from "./colors";
+import { type PaletteColor, type ToolColor } from "../models/color.model";
 import { mergeRuns } from "./layers";
 import { getFullName, splitName } from "./person-names";
 import { fromPlainText, isRichText } from "./rich-text";
@@ -288,7 +286,10 @@ function isToolSize(value: unknown): value is number {
 // and the bucket's own color have no note color, text size, recent colors,
 // rulers, highlighter or bucket color, so they're checked on their own. A
 // tool that's been removed, e.g. the shape tool, is checked on its own too.
-function isToolSettings(value: unknown): value is Omit<
+function isToolSettings(
+  value: unknown,
+  palette: readonly PaletteColor[]
+): value is Omit<
   ToolSettings,
   | "activeTool"
   | "tools"
@@ -317,7 +318,7 @@ function isToolSettings(value: unknown): value is Omit<
     eraser.color === undefined &&
     isToolSize(eraser.size) &&
     isObject(pencil) &&
-    isToolColor(pencil.color) &&
+    isToolColor(pencil.color, palette) &&
     isToolSize(pencil.size)
   );
 }
@@ -340,9 +341,26 @@ function isEntry(value: unknown): value is CanvasEntry {
   );
 }
 
-/** Tool settings as they're used, or null if `value` isn't any. */
-export function readToolSettings(value: unknown): ToolSettings | null {
-  if (!isToolSettings(value)) {
+/**
+ * The page's palette, for reading tool settings: the colors in it, and the
+ * ones tools start with when the settings don't say, e.g. ones saved before
+ * the tool had a color of its own.
+ */
+export interface SettingsPalette {
+  colors: readonly PaletteColor[];
+  highlighter: ToolColor;
+  note: ToolColor;
+}
+
+/**
+ * Tool settings as they're used, or null if `value` isn't any. Colors that
+ * aren't `palette`'s, or custom, are left out.
+ */
+export function readToolSettings(
+  value: unknown,
+  palette: SettingsPalette
+): ToolSettings | null {
+  if (!isToolSettings(value, palette.colors)) {
     return null;
   }
   const {
@@ -367,20 +385,22 @@ export function readToolSettings(value: unknown): ToolSettings | null {
       ...tools,
       highlighter:
         isObject(highlighter) &&
-        isToolColor(highlighter.color) &&
+        isToolColor(highlighter.color, palette.colors) &&
         isToolSize(highlighter.size)
           ? { color: highlighter.color, size: highlighter.size }
           : {
-              color: HIGHLIGHTER.color,
+              color: palette.highlighter,
               size: DEFAULT_TOOL_SIZES.highlighter,
             },
     },
     // The bucket filled in the pencil's color before it had its own. The
     // pencil's is checked, so the fallback only satisfies the type.
-    bucketColor: isToolColor(bucketColor)
+    bucketColor: isToolColor(bucketColor, palette.colors)
       ? bucketColor
-      : (tools.pencil.color ?? COLORS[0]),
-    noteColor: isToolColor(noteColor) ? noteColor : DEFAULT_NOTE_COLOR,
+      : (tools.pencil.color ?? palette.colors[0]),
+    noteColor: isToolColor(noteColor, palette.colors)
+      ? noteColor
+      : palette.note,
     textSize: isTextSize(textSize) ? textSize : TEXT_LAYOUT.defaultSize,
     recentColors: Array.isArray(recentColors)
       ? recentColors.filter(isCustomColor).slice(0, MAX_RECENT_COLORS)
