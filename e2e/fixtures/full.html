@@ -18,7 +18,29 @@
          call the mounted canvas, `window.canvas`, for what a page would set
          from its own controls, e.g. the author or background. -->
     <script type="module">
-      import { mountCanvas } from "/src/index.ts";
+      import {
+        bucketTool,
+        colorControl,
+        dropperTool,
+        eraserTool,
+        exportItem,
+        fileMenu,
+        handTool,
+        highlighterTool,
+        historyItem,
+        imageButton,
+        mountCanvas,
+        newCanvasItem,
+        noteTool,
+        pencilTool,
+        redoButton,
+        renameItem,
+        selectTool,
+        textTool,
+        timerControl,
+        undoButton,
+        zoomControl,
+      } from "/src/index.ts";
       import { proseMirrorEditor } from "/src/prosemirror.ts";
       // The build leaves out `index.ts`'s own import of it, as `main.ts`
       // says.
@@ -26,7 +48,6 @@
 
       const icon = () =>
         document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      const button = (action) => ({ action, icon: icon() });
 
       const canvas = mountCanvas(document.body, {
         storageKey: "canvas",
@@ -40,29 +61,31 @@
         },
         topToolbar: [
           [
-            {
-              action: "file-menu",
-              items: ["new-canvas", "history", "rename", "export"],
-            },
+            fileMenu([
+              newCanvasItem(),
+              historyItem(),
+              renameItem(),
+              exportItem(),
+            ]),
           ],
         ],
         toolbar: [
-          [button("undo"), button("redo")],
+          [undoButton(icon()), redoButton(icon())],
           [
-            button("select"),
-            button("hand"),
-            button("pencil"),
-            button("highlighter"),
-            button("eraser"),
-            button("bucket"),
-            button("note"),
-            button("text"),
-            { action: "color" },
-            button("dropper"),
+            selectTool(icon()),
+            handTool(icon()),
+            pencilTool(icon()),
+            highlighterTool(icon()),
+            eraserTool(icon()),
+            bucketTool(icon()),
+            noteTool(icon()),
+            textTool(icon()),
+            colorControl(),
+            dropperTool(icon()),
           ],
-          [button("image")],
+          [imageButton(icon())],
         ],
-        topRightToolbar: [[{ action: "timer" }], [{ action: "zoom" }]],
+        topRightToolbar: [[timerControl()], [zoomControl()]],
       });
       window.canvas = canvas;
 

@@ -1,4 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { colorControl } from "../../controls/color-control";
+import { customButton } from "../../controls/custom-button";
+import { exportButton, exportItem } from "../../controls/export";
+import { fileMenu } from "../../controls/file-menu";
+import { historyButton, historyItem } from "../../controls/history";
+import { newCanvasButton, newCanvasItem } from "../../controls/new-canvas";
+import { renameItem } from "../../controls/rename";
+import { eraserTool, pencilTool } from "../../controls/tools";
+import { redoButton, undoButton } from "../../controls/undo-buttons";
+import { zoomControl } from "../../controls/zoom-control";
 import {
   type FileMenuItem,
   type ToolbarControl,
@@ -54,7 +64,7 @@ describe("mountCanvas", () => {
     expect(container.querySelectorAll(".canvas-root")).toHaveLength(1);
   });
 
-  it("doesn't take the old name of the select tool", () => {
+  it("doesn't take a control in the old form, named by its action", () => {
     const container = document.createElement("div");
 
     expect(() =>
@@ -62,7 +72,7 @@ describe("mountCanvas", () => {
         toolbar: [
           [
             {
-              action: "move",
+              action: "select",
               icon: createIcon(),
             } as unknown as ToolbarControl,
           ],
@@ -72,10 +82,8 @@ describe("mountCanvas", () => {
   });
 
   it("puts down a saved tool that isn't on a toolbar for the pencil", () => {
-    const button = (action: "eraser" | "pencil") => ({
-      action,
-      icon: createIcon(),
-    });
+    const button = (tool: "eraser" | "pencil") =>
+      (tool === "eraser" ? eraserTool : pencilTool)(createIcon());
     const container = document.createElement("div");
     const first = mountCanvas(container, {
       storageKey: "saved-tool",
@@ -144,11 +152,8 @@ describe("mountCanvas", () => {
 
     mountCanvas(container, {
       toolbar: [
-        [
-          { action: "undo", icon: createIcon() },
-          { action: "redo", icon: createIcon() },
-        ],
-        [{ action: "color" }],
+        [undoButton(createIcon()), redoButton(createIcon())],
+        [colorControl()],
       ],
     });
 
@@ -166,7 +171,7 @@ describe("mountCanvas", () => {
     const icon = createIcon();
     const first = document.createElement("div");
     const second = document.createElement("div");
-    const toolbar = [[{ action: "undo", icon } as const]];
+    const toolbar = [[undoButton(icon)]];
 
     mountCanvas(first, { toolbar });
     mountCanvas(second, { toolbar });
@@ -178,61 +183,19 @@ describe("mountCanvas", () => {
 
   it.each<[string, ToolbarControl[][], string]>([
     [
-      "an unknown control",
+      "something that isn't a control",
       [[{ action: "lasso", icon: createIcon() } as unknown as ToolbarControl]],
-      '"lasso" isn\'t a toolbar control.',
+      "The toolbar lists something that isn't a control.",
     ],
     [
       "a control listed twice",
-      [[{ action: "color" }], [{ action: "color" }]],
+      [[colorControl()], [colorControl()]],
       'The toolbar lists "color" more than once.',
     ],
     [
-      "a button without an icon",
-      [[{ action: "undo" } as unknown as ToolbarControl]],
-      'The toolbar\'s "undo" button needs an icon.',
-    ],
-    [
-      "an empty file menu",
-      [[{ action: "file-menu", items: [] }]],
-      "The file menu needs at least one item.",
-    ],
-    [
-      "something the file menu can't list",
-      [
-        [
-          {
-            action: "file-menu",
-            items: ["undo"] as unknown as FileMenuItem[],
-          },
-        ],
-      ],
-      '"undo" can\'t go in the file menu.',
-    ],
-    [
       "an action both in the file menu and as a button",
-      [
-        [{ action: "file-menu", items: ["export"] }],
-        [{ action: "export", icon: createIcon() }],
-      ],
+      [[fileMenu([exportItem()])], [exportButton(createIcon())]],
       'The toolbar lists "export" more than once.',
-    ],
-    [
-      "a custom control without a label",
-      [[{ action: "custom", label: "", onClick: () => {} }]],
-      "A custom toolbar control needs a label.",
-    ],
-    [
-      "a custom control without an onClick",
-      [
-        [
-          {
-            action: "custom",
-            label: "Settings",
-          } as unknown as ToolbarControl,
-        ],
-      ],
-      'The toolbar\'s "Settings" control needs an onClick.',
     ],
   ])("throws for %s, before adding anything", (_, toolbar, message) => {
     const container = document.createElement("div");
@@ -241,12 +204,42 @@ describe("mountCanvas", () => {
     expect(container.children).toHaveLength(0);
   });
 
+  it.each<[string, () => unknown, string]>([
+    [
+      "a button without an icon",
+      () => undoButton(undefined as unknown as Element),
+      'The toolbar\'s "undo" button needs an icon.',
+    ],
+    [
+      "an empty file menu",
+      () => fileMenu([]),
+      "The file menu needs at least one item.",
+    ],
+    [
+      "something the file menu can't list",
+      () => fileMenu([undoButton(createIcon())] as unknown as FileMenuItem[]),
+      "The file menu lists something that isn't a menu item.",
+    ],
+    [
+      "a custom button without a label",
+      () => customButton("", () => {}),
+      "A custom toolbar button needs a label.",
+    ],
+    [
+      "a custom button without an onClick",
+      () => customButton("Settings", undefined as unknown as () => void),
+      'The toolbar\'s "Settings" button needs an onClick.',
+    ],
+  ])("throws for %s as it's made", (_, make, message) => {
+    expect(make).toThrow(message);
+  });
+
   it("floats the toolbars, the top one at the top", () => {
     const container = document.createElement("div");
 
     mountCanvas(container, {
-      topToolbar: [[{ action: "export", icon: createIcon() }]],
-      toolbar: [[{ action: "undo", icon: createIcon() }]],
+      topToolbar: [[exportButton(createIcon())]],
+      toolbar: [[undoButton(createIcon())]],
     });
 
     // Not the tools' options, which are toolbars of their own.
@@ -264,7 +257,7 @@ describe("mountCanvas", () => {
     const container = document.createElement("div");
 
     mountCanvas(container, {
-      topRightToolbar: [[{ action: "zoom" }]],
+      topRightToolbar: [[zoomControl()]],
     });
 
     const corner = container.querySelector(".canvas-corner")!;
@@ -280,7 +273,7 @@ describe("mountCanvas", () => {
     const container = document.createElement("div");
 
     mountCanvas(container, {
-      topRightToolbar: [[{ action: "zoom" }]],
+      topRightToolbar: [[zoomControl()]],
     });
 
     const toolbar = container.querySelector(".canvas-corner .canvas-toolbar")!;
@@ -294,8 +287,8 @@ describe("mountCanvas", () => {
 
     expect(() =>
       mountCanvas(container, {
-        toolbar: [[{ action: "zoom" }]],
-        topRightToolbar: [[{ action: "zoom" }]],
+        toolbar: [[zoomControl()]],
+        topRightToolbar: [[zoomControl()]],
       })
     ).toThrow('The toolbar lists "zoom" more than once.');
   });
@@ -303,7 +296,7 @@ describe("mountCanvas", () => {
   it("hides and shows the toolbars with Ctrl+\\ or Cmd+\\", () => {
     const container = document.createElement("div");
     const canvas = mountCanvas(container, {
-      toolbar: [[{ action: "undo", icon: createIcon() }]],
+      toolbar: [[undoButton(createIcon())]],
     });
     const root = container.querySelector(".canvas-root")!;
     const press = (init: KeyboardEventInit) =>
@@ -327,8 +320,8 @@ describe("mountCanvas", () => {
 
   it("checks both toolbars together", () => {
     const container = document.createElement("div");
-    const newCanvas = { action: "new-canvas", icon: createIcon() } as const;
-    const history = { action: "history", icon: createIcon() } as const;
+    const newCanvas = newCanvasButton(createIcon());
+    const history = historyButton(createIcon());
 
     expect(() =>
       mountCanvas(container, {
@@ -348,7 +341,7 @@ describe("mountCanvas", () => {
     const container = document.createElement("div");
 
     mountCanvas(container, {
-      topToolbar: [[{ action: "file-menu", items: ["new-canvas", "history"] }]],
+      topToolbar: [[fileMenu([newCanvasItem(), historyItem()])]],
     });
 
     const buttons = container.querySelectorAll(".canvas-toolbar button");
@@ -374,7 +367,7 @@ describe("mountCanvas", () => {
 
     mountCanvas(container, {
       onNameChange,
-      topToolbar: [[{ action: "file-menu", items: ["rename"] }]],
+      topToolbar: [[fileMenu([renameItem()])]],
     });
     expect(onNameChange).toHaveBeenCalledExactlyOnceWith("");
 
@@ -395,7 +388,7 @@ describe("mountCanvas", () => {
     const onNameChange = vi.fn();
     mountCanvas(container, {
       onNameChange,
-      topToolbar: [[{ action: "file-menu", items: ["rename"] }]],
+      topToolbar: [[fileMenu([renameItem()])]],
     });
 
     const input = openRename(container);
@@ -416,9 +409,9 @@ describe("mountCanvas", () => {
     mountCanvas(container, {
       topToolbar: [
         [
-          { action: "file-menu", items: ["export"] },
-          { action: "custom", label: "Settings", onClick: onSettings },
-          { action: "custom", label: "Help", onClick: onHelp },
+          fileMenu([exportItem()]),
+          customButton("Settings", onSettings),
+          customButton("Help", onHelp),
         ],
       ],
     });

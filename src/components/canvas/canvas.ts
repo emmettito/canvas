@@ -16,7 +16,7 @@ import {
   type ItemKind,
 } from "../../models/drawing.model";
 import { type DrawingChange } from "../../models/drawing-change.model";
-import { type ExportOptions } from "../../models/export-options.model";
+import { type ExportSource } from "../../models/export-options.model";
 import { type Fill } from "../../models/fill.model";
 import { type ImageItem } from "../../models/image-item.model";
 import { type Layer } from "../../models/layer.model";
@@ -48,7 +48,7 @@ import {
   toHex,
   withAlpha,
 } from "../../utilities/colors";
-import { exportDrawing, renderDrawing } from "../../utilities/export-drawing";
+import { renderDrawing } from "../../utilities/export-drawing";
 import { getByline, getSignerNames } from "../../utilities/get-byline";
 import { getCssVariable } from "../../utilities/get-css-variable";
 import {
@@ -2044,29 +2044,27 @@ export class Canvas {
   }
 
   /**
-   * The drawing as a file, drawn again at the chosen scale rather than copied
-   * from the screen, so its size doesn't depend on the screen's. `author`,
-   * if there is one, is kept in the file, except a JPEG.
+   * What exporting the drawing needs: what's drawn and shown, how its text
+   * looks, which comes from CSS, and its images' files, by id. The export
+   * control makes the file from it, so the canvas doesn't need the code that
+   * makes files.
    */
-  async export(options: ExportOptions, author = ""): Promise<Blob | null> {
-    const drawing = this.#getDrawing();
-    const textStyle = this.#getTextStyle();
+  async getExportSource(): Promise<ExportSource> {
     const files = new Map<string, Blob>();
+    const drawing = this.#getDrawing();
     for (const { id } of drawing.images) {
       const file = await this.#options.getImage(id);
       if (file) {
         files.set(id, file);
       }
     }
-    return exportDrawing(
+    return {
       drawing,
-      this.visibleArea,
-      options,
-      this.#background,
-      textStyle,
+      area: this.visibleArea,
+      background: this.#background,
+      textStyle: this.#getTextStyle(),
       files,
-      author
-    );
+    };
   }
 
   // What drawing the drawing again needs: the drawing, how its text looks,

@@ -14,7 +14,13 @@
   <body>
     <!-- The canvas without a text editor plugin, as most pages use it. -->
     <script type="module">
-      import { mountCanvas } from "/src/index.ts";
+      import {
+        colorControl,
+        mountCanvas,
+        noteTool,
+        textTool,
+        undoButton,
+      } from "/src/index.ts";
       // The build leaves out `index.ts`'s own import of it, as `main.ts`
       // says.
       import "/src/styles.css";
@@ -24,10 +30,10 @@
       mountCanvas(document.body, {
         toolbar: [
           [
-            { action: "undo", icon: icon() },
-            { action: "note", icon: icon() },
-            { action: "text", icon: icon() },
-            { action: "color" },
+            undoButton(icon()),
+            noteTool(icon()),
+            textTool(icon()),
+            colorControl(),
           ],
         ],
       });

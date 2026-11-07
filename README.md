@@ -48,50 +48,63 @@ canvas.unmount();
 ### The toolbar
 
 Without a `toolbar`, there's only the canvas. List the controls you want, in
-groups, in order. Each button needs an icon, which the library doesn't
-provide, so the icons match the rest of your app. Pass any element, e.g. an
-`<svg>`. It's copied, shown at 16 by 16 pixels and hidden from screen readers,
-since the toolbar names each button itself. Use `currentColor` in it to follow
-the toolbar's colors.
+groups, in order. Each control is a function you import, so your build only
+has the controls you use, along with what only they need, e.g. the export
+dialog and the code that makes PNG, JPEG and SVG files.
+
+Each button needs an icon, which the library doesn't provide, so the icons
+match the rest of your app. Pass any element, e.g. an `<svg>`. It's copied,
+shown at 16 by 16 pixels and hidden from screen readers, since the toolbar
+names each button itself. Use `currentColor` in it to follow the toolbar's
+colors.
 
 ```ts
+import {
+  colorControl,
+  eraserTool,
+  exportButton,
+  mountCanvas,
+  pencilTool,
+  redoButton,
+  undoButton,
+} from "@emmettito/canvas";
+
 mountCanvas(document.getElementById("drawing")!, {
   toolbar: [
-    [
-      { action: "undo", icon: undoIcon },
-      { action: "redo", icon: redoIcon },
-    ],
-    [
-      { action: "pencil", icon: pencilIcon },
-      { action: "eraser", icon: eraserIcon },
-      { action: "color" },
-    ],
-    [{ action: "export", icon: exportIcon }],
+    [undoButton(undoIcon), redoButton(redoIcon)],
+    [pencilTool(pencilIcon), eraserTool(eraserIcon), colorControl()],
+    [exportButton(exportIcon)],
   ],
 });
 ```
 
-| Control            | Does                                              |
-| ------------------ | ------------------------------------------------- |
-| `undo`, `redo`     | Undo or redo the last change                      |
-| `clear`            | Remove everything, once asked, for good           |
-| `new-canvas`       | Start a blank canvas                              |
-| `history`          | Open or delete canvases drawn earlier             |
-| `export`           | Name and export as PNG, JPEG or SVG (see below)   |
-| `select`           | Pick, move and resize what's placed (see below)   |
-| `hand`             | Pan by dragging from anywhere (see below)         |
-| `pencil`, `eraser` | Pick the tool, showing its options (see below)    |
-| `highlighter`      | The same, drawing see-through (see below)         |
-| `bucket`           | Fill areas with its own color (see below)         |
-| `text`             | Add text                                          |
-| `note`             | Add sticky notes                                  |
-| `image`            | Insert images from files                          |
-| `color`            | Pick the drawing tools' or notes' color (no icon) |
-| `dropper`          | Pick a color from the drawing                     |
-| `zoom`             | Show the zoom, with a menu to change it (no icon) |
-| `timer`            | A timer, showing how long's left (no icon)        |
-| `file-menu`        | A File menu of file actions (no icon)             |
-| `custom`           | Your own text button, e.g. Settings (no icon)     |
+| Control                        | Name          | Does                                            |
+| ------------------------------ | ------------- | ----------------------------------------------- |
+| `undoButton`, `redoButton`     | `undo`/`redo` | Undo or redo the last change                    |
+| `clearButton`                  | `clear`       | Remove everything, once asked, for good         |
+| `newCanvasButton`              | `new-canvas`  | Start a blank canvas                            |
+| `historyButton`                | `history`     | Open or delete canvases drawn earlier           |
+| `exportButton`                 | `export`      | Name and export as PNG, JPEG or SVG (see below) |
+| `selectTool`                   | `select`      | Pick, move and resize what's placed (see below) |
+| `handTool`                     | `hand`        | Pan by dragging from anywhere (see below)       |
+| `pencilTool`, `eraserTool`     | `pencil` etc. | Pick the tool, showing its options (see below)  |
+| `highlighterTool`              | `highlighter` | The same, drawing see-through (see below)       |
+| `bucketTool`                   | `bucket`      | Fill areas with its own color (see below)       |
+| `textTool`                     | `text`        | Add text                                        |
+| `noteTool`                     | `note`        | Add sticky notes                                |
+| `imageButton`                  | `image`       | Insert images from files                        |
+| `colorControl()`               | `color`       | Pick the tools' or notes' color (no icon)       |
+| `dropperTool`                  | `dropper`     | Pick a color from the drawing                   |
+| `zoomControl()`                | `zoom`        | Show the zoom, with a menu to change it         |
+| `timerControl()`               | `timer`       | A timer, showing how long's left                |
+| `fileMenu(items)`              | `file-menu`   | A File menu of file actions (see below)         |
+| `customButton(label, onClick)` | none          | Your own text button, e.g. Settings             |
+
+The rest of this README calls each control by its name. Leaving a control out
+leaves out what it does, but not what's drawn: a canvas without `bucketTool`
+still shows fills drawn by someone else, and undo and redo still work from
+the keyboard without their buttons: Ctrl+Z, and Ctrl+Shift+Z or Ctrl+Y (Cmd
+on a Mac).
 
 Every change is saved as it's made, so nothing asks before starting a new
 canvas or opening another (see [Saving](#saving)).
@@ -104,34 +117,40 @@ rather than what's drawn. Their menus open downward. Each
 control can only be on one toolbar. Ctrl+\ (Cmd+\ on a Mac) hides and shows
 them all, to see the whole canvas.
 
-The file actions can go in a File menu instead of being buttons: list any of
-`new-canvas`, `history` (shown as "Open"), `rename` and `export` in its
-`items`, in order. Menu items are text, so they don't take icons. An action
-can be in the menu or a button, not both. `rename` is only in the menu: it asks
-for a new name in a small dialog, with Save and Cancel.
+The file actions can go in a File menu instead of being buttons: pass
+`fileMenu` any of `newCanvasItem()`, `historyItem()` (shown as "Open"),
+`renameItem()` and `exportItem()`, in order. Menu items are text, so they
+don't take icons. An action can be in the menu or a button, not both.
+`rename` is only in the menu: it asks for a new name in a small dialog, with
+Save and Cancel.
 
 For your own buttons, e.g. to open your app's settings beside the File menu,
-add `custom` controls with a `label` and an `onClick`. They're text buttons, so
+add `customButton`s with a label and an `onClick`. They're text buttons, so
 they don't take icons, and there can be any number of them.
 
 ```ts
+import {
+  customButton,
+  eraserTool,
+  exportItem,
+  fileMenu,
+  historyItem,
+  mountCanvas,
+  newCanvasItem,
+  pencilTool,
+  renameItem,
+  zoomControl,
+} from "@emmettito/canvas";
+
 mountCanvas(document.getElementById("drawing")!, {
   topToolbar: [
     [
-      {
-        action: "file-menu",
-        items: ["new-canvas", "history", "rename", "export"],
-      },
-      { action: "custom", label: "Settings", onClick: openSettings },
+      fileMenu([newCanvasItem(), historyItem(), renameItem(), exportItem()]),
+      customButton("Settings", openSettings),
     ],
   ],
-  topRightToolbar: [[{ action: "zoom" }]],
-  toolbar: [
-    [
-      { action: "pencil", icon: pencilIcon },
-      { action: "eraser", icon: eraserIcon },
-    ],
-  ],
+  topRightToolbar: [[zoomControl()]],
+  toolbar: [[pencilTool(pencilIcon), eraserTool(eraserIcon)]],
 });
 ```
 
@@ -149,10 +168,10 @@ mountCanvas(document.getElementById("drawing")!, {
 });
 ```
 
-Mounting throws if the toolbars can't work as listed, e.g. a misspelled
-control, one listed twice (on either toolbar or in the File menu) or a button
-without an icon, before anything is
-added to the page.
+A control throws as it's made if it can't work, e.g. a button without an
+icon or an empty File menu. Mounting throws if the toolbars can't work as
+listed, e.g. something that isn't a control, or one listed twice (on any
+toolbar or in the File menu), before anything is added to the page.
 
 Each tool has a key, shown in its button's tooltip, which picks it while the
 canvas is in use and nothing's being typed: V for `select`, H for `hand`, M
@@ -160,8 +179,8 @@ for `pencil`, Shift+M for `highlighter`, E for `eraser`, G for `bucket`, S for
 `note`, T for `text` and I for `dropper`. They're like FigJam's where it has
 the same tool. Only tools on a toolbar have one.
 
-`select` used to be called `move`, which a toolbar can't list any more: mounting
-one that does throws an error. A saved `move` is put down for the pencil.
+`select` used to be called `move`. A tool saved as `move` is put down for the
+pencil.
 
 While `pencil`, `highlighter`, `eraser`, `bucket` or `note` is picked, its
 options show

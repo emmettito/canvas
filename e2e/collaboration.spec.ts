@@ -595,3 +595,24 @@ test("a timer started by anyone counts down for everyone, and stops for everyone
     a.getByRole("button", { name: "Timer", exact: true })
   ).toBeVisible();
 });
+
+test("a timer's popover closes when someone else stops it", async ({
+  browser,
+}) => {
+  const { a, b } = await openTogether(browser);
+  await a.getByRole("button", { name: "Timer", exact: true }).click();
+  await a.getByRole("button", { name: "Start" }).click();
+  const timer = b.getByRole("button", { name: /^Timer: / });
+  await timer.click();
+  await expect(b.getByText("Started by Ada")).toBeVisible();
+  await expect(timer).toHaveAttribute("aria-expanded", "true");
+
+  await a.getByRole("button", { name: /^Timer: / }).click();
+  await a.getByRole("button", { name: "Stop" }).click();
+
+  // What it offered, stopping it, has gone.
+  await expect(b.getByText("Started by Ada")).toBeHidden();
+  await expect(
+    b.getByRole("button", { name: "Timer", exact: true })
+  ).toHaveAttribute("aria-expanded", "false");
+});
