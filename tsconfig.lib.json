@@ -10,7 +10,7 @@
     "outDir": "./dist/types",
     "rootDir": "./src"
   },
+  // The library is only `src`, without its tests. The demo is apart from it.
   "include": ["src"],
-  // The demo page's files.
-  "exclude": ["src/main.ts", "src/demo-icons.ts", "src/**/*.test.ts"]
+  "exclude": ["src/**/*.test.ts"]
 }

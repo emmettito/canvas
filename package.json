@@ -15,22 +15,17 @@
       "types": "./dist/types/index.d.ts",
       "default": "./dist/canvas.js"
     },
-    "./prosemirror": {
-      "types": "./dist/types/prosemirror.d.ts",
-      "default": "./dist/prosemirror.js"
-    },
     "./collaboration-server": {
       "types": "./dist/types/collaboration-server.d.ts",
       "default": "./dist/collaboration-server.js"
-    },
-    "./styles.css": "./dist/canvas.css"
+    }
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && tsc -p tsconfig.lib.json && node scripts/strip-css-imports.ts",
+    "build": "tsc -b && vite build && tsc -p tsconfig.lib.json",
     "build:demo": "tsc -b && vite build --mode demo",
     "build:e2e": "vite build --mode e2e",
     "prepare": "npm run build",
@@ -64,34 +59,6 @@
     "vite": "^8.3.5",
     "vitest": "^5.0.5",
     "ws": "^8.22.0"
-  },
-  "peerDependencies": {
-    "prosemirror-commands": "^1.7.2",
-    "prosemirror-history": "^1.5.1",
-    "prosemirror-keymap": "^1.2.3",
-    "prosemirror-model": "^1.25.12",
-    "prosemirror-state": "^1.4.4",
-    "prosemirror-view": "^1.42.8"
-  },
-  "peerDependenciesMeta": {
-    "prosemirror-commands": {
-      "optional": true
-    },
-    "prosemirror-history": {
-      "optional": true
-    },
-    "prosemirror-keymap": {
-      "optional": true
-    },
-    "prosemirror-model": {
-      "optional": true
-    },
-    "prosemirror-state": {
-      "optional": true
-    },
-    "prosemirror-view": {
-      "optional": true
-    }
   },
   "allowScripts": {
     "fsevents": false

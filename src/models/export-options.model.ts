@@ -1,4 +1,4 @@
-import { type TextStyle } from "../utilities/export-drawing";
+import { type ExportTextStyle } from "../utilities/export-drawing";
 import { type Box } from "./box.model";
 import { type Drawing } from "./drawing.model";
 
@@ -24,6 +24,6 @@ export interface ExportSource {
   drawing: Drawing;
   area: Box;
   background: string;
-  textStyle: TextStyle;
+  textStyle: ExportTextStyle;
   files: Map<string, Blob>;
 }

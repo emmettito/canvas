@@ -40,12 +40,12 @@
         timerControl,
         undoButton,
         zoomControl,
-      } from "/src/index.ts";
-      import { proseMirrorEditor } from "/src/prosemirror.ts";
-      import { savedLocally } from "/src/demo/local-store.ts";
-      // The build leaves out `index.ts`'s own import of it, as `main.ts`
-      // says.
-      import "/src/styles.css";
+      } from "/demo/canvas.ts";
+      import { proseMirrorEditor } from "/demo/plugins/prosemirror/prosemirror-editor.ts";
+      import { savedLocally } from "/demo/stores/local-store.ts";
+      // The build leaves out any import of it in `canvas.ts`, as that
+      // file says.
+      import "/demo/styles.css";
 
       const icon = () =>
         document.createElementNS("http://www.w3.org/2000/svg", "svg");

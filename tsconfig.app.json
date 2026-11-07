@@ -20,7 +20,10 @@
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
+    "noUncheckedSideEffectImports": true,
+
+    // The demo imports the library the way another project would.
+    "paths": { "@emmettito/canvas": ["./src/index.ts"] }
   },
-  "include": ["src"]
+  "include": ["src", "demo"]
 }

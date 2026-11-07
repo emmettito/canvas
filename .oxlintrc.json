@@ -97,6 +97,22 @@
       "env": {
         "browser": true
       }
+    },
+    {
+      "files": ["src/**/*.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/demo/**", "*.css", "@emmettito/canvas"],
+                "message": "The library is utilities only: its UI and styles belong to the demo."
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

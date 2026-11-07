@@ -1,11 +1,9 @@
-import { COLORS } from "../constants/colors.const";
 import { MAX_RECENT_COLORS } from "../constants/recent-colors.const";
 import {
-  type Color,
   type CustomColor,
+  type PaletteColor,
   type ToolColor,
 } from "../models/color.model";
-import { getCssVariable } from "./get-css-variable";
 
 export function isCustomColor(value: unknown): value is CustomColor {
   return (
@@ -36,34 +34,12 @@ export function withAlpha(color: CustomColor, alpha: number): CustomColor {
     : `${solid}${value.toString(16).padStart(2, "0")}`;
 }
 
-export function isToolColor(value: unknown): value is ToolColor {
-  return COLORS.includes(value as Color) || isCustomColor(value);
-}
-
-/**
- * The color's value, read from `element`'s CSS if it's the palette's. That's
- * kept as "#rrggbb", however the stylesheet writes it, e.g. "red" for
- * "#ff0000" once it's minified, so what's drawn and exported doesn't depend
- * on it.
- */
-export function resolveColor(element: Element, color: ToolColor): string {
-  if (isCustomColor(color)) {
-    return color;
-  }
-  const value = getCssVariable(element, color);
-  return readCssColor(value) ?? value;
-}
-
-/**
- * What the color's called, as its button and tooltip say, e.g. "Red", or
- * "#ff8800" for a custom one.
- */
-export function getColorName(color: ToolColor): string {
-  if (isCustomColor(color)) {
-    return color;
-  }
-  const name = color.replace("--canvas-color-", "");
-  return name.charAt(0).toUpperCase() + name.slice(1);
+/** Whether `value` is one of `palette`'s colors, or a custom one. */
+export function isToolColor(
+  value: unknown,
+  palette: readonly PaletteColor[]
+): value is ToolColor {
+  return palette.includes(value as PaletteColor) || isCustomColor(value);
 }
 
 // Reads colors for `normalizeColor`, made the first time it's needed.

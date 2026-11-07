@@ -11,16 +11,24 @@ import {
   readExportOptions,
   readToolSettings,
   readViewport,
+  type SettingsPalette,
 } from "./read-saved";
+
+// A page's palette, by the names it gives its colors.
+const PALETTE: SettingsPalette = {
+  colors: ["red", "blue", "yellow", "lime"],
+  highlighter: "lime",
+  note: "yellow",
+};
 
 const SETTINGS: ToolSettings = {
   activeTool: "eraser",
   tools: {
     eraser: { color: undefined, size: 20 },
-    pencil: { color: "--canvas-color-red", size: 10 },
+    pencil: { color: "red", size: 10 },
     highlighter: { color: "#ffee00", size: 20 },
   },
-  bucketColor: "--canvas-color-blue",
+  bucketColor: "blue",
   noteColor: "#ff8800",
   textSize: 32,
   recentColors: ["#ff8800", "#123456"],
@@ -340,8 +348,8 @@ describe("readExportOptions", () => {
 
 describe("readToolSettings", () => {
   it("reads back what was saved", () => {
-    expect(readToolSettings(roundTrip(SETTINGS))).toEqual(SETTINGS);
-    expect(readToolSettings(null)).toBeNull();
+    expect(readToolSettings(roundTrip(SETTINGS), PALETTE)).toEqual(SETTINGS);
+    expect(readToolSettings(null, PALETTE)).toBeNull();
   });
 
   it("ignores a pencil color that's neither the palette's nor hex", () => {
@@ -350,7 +358,7 @@ describe("readToolSettings", () => {
       tools: { ...SETTINGS.tools, pencil: { color: "tomato", size: 10 } },
     };
 
-    expect(readToolSettings(settings)).toBeNull();
+    expect(readToolSettings(settings, PALETTE)).toBeNull();
   });
 
   it("gives settings saved before notes and text their defaults", () => {
@@ -362,9 +370,9 @@ describe("readToolSettings", () => {
       ...older
     } = SETTINGS;
 
-    expect(readToolSettings(roundTrip(older))).toEqual({
+    expect(readToolSettings(roundTrip(older), PALETTE)).toEqual({
       ...older,
-      noteColor: "--canvas-color-yellow",
+      noteColor: "yellow",
       textSize: 24,
       recentColors: [],
       rulers: false,
@@ -374,18 +382,23 @@ describe("readToolSettings", () => {
   it("gives settings saved before the highlighter its defaults", () => {
     const { highlighter: _, ...tools } = SETTINGS.tools;
 
-    expect(readToolSettings(roundTrip({ ...SETTINGS, tools }))?.tools).toEqual({
+    expect(
+      readToolSettings(roundTrip({ ...SETTINGS, tools }), PALETTE)?.tools
+    ).toEqual({
       ...tools,
-      highlighter: { color: "--canvas-color-yellow", size: 10 },
+      highlighter: { color: "lime", size: 10 },
     });
   });
 
   it("keeps custom colors, and leaves out ones that aren't", () => {
-    const settings = readToolSettings({
-      ...SETTINGS,
-      tools: { ...SETTINGS.tools, pencil: { color: "#abcdef", size: 10 } },
-      recentColors: ["#abcdef", "red", 5],
-    })!;
+    const settings = readToolSettings(
+      {
+        ...SETTINGS,
+        tools: { ...SETTINGS.tools, pencil: { color: "#abcdef", size: 10 } },
+        recentColors: ["#abcdef", "red", 5],
+      },
+      PALETTE
+    )!;
 
     expect(settings.tools.pencil.color).toBe("#abcdef");
     expect(settings.recentColors).toEqual(["#abcdef"]);
@@ -393,14 +406,16 @@ describe("readToolSettings", () => {
 
   it("doesn't reopen with the dropper, which is only picked for a moment", () => {
     expect(
-      readToolSettings({ ...SETTINGS, activeTool: "dropper" })?.activeTool
+      readToolSettings({ ...SETTINGS, activeTool: "dropper" }, PALETTE)
+        ?.activeTool
     ).toBe("pencil");
   });
 
   it("reopens a tool that's been removed, e.g. the shape tool, as the pencil", () => {
     expect(
       readToolSettings(
-        roundTrip({ ...SETTINGS, activeTool: "shape", shapeType: "arrow" })
+        roundTrip({ ...SETTINGS, activeTool: "shape", shapeType: "arrow" }),
+        PALETTE
       )
     ).toEqual({ ...SETTINGS, activeTool: "pencil" });
   });
