@@ -100,6 +100,23 @@ function getPixel(page: Page, x: number, y: number) {
   );
 }
 
+// The toolbars' colors are only read once they're on the page, where the
+// palette's variables are defined.
+test("mounting warns of no undefined CSS variable", async ({ page }) => {
+  const warnings: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "warning") {
+      warnings.push(message.text());
+    }
+  });
+  await page.reload();
+  await expect(page.locator("canvas")).toBeVisible();
+
+  expect(warnings.filter((text) => text.includes("is not defined"))).toEqual(
+    []
+  );
+});
+
 test("a custom color can be typed, and is offered again", async ({ page }) => {
   await getColorButton(page, "Black").click();
   await typeHex(page, "ff8800");
